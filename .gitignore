@@ -1,0 +1,12 @@
+target/
+node_modules/
+dist/
+*.pdb
+# secrets: never commit
+*friends-key*.txt
+*.keystore
+*.jks
+local.properties
+.env
+*.backup
+secrets/

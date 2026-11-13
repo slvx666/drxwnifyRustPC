@@ -1,0 +1,15 @@
+[package]
+name = "drxwnify-mini"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Drxwnify Mini: light native desktop player"
+
+[dependencies]
+drx-core.workspace = true
+
+[lints]
+workspace = true
