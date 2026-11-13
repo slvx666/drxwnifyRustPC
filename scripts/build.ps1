@@ -14,10 +14,10 @@
 .EXAMPLE
   powershell -NoProfile -File scripts\build.ps1 cargo build -p drx-core
 #>
-param(
-    [Parameter(Mandatory = $true, Position = 0)][string]$Command,
-    [Parameter(ValueFromRemainingArguments = $true)][string[]]$Rest
-)
+# No param() block on purpose: with one, PowerShell treats cargo flags like -D as its own common parameters.
+if ($args.Count -lt 1) { Write-Error 'usage: build.ps1 <command> [args...]'; exit 2 }
+$Command = $args[0]
+$Rest = @($args | Select-Object -Skip 1)
 
 $ErrorActionPreference = 'Stop'
 
