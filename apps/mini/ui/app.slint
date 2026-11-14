@@ -216,12 +216,16 @@ component Cover inherits Rectangle {
     in property <color> placeholder-color: Theme.mute;
     in property <length> size;
     in property <length> radius: Theme.cover-radius;
+    // Only behind the placeholder: a loaded cover has its rounded corners baked in, and anything under it would
+    // show in those corners (the software renderer does not clip images, and draws gradients without radius).
+    in property <brush> placeholder-bg: Theme.fill-hover;
+    in property <length> placeholder-size: round(root.size * 0.4 / 1px) * 1px;
     width: size;
     height: size;
     border-radius: radius;
     clip: true;
-    background: Theme.fill-hover;
-    if !root.has-source: Icon { icon: root.placeholder; size: round(root.size * 0.4 / 1px) * 1px; color: root.placeholder-color; }
+    background: root.has-source ? transparent : root.placeholder-bg;
+    if !root.has-source: Icon { icon: root.placeholder; size: root.placeholder-size; color: root.placeholder-color; }
     if root.has-source: Image { source: root.source; width: root.size; height: root.size; image-fit: ImageFit.cover; }
 }
 
@@ -524,7 +528,7 @@ component LibraryPanel inherits VerticalLayout {
                             has-source: item.has-cover;
                             placeholder: item.kind == "liked" ? Icons.heart-filled : Icons.music;
                             placeholder-color: item.kind == "liked" ? Theme.on-accent : Theme.mute;
-                            background: item.kind == "liked" ? Theme.accent : Theme.fill-hover;
+                            placeholder-bg: item.kind == "liked" ? Theme.accent : Theme.fill-hover;
                             radius: min(Theme.cover-radius, Grid.item-radius);
                         }
                     }
@@ -1154,7 +1158,7 @@ component MainArea inherits VerticalLayout {
             has-source: root.has-cover;
             placeholder: root.liked-cover ? Icons.heart-filled : Icons.music;
             placeholder-color: root.liked-cover ? Theme.on-accent : Theme.mute;
-            background: root.liked-cover ? Theme.accent : Theme.fill-hover;
+            placeholder-bg: root.liked-cover ? Theme.accent : Theme.fill-hover;
         }
         VerticalLayout {
             alignment: root.is-page ? end : start;
@@ -1424,15 +1428,7 @@ component RightPanel inherits VerticalLayout {
     Header { SectionTitle { text: "Сейчас играет"; } }
     HorizontalLayout {
         alignment: start;
-        Rectangle {
-            width: root.cover-size;
-            height: root.cover-size;
-            border-radius: Theme.cover-radius;
-            clip: true;
-            background: @linear-gradient(135deg, Theme.accent.with-alpha(0.35) 0%, Theme.fill 100%);
-            if !root.has-cover: Icon { icon: Icons.music; size: 64px; color: Theme.mute; }
-            if root.has-cover: Image { source: root.cover; width: parent.width; height: parent.height; image-fit: ImageFit.cover; }
-        }
+        Cover { size: root.cover-size; source: root.cover; has-source: root.has-cover; placeholder-size: 64px; }
     }
     VerticalLayout {
         spacing: 4px;
