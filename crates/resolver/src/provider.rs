@@ -180,6 +180,10 @@ pub trait AudioProvider: Send + Sync {
         true
     }
     async fn search(&self, q: &AudioQuery) -> Result<Option<ProviderMatch>, ProviderError>;
+    /// The track's loudness (dB) when the service reports it (YouTube `loudnessDb`), for normalisation.
+    fn loudness_db(&self, _track_id: &str) -> Option<f32> {
+        None
+    }
     /// A fresh stream for a previously found match, or None if it can no longer be played.
     async fn stream(
         &self,

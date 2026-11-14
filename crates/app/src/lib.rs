@@ -477,6 +477,9 @@ impl App {
         list.push(Arc::new(
             drx_resolver::providers::soundcloud::SoundCloud::new(self.inner.http.clone()),
         ));
+        list.push(Arc::new(drx_resolver::providers::youtube::YouTube::new(
+            self.inner.http.clone(),
+        )));
         if let Some(vk) = self.vk() {
             list.push(Arc::new(drx_resolver::providers::vk::VkProvider::new(vk)));
         }
@@ -762,5 +765,63 @@ mod live_soundcloud {
         app.seek(120.0);
         std::thread::sleep(std::time::Duration::from_millis(3000));
         eprintln!("after seek pos={:.1}", app.clock().position_s);
+    }
+}
+
+#[cfg(test)]
+mod live_youtube {
+    use super::*;
+
+    /// A YouTube stream (VISIONOS, WebM Opus) plays and seeks past the first MiB (no 1 MiB preview cap).
+    /// DRX_TEST_NET=1; not run in CI.
+    #[test]
+    fn plays_youtube_and_seeks_far() {
+        if std::env::var("DRX_TEST_NET").is_err() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let app = App::start(Profile::at(dir.path()), EditionProfile::mini()).unwrap();
+        app.set_volume(0.0);
+        // Only YouTube, so the test checks this source.
+        app.inner
+            .playback
+            .providers
+            .lock()
+            .unwrap()
+            .retain(|p| p.id() == drx_resolver::provider::ProviderId::Youtube);
+        use drx_catalog::model::{ArtistRef, Track};
+        let track = Track {
+            id: "test-yt".into(),
+            title: "Blinding Lights".into(),
+            artists: vec![ArtistRef {
+                id: String::new(),
+                name: "The Weeknd".into(),
+            }],
+            album: None,
+            duration_ms: 200_000,
+            isrc: None,
+            explicit: false,
+        };
+        app.inner
+            .playback
+            .play_list(vec![Playable { track, url: None }], 0);
+        let mut pos = 0.0;
+        for _ in 0..80 {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            pos = app.clock().position_s;
+            if pos > 1.0 {
+                break;
+            }
+            if let Some(e) = app.now_playing().borrow().error.clone() {
+                panic!("{e}");
+            }
+        }
+        eprintln!("youtube pos={pos:.1}");
+        assert!(pos > 1.0);
+        app.seek(150.0);
+        std::thread::sleep(std::time::Duration::from_millis(4000));
+        let p = app.clock().position_s;
+        eprintln!("after far seek pos={p:.1}");
+        assert!(p > 150.0, "seek past the first MiB failed");
     }
 }

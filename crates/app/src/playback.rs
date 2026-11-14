@@ -81,9 +81,10 @@ impl RangeOpener for HttpOpener {
         if let Some(ua) = self.user_agent {
             req = req.header("User-Agent", ua);
         }
+        // send() must run inside the runtime: reqwest creates its timeout timer when the request is made.
         let resp = self
             .handle
-            .block_on(req.send())
+            .block_on(async move { req.send().await })
             .map_err(std::io::Error::other)?;
         if !resp.status().is_success() {
             return Err(std::io::Error::other(format!("HTTP {}", resp.status())));
@@ -212,7 +213,7 @@ impl Playback {
 
     /// Finds audio for a catalog track: every ready provider at once (ParallelAudioResolver, AUTO), then a fresh
     /// stream from the best match that can still give one.
-    fn resolve(&self, track: &drx_catalog::model::Track) -> Result<AudioStream, String> {
+    fn resolve(&self, track: &drx_catalog::model::Track) -> Result<(AudioStream, f32), String> {
         let providers = self.providers.lock().expect("providers").clone();
         let by_id = |id: ProviderId| providers.iter().find(|p| p.id() == id).cloned();
         // Library rows are `mfb:<catalog id>` (Android FallbackIds); the matches table is keyed by the catalog id.
@@ -238,7 +239,7 @@ impl Playback {
                 quality_kbps: None,
             };
             if let Ok(Some(s)) = self.handle.block_on(p.stream(&q, &m)) {
-                return Ok(s);
+                return Ok((s, 1.0));
             }
         }
         // 2. This session's choice, then the stored matches (the phone's 44k of them came with the backup).
@@ -260,7 +261,10 @@ impl Playback {
                     .lock()
                     .expect("resolved")
                     .insert(catalog_id.clone(), (m.clone(), q.clone()));
-                return Ok(s);
+                return Ok((
+                    s,
+                    drx_audio::dsp::normalization_gain(p.loudness_db(&m.track_id)),
+                ));
             }
         }
         // 3. Search every ready source at once.
@@ -278,7 +282,10 @@ impl Playback {
                     .expect("resolved")
                     .insert(catalog_id.clone(), (m.clone(), q.clone()));
                 self.store_matches(&q, &out.matches, m);
-                return Ok(s);
+                return Ok((
+                    s,
+                    drx_audio::dsp::normalization_gain(p.loudness_db(&m.track_id)),
+                ));
             }
         }
         Err(if providers.iter().any(|p| p.is_ready()) {
@@ -337,18 +344,22 @@ impl Playback {
         });
     }
 
-    fn source_for(&self, p: &Playable) -> Result<(CachedSource, Option<&'static str>), String> {
-        let (url, ua) = match p.url.clone() {
+    fn source_for(
+        &self,
+        p: &Playable,
+    ) -> Result<(CachedSource, Option<&'static str>, f32), String> {
+        let (url, ua, gain) = match p.url.clone() {
             Some(u) => (
                 u,
                 p.track
                     .id
                     .starts_with("src:VK:")
                     .then_some(drx_catalog::vk::CLIENT_USER_AGENT),
+                1.0,
             ),
             None => {
-                let s = self.resolve(&p.track)?;
-                (s.url, s.user_agent)
+                let (s, g) = self.resolve(&p.track)?;
+                (s.url, s.user_agent, g)
             }
         };
         let file = self.cache_dir.join("audio").join(cache_name(&p.track.id));
@@ -363,7 +374,7 @@ impl Playback {
                     user_agent: ua,
                 });
                 if let Ok(src) = CachedSource::start(opener, &file) {
-                    return Ok((src, Some("mp3")));
+                    return Ok((src, Some("mp3"), gain));
                 }
             }
             let fetcher = Arc::new(HttpFetcher {
@@ -376,7 +387,7 @@ impl Playback {
             let playlist = parse_media_playlist(&text, &url)?;
             let opener = Arc::new(HlsOpener { fetcher, playlist });
             let src = CachedSource::start(opener, &file).map_err(|e| e.to_string())?;
-            return Ok((src, None));
+            return Ok((src, None, gain));
         }
         let opener = Arc::new(HttpOpener {
             http: self.http.clone(),
@@ -387,6 +398,7 @@ impl Playback {
         Ok((
             CachedSource::start(opener, &file).map_err(|e| e.to_string())?,
             None,
+            gain,
         ))
     }
 
@@ -415,9 +427,9 @@ impl Playback {
         let this = self.clone();
         // Opening a stream does network round-trips; never on the UI thread.
         std::thread::spawn(move || {
-            let res = this.source_for(&item).and_then(|(src, ext)| {
+            let res = this.source_for(&item).and_then(|(src, ext, gain)| {
                 let player = this.player()?;
-                player.play(src, ext, 0.0, 1.0)
+                player.play(src, ext, 0.0, gain)
             });
             match res {
                 Ok(id) => *this.current_id.lock().expect("current") = Some(id),
