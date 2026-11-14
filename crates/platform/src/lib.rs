@@ -135,3 +135,29 @@ pub fn single_instance(name: &str, pass: &str) -> Instance {
         Instance::First(InstanceGuard {})
     }
 }
+
+/// Start with Windows: the command registered for `name` (None = off).
+pub fn autostart(name: &str) -> Option<String> {
+    #[cfg(windows)]
+    {
+        windows_impl::reg_get(windows_impl::RUN_KEY, name)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = name;
+        None
+    }
+}
+
+/// Turns start with Windows on (with this command line) or off.
+pub fn set_autostart(name: &str, command: Option<&str>) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        windows_impl::reg_set(windows_impl::RUN_KEY, name, command)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (name, command);
+        Err("not supported yet".into())
+    }
+}

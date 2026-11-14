@@ -586,3 +586,99 @@ pub fn listen_pipe(pipe: String, first: isize, events: EventSink) {
             }
         });
 }
+
+// ── start with Windows ───────────────────────────────────────────────────────────────────────────
+
+pub const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+
+/// A string value under HKEY_CURRENT_USER\`key`.
+pub fn reg_get(key: &str, name: &str) -> Option<String> {
+    use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_SZ, RegGetValueW};
+    let (k, n) = (wide(key), wide(name));
+    let mut buf = vec![0u16; 2048];
+    let mut size = (buf.len() * 2) as u32;
+    let r = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            PCWSTR(k.as_ptr()),
+            PCWSTR(n.as_ptr()),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr().cast()),
+            Some(&mut size),
+        )
+    };
+    if r.is_err() {
+        return None;
+    }
+    let len = (size as usize / 2).saturating_sub(1);
+    Some(String::from_utf16_lossy(&buf[..len.min(buf.len())]))
+}
+
+/// Sets (Some) or deletes (None) a string value under HKEY_CURRENT_USER\`key`.
+pub fn reg_set(key: &str, name: &str, value: Option<&str>) -> Result<(), String> {
+    use windows::Win32::System::Registry::{
+        HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey,
+        RegCreateKeyExW, RegDeleteValueW, RegSetValueExW,
+    };
+    let (k, n) = (wide(key), wide(name));
+    let mut h = HKEY::default();
+    unsafe {
+        RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            PCWSTR(k.as_ptr()),
+            None,
+            None,
+            REG_OPTION_NON_VOLATILE,
+            KEY_SET_VALUE,
+            None,
+            &mut h,
+            None,
+        )
+        .ok()
+        .map_err(|e| e.to_string())?;
+        let r = match value {
+            Some(v) => {
+                let data: Vec<u8> = wide(v).iter().flat_map(|c| c.to_le_bytes()).collect();
+                RegSetValueExW(h, PCWSTR(n.as_ptr()), None, REG_SZ, Some(&data)).ok()
+            }
+            None => {
+                let r = RegDeleteValueW(h, PCWSTR(n.as_ptr()));
+                // Deleting a value that is not there is fine.
+                if r.0 == 2 { Ok(()) } else { r.ok() }
+            }
+        };
+        let _ = RegCloseKey(h);
+        r.map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Writes and removes a value under a test key of its own (never the Run key).
+    #[test]
+    fn registry_round_trip() {
+        let key = r"Software\DrxwnifyTest";
+        reg_set(key, "probe", Some(r#""C:\x y\a.exe" --minimized"#)).unwrap();
+        assert_eq!(
+            reg_get(key, "probe").as_deref(),
+            Some(r#""C:\x y\a.exe" --minimized"#)
+        );
+        reg_set(key, "probe", None).unwrap();
+        assert_eq!(reg_get(key, "probe"), None);
+        reg_set(key, "probe", None).unwrap();
+        unsafe {
+            use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RegDeleteKeyW};
+            let k = wide(key);
+            let _ = RegDeleteKeyW(HKEY_CURRENT_USER, PCWSTR(k.as_ptr()));
+        }
+    }
+
+    #[test]
+    fn pipe_names_are_safe() {
+        assert_eq!(pipe_name("mini-ab12"), r"\\.\pipe\drxwnify-mini-ab12");
+        assert_eq!(pipe_name(r"a\b c"), r"\\.\pipe\drxwnify-a-b-c");
+    }
+}

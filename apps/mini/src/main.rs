@@ -614,6 +614,14 @@ fn main() {
     let platform = os::start(&ui, &app, Some(&guard));
     {
         let (app2, ui_w, platform) = (app.clone(), ui.as_weak(), platform.clone());
+        let (app3, ui_w3) = (app.clone(), ui.as_weak());
+        ui.on_set_autostart(move |on| {
+            let Some(ui) = ui_w3.upgrade() else { return };
+            if let Err(e) = os::set_autostart(on) {
+                ui.set_toast(format!("Не удалось изменить автозапуск: {e}").into());
+            }
+            settings_view::fill(&ui, &app3);
+        });
         ui.on_set_hotkeys(move |on| {
             let _ = app2.set_pref(os::HOTKEYS_KEY, drx_core::prefs::PrefValue::Bool(on));
             if let Some(p) = &platform {
@@ -621,6 +629,17 @@ fn main() {
             }
             if let Some(ui) = ui_w.upgrade() {
                 settings_view::fill(&ui, &app2);
+            }
+        });
+    }
+
+    // Started with Windows: open minimised (after the window exists).
+    if os::started_minimized() {
+        let ui_w = ui.as_weak();
+        slint::Timer::single_shot(std::time::Duration::from_millis(50), move || {
+            if let Some(ui) = ui_w.upgrade() {
+                use slint::winit_030::WinitWindowAccessor;
+                ui.window().with_winit_window(|w| w.set_minimized(true));
             }
         });
     }

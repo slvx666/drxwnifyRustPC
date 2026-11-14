@@ -52,6 +52,7 @@ pub fn fill(ui: &MainWindow, app: &App) {
     ui.set_settings_themes(ModelRc::new(VecModel::from(themes)));
     ui.set_day_theme(day);
     ui.set_global_hotkeys(crate::os::hotkeys_on(app));
+    ui.set_autostart(crate::os::autostart_on());
 }
 
 /// Re-applies the theme from the settings (after a theme or day/night change).

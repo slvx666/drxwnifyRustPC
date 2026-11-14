@@ -54,6 +54,28 @@ pub fn apply_hotkeys(platform: &Platform, app: &App) {
     });
 }
 
+/// The Run value name for start with Windows.
+const AUTOSTART_NAME: &str = "Drxwnify Mini";
+
+pub fn autostart_on() -> bool {
+    drx_platform::autostart(AUTOSTART_NAME).is_some()
+}
+
+/// Start with Windows on or off: this exe, opening minimised.
+pub fn set_autostart(on: bool) -> Result<(), String> {
+    let cmd = std::env::current_exe()
+        .map_err(|e| e.to_string())?
+        .display()
+        .to_string();
+    let line = format!("\"{cmd}\" --minimized");
+    drx_platform::set_autostart(AUTOSTART_NAME, on.then_some(line.as_str()))
+}
+
+/// Started by Windows at sign-in: the window opens minimised.
+pub fn started_minimized() -> bool {
+    std::env::args().any(|a| a == "--minimized")
+}
+
 /// One instance per profile folder: test profiles (DRX_PROFILE) never collide with the real one.
 pub fn instance_name(profile_root: &std::path::Path) -> String {
     let h = profile_root
