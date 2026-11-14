@@ -1,7 +1,7 @@
 //! Accounts and catalogs in the facade: Spotify, Yandex, VK clients from the vault, the main account
 //! (PORTING-2.3.0 §3), account tabs in the library, and loading remote lists.
 
-use crate::lists::ListSpec;
+use crate::lists::{ListHeader, ListSpec};
 use crate::playback::Playable;
 use crate::{App, AppError, AppEvent, AppResult, LibraryEntry, LibraryKind, ListHandle};
 use drx_catalog::model::{Source, Track};
@@ -397,10 +397,126 @@ impl App {
                 };
                 plain(found)
             }
+            ListSpec::CatalogAlbum { id } => {
+                let album = match Source::of_id(id) {
+                    Source::Vk => {
+                        let vk = self.vk().ok_or_else(|| err("нет входа во ВКонтакте"))?;
+                        let (o, p, k) = drx_catalog::vk::parse_playlist_id(id)
+                            .ok_or_else(|| err("bad VK id"))?;
+                        let audios = vk.playlist_tracks(o, p, k).await.map_err(err)?;
+                        let first = audios.first().and_then(|a| a.track.album.clone());
+                        let header = ListHeader {
+                            title: first.as_ref().map(|a| a.name.clone()).unwrap_or_default(),
+                            subtitle: "Альбом · ВКонтакте".into(),
+                            image: first.as_ref().and_then(|a| {
+                                drx_catalog::model::best_image(&a.images, 600)
+                                    .map(|i| i.url.clone())
+                            }),
+                        };
+                        self.set_header(handle, header);
+                        let rows: Vec<Playable> = audios
+                            .into_iter()
+                            .map(|a| Playable {
+                                track: a.track,
+                                url: a.url,
+                            })
+                            .collect();
+                        let n = rows.len();
+                        self.set_rows(handle, rows, u64::MAX);
+                        return Ok(n);
+                    }
+                    Source::Yandex => {
+                        let y = self.yandex().ok_or_else(|| err("нет входа в Яндекс"))?;
+                        y.album(id).await.map_err(err)?
+                    }
+                    Source::Spotify => {
+                        let sp = match self.spotify() {
+                            Some(sp) => sp,
+                            None => Arc::new(drx_catalog::spotify::Spotify::new(
+                                self.inner.http.clone(),
+                                None,
+                                None,
+                            )),
+                        };
+                        sp.album(id).await.map_err(err)?
+                    }
+                };
+                self.set_header(handle, album_header(&album));
+                plain(album.tracks)
+            }
+            ListSpec::CatalogArtist { id } => match Source::of_id(id) {
+                Source::Vk => {
+                    let vk = self.vk().ok_or_else(|| err("нет входа во ВКонтакте"))?;
+                    let (page, audios) = vk.artist(id).await.map_err(err)?;
+                    self.set_header(handle, artist_header(&page));
+                    audios
+                        .into_iter()
+                        .map(|a| Playable {
+                            track: a.track,
+                            url: a.url,
+                        })
+                        .collect()
+                }
+                Source::Yandex => {
+                    let y = self.yandex().ok_or_else(|| err("нет входа в Яндекс"))?;
+                    let page = y.artist(id).await.map_err(err)?;
+                    self.set_header(handle, artist_header(&page));
+                    plain(page.top_tracks)
+                }
+                Source::Spotify => {
+                    let sp = match self.spotify() {
+                        Some(sp) => sp,
+                        None => Arc::new(drx_catalog::spotify::Spotify::new(
+                            self.inner.http.clone(),
+                            None,
+                            None,
+                        )),
+                    };
+                    let page = sp.artist(id).await.map_err(err)?;
+                    self.set_header(handle, artist_header(&page));
+                    plain(page.top_tracks)
+                }
+            },
             _ => return Ok(0),
         };
         let n = rows.len();
         self.set_rows(handle, rows, u64::MAX);
         Ok(n)
+    }
+}
+
+/// «Альбом · Исполнитель · 2021» (or «Сингл», «EP»…), with the biggest cover.
+fn album_header(a: &drx_catalog::model::Album) -> ListHeader {
+    let kind = match a.album_type.as_deref() {
+        Some("single") => "Сингл",
+        Some("ep") => "EP",
+        Some("compilation") => "Сборник",
+        _ => "Альбом",
+    };
+    let mut sub = vec![kind.to_string()];
+    let artists = a
+        .artists
+        .iter()
+        .map(|x| x.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if !artists.is_empty() {
+        sub.push(artists);
+    }
+    if let Some(y) = a.release_date.as_deref().and_then(|d| d.get(..4)) {
+        sub.push(y.to_string());
+    }
+    ListHeader {
+        title: a.name.clone(),
+        subtitle: sub.join(" · "),
+        image: drx_catalog::model::best_image(&a.images, 600).map(|i| i.url.clone()),
+    }
+}
+
+fn artist_header(p: &drx_catalog::model::ArtistPage) -> ListHeader {
+    ListHeader {
+        title: p.name.clone(),
+        subtitle: "Исполнитель · популярное".into(),
+        image: drx_catalog::model::best_image(&p.images, 600).map(|i| i.url.clone()),
     }
 }

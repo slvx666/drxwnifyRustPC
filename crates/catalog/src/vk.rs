@@ -6,7 +6,7 @@
 //! Ids: track `src:VK:<owner>_<audio>[_<key>]` (same id as a VK track found by the resolver), playlist/album
 //! `vk_<owner>_<id>[_<key>]`, artist `vkar_<id>`, «Моя музыка» `vk_liked`.
 
-use crate::model::{AlbumRef, ArtistRef, Image, Playlist, Track, User};
+use crate::model::{AlbumRef, ArtistPage, ArtistRef, Image, Playlist, Track, User};
 use drx_core::http::{Http, HttpError, Method};
 use serde_json::Value;
 use std::time::{Duration, Instant};
@@ -146,6 +146,44 @@ fn image_of(thumb: Option<&Value>) -> Vec<Image> {
         })
         .take(1)
         .collect()
+}
+
+/// The biggest artist photo up to ~1000 px (VK sends `photo` or `photos[0].photo` as size lists).
+fn artist_photo(o: &Value) -> Vec<Image> {
+    let lists = [o.get("photo"), o.pointer("/photos/0/photo")];
+    for list in lists.into_iter().flatten() {
+        let Some(a) = list.as_array() else { continue };
+        let sizes: Vec<(String, u32)> = a
+            .iter()
+            .filter_map(|x| {
+                let url = x
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .filter(|u| !u.is_empty())?;
+                Some((
+                    url.to_string(),
+                    x.get("width").and_then(Value::as_u64).unwrap_or(0) as u32,
+                ))
+            })
+            .collect();
+        let best = sizes
+            .iter()
+            .filter(|s| s.1 <= 1000)
+            .max_by_key(|s| s.1)
+            .or_else(|| sizes.first());
+        if let Some((url, w)) = best {
+            return vec![Image {
+                url: url.clone(),
+                width: Some(*w).filter(|&w| w > 0),
+            }];
+        }
+    }
+    // Older shape: an object with photo_600 / photo_300.
+    o.get("photo")
+        .filter(|p| p.is_object())
+        .and_then(|p| nonempty(p, "photo_600").or_else(|| nonempty(p, "photo_300")))
+        .map(|url| vec![Image { url, width: None }])
+        .unwrap_or_default()
 }
 
 fn nonempty(v: &Value, k: &str) -> Option<String> {
@@ -548,6 +586,38 @@ impl Vk {
             out.extend(items(&v).into_iter().filter_map(parse_audio));
         }
         Ok(out)
+    }
+
+    /// Artist name and photo (`audio.getArtistById`) and their tracks (`audio.getAudiosByArtist`, VkAudioProvider.kt).
+    /// `artist_id` is `vkar_<id>`. Tracks keep their URLs (they play without a search).
+    pub async fn artist(&self, artist_id: &str) -> Result<(ArtistPage, Vec<VkAudio>)> {
+        let raw = artist_id
+            .strip_prefix("vkar_")
+            .unwrap_or(artist_id)
+            .to_string();
+        let info = self
+            .call("audio.getArtistById", &[("artist_id", raw.clone())])
+            .await?;
+        let r = info.get("response").cloned().unwrap_or_default();
+        let list = self
+            .call(
+                "audio.getAudiosByArtist",
+                &[("artist_id", raw.clone()), ("count", "50".into())],
+            )
+            .await?;
+        let mut seen = std::collections::HashSet::new();
+        let audios: Vec<VkAudio> = items(&list)
+            .into_iter()
+            .filter_map(parse_audio)
+            .filter(|a| seen.insert(a.track.id.clone()))
+            .collect();
+        let page = ArtistPage {
+            id: format!("vkar_{raw}"),
+            name: nonempty(&r, "name").unwrap_or_default(),
+            images: artist_photo(&r),
+            top_tracks: audios.iter().map(|a| a.track.clone()).collect(),
+        };
+        Ok((page, audios))
     }
 
     pub async fn search(&self, text: &str, count: u32) -> Result<Vec<VkAudio>> {

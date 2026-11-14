@@ -4,6 +4,7 @@
 
 mod lazy_library;
 mod lazy_songs;
+mod nav;
 mod themes;
 
 use drx_app::{App, AppEvent, Command, CommandOutcome, EditionProfile, LibraryKind, ListSpec};
@@ -63,6 +64,7 @@ fn main() {
 
     let songs = Rc::new(LazySongs::new(app.clone(), ListSpec::LikedSongs));
     ui.set_songs(ModelRc::from(songs.clone()));
+    nav::init(&songs);
     refresh_library(&ui, &app, &songs);
     ui.set_view_subtitle(format!("{} треков", songs.len()).into());
 
@@ -87,31 +89,70 @@ fn main() {
                 },
                 _ => return,
             };
-            let remote = spec.is_remote();
-            songs2.reopen(spec);
-            ui.set_view_title(item.title.clone());
-            ui.set_current_index(-1);
-            if remote {
-                ui.set_view_subtitle("Загрузка…".into());
-                let (app3, h) = (app2.clone(), songs2.handle());
-                let ui_w2 = ui.as_weak();
-                app2.runtime().spawn(async move {
-                    let res = app3.load_remote(h).await;
-                    let _ = slint::invoke_from_event_loop(move || {
-                        let Some(ui) = ui_w2.upgrade() else { return };
-                        match res {
-                            Ok(n) => ui.set_view_subtitle(format!("{n} треков").into()),
-                            Err(e) => {
-                                ui.set_view_subtitle(format!("Не удалось загрузить: {e}").into())
-                            }
-                        }
-                    });
-                });
-            } else if matches!(item.kind.as_str(), "album" | "artist") {
-                // «Альбом · Исполнитель · 12 треков».
-                ui.set_view_subtitle(format!("{} · {} треков", item.subtitle, songs2.len()).into());
-            } else {
-                ui.set_view_subtitle(format!("{} треков", songs2.len()).into());
+            let page = nav::Page {
+                spec,
+                title: item.title.to_string(),
+                subtitle: String::new(),
+                selected: item.id.to_string(),
+            };
+            nav::go(&ui, &app2, &songs2, page);
+        });
+    }
+    // Artist and album links (rows, now playing, player bar): the database page when the library has it,
+    // otherwise the catalog page.
+    {
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_open_artist(move |id| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            if id.is_empty() {
+                return;
+            }
+            let spec = app2.runtime().block_on(app2.artist_page(&id));
+            let page = nav::Page {
+                spec,
+                title: String::new(),
+                subtitle: String::new(),
+                selected: String::new(),
+            };
+            nav::go(&ui, &app2, &songs2, page);
+        });
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_open_album(move |id| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            if id.is_empty() {
+                return;
+            }
+            let spec = app2.runtime().block_on(app2.album_page(&id));
+            let page = nav::Page {
+                spec,
+                title: String::new(),
+                subtitle: String::new(),
+                selected: String::new(),
+            };
+            nav::go(&ui, &app2, &songs2, page);
+        });
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_back(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                nav::step(&ui, &app2, &songs2, -1);
+            }
+        });
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_forward(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                nav::step(&ui, &app2, &songs2, 1);
+            }
+        });
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_home(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                let page = nav::Page {
+                    spec: ListSpec::LikedSongs,
+                    title: "Любимые треки".into(),
+                    subtitle: String::new(),
+                    selected: "liked".into(),
+                };
+                nav::go(&ui, &app2, &songs2, page);
             }
         });
     }
@@ -187,23 +228,13 @@ fn main() {
             if q.is_empty() {
                 return;
             }
-            songs2.reopen(ListSpec::Search { query: q.clone() });
-            ui.set_selected_id("".into());
-            ui.set_view_title(format!("Поиск: {q}").into());
-            ui.set_view_subtitle("Поиск…".into());
-            ui.set_current_index(-1);
-            let (app3, h, ui_w2) = (app2.clone(), songs2.handle(), ui.as_weak());
-            app2.runtime().spawn(async move {
-                let res = app3.load_remote(h).await;
-                let _ = slint::invoke_from_event_loop(move || {
-                    if let Some(ui) = ui_w2.upgrade() {
-                        ui.set_view_subtitle(match res {
-                            Ok(n) => format!("{n} треков").into(),
-                            Err(e) => format!("Поиск не удался: {e}").into(),
-                        });
-                    }
-                });
-            });
+            let page = nav::Page {
+                spec: ListSpec::Search { query: q.clone() },
+                title: format!("Поиск: {q}"),
+                subtitle: String::new(),
+                selected: String::new(),
+            };
+            nav::go(&ui, &app2, &songs2, page);
         });
     }
     {
@@ -237,6 +268,20 @@ fn main() {
                     if let Some(t) = &now.track {
                         ui.set_now_title(t.title.clone().into());
                         ui.set_now_artists(t.artist_names().into());
+                        ui.set_now_artist_id(
+                            t.artists
+                                .first()
+                                .map(|a| a.id.clone())
+                                .unwrap_or_default()
+                                .into(),
+                        );
+                        ui.set_now_album_id(
+                            t.album
+                                .as_ref()
+                                .map(|a| a.id.clone())
+                                .unwrap_or_default()
+                                .into(),
+                        );
                         ui.set_now_info(
                             t.album
                                 .as_ref()
@@ -367,6 +412,13 @@ fn main() {
                     }
                     None => ui.set_has_now_cover(false),
                 }
+                let url = ui.get_view_cover_url().to_string();
+                if !url.is_empty()
+                    && let Some(c) = cover(&app3, &url, HEADER_COVER)
+                {
+                    ui.set_view_cover(c);
+                    ui.set_has_view_cover(true);
+                }
             });
         });
     }
@@ -434,18 +486,30 @@ fn main() {
         };
         ui.set_selected_id(item.id.clone());
         ui.invoke_open_library(item);
+        // DRX_DEMO_THEN=artist|album: once the track plays, follow its artist or album link.
+        let then = std::cell::Cell::new(std::env::var("DRX_DEMO_THEN").ok());
+        let started = std::cell::Cell::new(false);
         let (ui_w, songs2) = (ui.as_weak(), songs.clone());
         let t = slint::Timer::default();
         t.start(
             slint::TimerMode::Repeated,
             std::time::Duration::from_millis(500),
             move || {
-                if songs2.len() > 0
-                    && let Some(ui) = ui_w.upgrade()
+                let Some(ui) = ui_w.upgrade() else { return };
+                if !started.get()
+                    && songs2.len() > 0
                     && !ui.get_playing()
                     && ui.get_current_index() < 0
                 {
+                    started.set(true);
                     ui.invoke_play(0);
+                }
+                let artist = ui.get_now_artist_id();
+                let album = ui.get_now_album_id();
+                match then.take().as_deref() {
+                    Some("artist") if !artist.is_empty() => ui.invoke_open_artist(artist),
+                    Some("album") if !album.is_empty() => ui.invoke_open_album(album),
+                    other => then.set(other.map(str::to_string)),
                 }
             },
         );
@@ -485,6 +549,8 @@ fn refresh_library(ui: &MainWindow, app: &App, songs: &LazySongs) {
 /// Cover size in list rows (px; decoded once at this size).
 pub const ROW_COVER: u32 = 84;
 pub const NOW_COVER: u32 = 560;
+/// Cover next to an album/artist page title.
+pub const HEADER_COVER: u32 = 240;
 
 /// A cover as a Slint image when it is cached; otherwise asks the core to load it (ImageReady follows).
 pub fn cover(app: &App, url: &str, size: u32) -> Option<slint::Image> {

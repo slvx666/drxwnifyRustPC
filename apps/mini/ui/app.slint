@@ -19,6 +19,8 @@ export struct SongItem {
     index: int,
     cover: image,
     has-cover: bool,
+    artist-id: string,
+    album-id: string,
 }
 
 export struct QueueItem {
@@ -74,18 +76,51 @@ component IconButton inherits Rectangle {
     in property <bool> filled: false;
     in property <bool> active: false;
     in property <color> tint: Theme.dim;
+    in property <bool> enabled: true;
     callback clicked();
     width: size;
     height: size;
     border-radius: min(Theme.chip-radius, size / 2);
-    background: ta.has-hover ? Theme.fill-hover : (filled || active ? Theme.fill : transparent);
-    Icon { icon: root.icon; size: root.icon-size; color: root.active || ta.has-hover ? Theme.text : root.tint; }
-    ta := TouchArea { clicked => { root.clicked(); } }
+    background: ta.has-hover && enabled ? Theme.fill-hover : (filled || active ? Theme.fill : transparent);
+    opacity: enabled ? 1 : 0.4;
+    Icon { icon: root.icon; size: root.icon-size; color: root.active || (ta.has-hover && root.enabled) ? Theme.text : root.tint; }
+    ta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
 }
 
 // Puts a fixed-size child in the vertical middle of a layout cell.
 component Middle inherits VerticalLayout {
     alignment: center;
+}
+
+// Text that opens a page when it has somewhere to go (artist, album); it brightens on hover.
+component Link {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <color> color: Theme.dim;
+    in property <length> font-size: 12px;
+    in property <int> font-weight: 400;
+    in property <string> font-family: Theme.body-font;
+    callback clicked();
+    min-width: 0;
+    preferred-width: t.preferred-width;
+    min-height: t.preferred-height;
+    preferred-height: t.preferred-height;
+    t := Text {
+        width: 100%;
+        height: 100%;
+        text: root.text;
+        color: root.enabled && ta.has-hover ? Theme.text : root.color;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        font-family: root.font-family;
+        overflow: elide;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
 }
 
 component Chip inherits Rectangle {
@@ -176,7 +211,11 @@ component Backdrop inherits Rectangle {
 component TopBar inherits Rectangle {
     in-out property <string> search-text;
     callback search(string);
+    in property <bool> can-back;
+    in property <bool> can-forward;
     callback home();
+    callback back();
+    callback forward();
     callback import-backup();
     height: Grid.top-height;
     HorizontalLayout {
@@ -203,8 +242,8 @@ component TopBar inherits Rectangle {
                 vertical-alignment: center;
             }
             Rectangle { width: 8px; }
-            Middle { IconButton { icon: Icons.chevron-left; filled: true; } }
-            Middle { IconButton { icon: Icons.chevron-right; filled: true; } }
+            Middle { IconButton { icon: Icons.chevron-left; filled: true; enabled: root.can-back; clicked => { root.back(); } } }
+            Middle { IconButton { icon: Icons.chevron-right; filled: true; enabled: root.can-forward; clicked => { root.forward(); } } }
         }
         HorizontalLayout {
             alignment: end;
@@ -332,9 +371,12 @@ component SongRow inherits Rectangle {
     in property <SongItem> song;
     in property <bool> current;
     callback play();
+    callback open-artist(string);
     height: Grid.row;
     border-radius: Grid.item-radius;
     background: current ? Theme.fill-hover : (ta.has-hover ? Theme.fill : transparent);
+    // Under the content, so the artist link on top gets its own clicks.
+    ta := TouchArea { double-clicked => { root.play(); } }
     HorizontalLayout {
         padding-left: 8px;
         padding-right: 12px;
@@ -345,12 +387,14 @@ component SongRow inherits Rectangle {
             alignment: center;
             spacing: 2px;
             Text { text: song.title; font-family: Theme.body-font; font-size: 15px; color: current ? Theme.accent : Theme.text; overflow: elide; }
-            Text { text: song.artists; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
+            HorizontalLayout {
+                alignment: start;
+                Link { text: song.artists; enabled: song.artist-id != ""; clicked => { root.open-artist(song.artist-id); } }
+            }
         }
         Middle { Icon { icon: song.liked ? Icons.heart-filled : ""; color: Theme.accent; size: 16px; } }
         Text { width: 40px; text: song.duration; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
     }
-    ta := TouchArea { double-clicked => { root.play(); } }
 }
 
 component MainArea inherits VerticalLayout {
@@ -359,17 +403,26 @@ component MainArea inherits VerticalLayout {
     in property <[SongItem]> songs;
     in property <int> current-index: -1;
     in property <bool> empty-library;
+    in property <image> cover;
+    in property <bool> has-cover;
+    in property <bool> is-page; // album or artist: the heading gets a cover
     callback play(int);
     callback import-backup();
+    callback open-artist(string);
     padding-top: Grid.pad;
     padding-bottom: 4px;
     spacing: Grid.gap;
-    VerticalLayout {
+    HorizontalLayout {
         padding-left: Grid.pad + 4px;
         padding-right: Grid.pad;
-        spacing: 2px;
-        Text { text: title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
-        Text { text: subtitle; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; }
+        spacing: Grid.pad;
+        if root.is-page: Cover { size: 96px; source: root.cover; has-source: root.has-cover; }
+        VerticalLayout {
+            alignment: root.is-page ? end : start;
+            spacing: 2px;
+            Text { text: title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
+            Text { text: subtitle; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+        }
     }
     if root.empty-library: VerticalLayout {
         alignment: center;
@@ -397,6 +450,7 @@ component MainArea inherits VerticalLayout {
                 song: song;
                 current: song.index - 1 == root.current-index;
                 play => { root.play(song.index - 1); }
+                open-artist(id) => { root.open-artist(id); }
             }
         }
     }
@@ -408,9 +462,13 @@ component RightPanel inherits VerticalLayout {
     in property <string> title;
     in property <string> artists;
     in property <string> info;
+    in property <string> artist-id;
+    in property <string> album-id;
     in property <image> cover;
     in property <bool> has-cover;
     in property <[QueueItem]> upcoming;
+    callback open-artist(string);
+    callback open-album(string);
     in property <string> lyric-now;
     in property <string> lyric-next;
     in property <bool> has-lyrics;
@@ -434,8 +492,14 @@ component RightPanel inherits VerticalLayout {
     VerticalLayout {
         spacing: 4px;
         Text { text: title == "" ? "Ничего не играет" : title; font-family: Theme.heading-font; font-weight: 700; font-size: 20px; color: Theme.text; overflow: elide; }
-        if artists != "": Text { text: artists; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
-        if info != "": Text { text: info; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; overflow: elide; }
+        if artists != "": HorizontalLayout {
+            alignment: start;
+            Link { text: artists; font-size: 13px; enabled: root.artist-id != ""; clicked => { root.open-artist(root.artist-id); } }
+        }
+        if info != "": HorizontalLayout {
+            alignment: start;
+            Link { text: info; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; enabled: root.album-id != ""; clicked => { root.open-album(root.album-id); } }
+        }
     }
     Rectangle {
         vertical-stretch: 1;
@@ -479,6 +543,8 @@ component PlayerBar inherits HorizontalLayout {
     in property <bool> has-cover;
     in property <string> title;
     in property <string> artists;
+    in property <string> artist-id;
+    callback open-artist(string);
     in property <bool> playing;
     in property <float> progress; // 0..1
     in property <string> position;
@@ -500,7 +566,10 @@ component PlayerBar inherits HorizontalLayout {
             alignment: center;
             spacing: 2px;
             Text { text: title == "" ? "Ничего не играет" : title; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: title == "" ? Theme.mute : Theme.text; overflow: elide; }
-            if artists != "": Text { text: artists; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
+            if artists != "": HorizontalLayout {
+                alignment: start;
+                Link { text: artists; enabled: root.artist-id != ""; clicked => { root.open-artist(root.artist-id); } }
+            }
         }
     }
     VerticalLayout {
@@ -572,6 +641,14 @@ export component MainWindow inherits Window {
     in property <string> now-title;
     in property <string> now-artists;
     in property <string> now-info;
+    in property <string> now-artist-id;
+    in property <string> now-album-id;
+    in property <bool> can-back;
+    in property <bool> can-forward;
+    in property <bool> view-is-page;
+    in property <image> view-cover;
+    in-out property <string> view-cover-url;
+    in property <bool> has-view-cover;
     in property <[QueueItem]> upcoming;
     in property <string> lyric-now;
     in property <string> lyric-next;
@@ -586,6 +663,11 @@ export component MainWindow inherits Window {
     in property <string> toast;
 
     callback open-library(LibItem);
+    callback open-artist(string);
+    callback open-album(string);
+    callback back();
+    callback forward();
+    callback home();
     callback play(int);
     callback toggle();
     callback next();
@@ -606,6 +688,11 @@ export component MainWindow inherits Window {
         padding-right: Grid.gutter;
         padding-bottom: Grid.gutter;
         TopBar {
+            can-back: root.can-back;
+            can-forward: root.can-forward;
+            back => { root.back(); }
+            forward => { root.forward(); }
+            home => { root.home(); }
             import-backup => { root.import-backup(); }
             search(q) => { root.search(q); }
         }
@@ -634,6 +721,10 @@ export component MainWindow inherits Window {
                         songs: root.songs;
                         current-index: root.current-index;
                         empty-library: root.empty-library;
+                        is-page: root.view-is-page;
+                        cover: root.view-cover;
+                        has-cover: root.has-view-cover;
+                        open-artist(id) => { root.open-artist(id); }
                         play(i) => { root.play(i); }
                         import-backup => { root.import-backup(); }
                     }
@@ -643,6 +734,10 @@ export component MainWindow inherits Window {
                         title: root.now-title;
                         artists: root.now-artists;
                         info: root.now-info;
+                        artist-id: root.now-artist-id;
+                        album-id: root.now-album-id;
+                        open-artist(id) => { root.open-artist(id); }
+                        open-album(id) => { root.open-album(id); }
                         cover: root.now-cover;
                         has-cover: root.has-now-cover;
                         upcoming: root.upcoming;
@@ -655,6 +750,8 @@ export component MainWindow inherits Window {
                 PlayerBar {
                     title: root.now-title;
                     artists: root.now-artists;
+                    artist-id: root.now-artist-id;
+                    open-artist(id) => { root.open-artist(id); }
                     cover: root.now-cover;
                     has-cover: root.has-now-cover;
                     playing: root.playing;

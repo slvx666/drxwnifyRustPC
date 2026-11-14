@@ -49,6 +49,14 @@ pub enum ListSpec {
     Search {
         query: String,
     },
+    /// An album from a catalog (`ym_…` Yandex, `vk_…` VK, otherwise Spotify), loaded over the network.
+    CatalogAlbum {
+        id: String,
+    },
+    /// An artist's popular tracks from a catalog (`ym_…`, `vkar_…`, otherwise Spotify).
+    CatalogArtist {
+        id: String,
+    },
 }
 
 impl ListSpec {
@@ -109,6 +117,15 @@ impl ListSpec {
     }
 }
 
+/// The heading of a page (album or artist): what the UI shows above the rows.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ListHeader {
+    pub title: String,
+    /// «Альбом · Исполнитель · 2021», «Исполнитель».
+    pub subtitle: String,
+    pub image: Option<String>,
+}
+
 /// One song row as lists show it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SongRow {
@@ -119,6 +136,9 @@ pub struct SongRow {
     pub duration_s: i64,
     pub thumbnail: Option<String>,
     pub liked: bool,
+    /// The first artist's id and the album's id, when known: rows link to those pages.
+    pub artist_id: Option<String>,
+    pub album_id: Option<String>,
 }
 
 struct Entry {
@@ -173,6 +193,9 @@ impl Lists {
 
 const ARTISTS: &str = "(SELECT group_concat(a.name, ', ') FROM (SELECT ar.name FROM song_artist_map m JOIN artist ar ON ar.id = m.artistId WHERE m.songId = s.id ORDER BY m.position) a)";
 
+const FIRST_ARTIST: &str =
+    "(SELECT m.artistId FROM song_artist_map m WHERE m.songId = s.id ORDER BY m.position LIMIT 1)";
+
 fn base(spec: &ListSpec) -> (String, Vec<String>) {
     match spec {
         ListSpec::LikedSongs => ("FROM song s WHERE s.liked = 1 ORDER BY s.likedDate DESC".into(), vec![]),
@@ -213,7 +236,7 @@ pub(crate) fn rows(
     let (from, mut params) = base(spec);
     let n = params.len();
     let sql = format!(
-        "SELECT s.id, s.title, {ARTISTS}, s.albumName, s.duration, s.thumbnailUrl, s.liked {from} LIMIT ?{} OFFSET ?{}",
+        "SELECT s.id, s.title, {ARTISTS}, s.albumName, s.duration, s.thumbnailUrl, s.liked, {FIRST_ARTIST}, s.albumId {from} LIMIT ?{} OFFSET ?{}",
         n + 1,
         n + 2
     );
@@ -230,6 +253,8 @@ pub(crate) fn rows(
                 duration_s: r.get(4)?,
                 thumbnail: r.get(5)?,
                 liked: r.get(6)?,
+                artist_id: r.get(7)?,
+                album_id: r.get(8)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;

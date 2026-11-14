@@ -2,7 +2,7 @@
 //! fields around between web-player releases.
 
 use crate::js::{arr, i, obj, path, s};
-use crate::model::{Album, AlbumRef, ArtistRef, Image, Page, Playlist, Track, User};
+use crate::model::{Album, AlbumRef, ArtistPage, ArtistRef, Image, Page, Playlist, Track, User};
 use serde_json::Value;
 
 fn id_of(uri: &str) -> String {
@@ -203,6 +203,31 @@ pub fn album(v: &Value, album_id: &str) -> Option<Album> {
         album_type: s(a, "type").map(str::to_lowercase),
         tracks,
         total_tracks: tv2.and_then(|t| i(t, "totalCount")).unwrap_or(0) as u32,
+    })
+}
+
+/// queryArtistOverview → name, avatar, popular tracks (artistUnion; Spotify.artist + artistTopTracks).
+pub fn artist_page(v: &Value, artist_id: &str) -> Option<ArtistPage> {
+    let a = path(v, &["data", "artistUnion"])?;
+    let images = path(a, &["visuals", "avatarImage"])
+        .map(|x| images(arr(x, "sources")))
+        .unwrap_or_default();
+    let top_tracks = path(a, &["discography", "topTracks"])
+        .map(|t| {
+            arr(t, "items")
+                .iter()
+                .filter_map(|e| track(obj(e, "track")?, None, None))
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(ArtistPage {
+        id: artist_id.to_string(),
+        name: path(a, &["profile", "name"])
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        images,
+        top_tracks,
     })
 }
 

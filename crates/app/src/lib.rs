@@ -12,7 +12,7 @@ use drx_core::paths::Profile;
 use drx_core::store::Store;
 use drx_transfer::backup::{self, Accounts, ImportOptions};
 pub use edition::{Edition, EditionProfile};
-pub use lists::{ListHandle, ListSpec, SongRow};
+pub use lists::{ListHandle, ListHeader, ListSpec, SongRow};
 pub use playback::{NowPlaying, Playable};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -119,6 +119,7 @@ struct Inner {
     playback: Arc<playback::Playback>,
     /// Rows of remote lists (VK), filled when the list is opened.
     remote: Mutex<HashMap<ListHandle, Vec<Playable>>>,
+    headers: Mutex<HashMap<ListHandle, ListHeader>>,
     clients: accounts::Clients,
     images: drx_core::images::Images,
 }
@@ -157,6 +158,7 @@ impl App {
             http,
             playback,
             remote: Mutex::default(),
+            headers: Mutex::default(),
             clients: accounts::Clients::default(),
             images,
             lists: lists::Lists::default(),
@@ -433,6 +435,115 @@ impl App {
 
     pub fn close_list(&self, handle: ListHandle) {
         self.inner.lists.close(handle);
+        self.inner.headers.lock().expect("headers").remove(&handle);
+    }
+
+    /// The heading of a catalog page, once its load has fetched it.
+    pub fn list_header(&self, handle: ListHandle) -> Option<ListHeader> {
+        self.inner
+            .headers
+            .lock()
+            .expect("headers")
+            .get(&handle)
+            .cloned()
+    }
+
+    pub(crate) fn set_header(&self, handle: ListHandle, h: ListHeader) {
+        self.inner
+            .headers
+            .lock()
+            .expect("headers")
+            .insert(handle, h);
+    }
+
+    /// The page an artist link opens: the database page when the library has this artist's songs, otherwise
+    /// the catalog page (popular tracks from Spotify, Yandex or VK).
+    pub async fn artist_page(&self, id: &str) -> ListSpec {
+        let id2 = id.to_string();
+        let local = self
+            .store()
+            .call(move |c| {
+                Ok(c.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM song_artist_map WHERE artistId = ?1)",
+                    [&id2],
+                    |r| r.get::<_, bool>(0),
+                )?)
+            })
+            .await
+            .unwrap_or(false);
+        if local {
+            ListSpec::Artist { id: id.to_string() }
+        } else {
+            ListSpec::CatalogArtist { id: id.to_string() }
+        }
+    }
+
+    /// The page an album link opens: the saved album from the database, otherwise the catalog album.
+    pub async fn album_page(&self, id: &str) -> ListSpec {
+        let id2 = id.to_string();
+        let local = self
+            .store()
+            .call(move |c| {
+                Ok(c.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM song_album_map WHERE albumId = ?1)",
+                    [&id2],
+                    |r| r.get::<_, bool>(0),
+                )?)
+            })
+            .await
+            .unwrap_or(false);
+        if local {
+            ListSpec::Album { id: id.to_string() }
+        } else {
+            ListSpec::CatalogAlbum { id: id.to_string() }
+        }
+    }
+
+    /// Heading of a database album or artist page (catalog pages get theirs from `list_header` after loading).
+    pub async fn local_header(&self, spec: &ListSpec) -> Option<ListHeader> {
+        let spec = spec.clone();
+        self.store()
+            .call(move |c| {
+                Ok(match &spec {
+                    ListSpec::Album { id } => c
+                        .query_row(
+                            "SELECT a.title, a.year, a.thumbnailUrl, (SELECT group_concat(ar.name, ', ') FROM album_artist_map m JOIN artist ar ON ar.id = m.artistId WHERE m.albumId = a.id) FROM album a WHERE a.id = ?1",
+                            [id],
+                            |r| {
+                                let mut sub = vec!["Альбом".to_string()];
+                                if let Some(a) = r.get::<_, Option<String>>(3)? {
+                                    sub.push(a);
+                                }
+                                if let Some(y) = r.get::<_, Option<i64>>(1)? {
+                                    sub.push(y.to_string());
+                                }
+                                Ok(ListHeader {
+                                    title: r.get(0)?,
+                                    subtitle: sub.join(" · "),
+                                    image: r.get(2)?,
+                                })
+                            },
+                        )
+                        .ok(),
+                    ListSpec::Artist { id } => c
+                        .query_row(
+                            "SELECT name, thumbnailUrl FROM artist WHERE id = ?1",
+                            [id],
+                            |r| {
+                                Ok(ListHeader {
+                                    title: r.get(0)?,
+                                    subtitle: "Исполнитель".into(),
+                                    image: r.get(1)?,
+                                })
+                            },
+                        )
+                        .ok(),
+                    _ => None,
+                })
+            })
+            .await
+            .ok()
+            .flatten()
     }
 
     /// Number of rows in a list.
@@ -582,6 +693,16 @@ fn row_of(p: &Playable) -> SongRow {
             .and_then(|a| drx_catalog::model::best_image(&a.images, 120))
             .map(|i| i.url.clone()),
         liked: false,
+        artist_id: t
+            .artists
+            .first()
+            .map(|a| a.id.clone())
+            .filter(|i| !i.is_empty()),
+        album_id: t
+            .album
+            .as_ref()
+            .map(|a| a.id.clone())
+            .filter(|i| !i.is_empty()),
     }
 }
 
@@ -592,18 +713,24 @@ fn playable_of(r: SongRow) -> Playable {
         track: Track {
             id: r.id,
             title: r.title,
+            // Only the first artist's id is known per row (it links to that artist's page).
             artists: r
                 .artists
                 .split(", ")
                 .filter(|a| !a.is_empty())
-                .map(|a| ArtistRef {
-                    id: String::new(),
+                .enumerate()
+                .map(|(i, a)| ArtistRef {
+                    id: if i == 0 {
+                        r.artist_id.clone().unwrap_or_default()
+                    } else {
+                        String::new()
+                    },
                     name: a.to_string(),
                 })
                 .collect(),
             // The song's own thumbnail stands in for the album cover (now playing shows it).
             album: (r.album.is_some() || r.thumbnail.is_some()).then(|| AlbumRef {
-                id: String::new(),
+                id: r.album_id.clone().unwrap_or_default(),
                 name: r.album.unwrap_or_default(),
                 images: r
                     .thumbnail
@@ -924,5 +1051,59 @@ mod live_search {
         let n = app.runtime().block_on(app.load_remote(h)).unwrap();
         eprintln!("search results={n}");
         assert!(n > 0);
+    }
+}
+
+#[cfg(test)]
+mod live_pages {
+    use super::*;
+
+    /// For each linked catalog: the first liked track's artist and album pages load from the network with a
+    /// heading. Prints only counts. DRX_TEST_PROFILE; not run in CI.
+    #[test]
+    fn catalog_artist_and_album_pages() {
+        let Ok(dir) = std::env::var("DRX_TEST_PROFILE") else {
+            return;
+        };
+        let app = App::start(Profile::at(dir), EditionProfile::mini()).unwrap();
+        let rt = app.runtime();
+        for liked in [
+            ListSpec::SpotifyLiked,
+            ListSpec::YandexLiked,
+            ListSpec::VkMyMusic,
+        ] {
+            let h = app.open_list(liked.clone());
+            if rt.block_on(app.load_remote(h)).is_err() {
+                eprintln!("{liked:?}: no account");
+                continue;
+            }
+            let rows = rt.block_on(app.list_rows(h, 0..20)).unwrap();
+            let Some(row) = rows.iter().find(|r| r.artist_id.is_some()) else {
+                eprintln!("{liked:?}: no artist ids");
+                continue;
+            };
+            let artist = rt.block_on(app.artist_page(row.artist_id.as_deref().unwrap()));
+            let ha = app.open_list(artist.clone());
+            let n = rt.block_on(app.load_remote(ha));
+            let head = app.list_header(ha);
+            eprintln!(
+                "{liked:?}: artist page {} rows={n:?} header={} image={}",
+                matches!(artist, ListSpec::CatalogArtist { .. }),
+                head.as_ref().is_some_and(|h| !h.title.is_empty()),
+                head.as_ref().is_some_and(|h| h.image.is_some())
+            );
+            assert!(n.unwrap_or(0) > 0);
+            if let Some(album) = rows.iter().find_map(|r| r.album_id.clone()) {
+                let spec = rt.block_on(app.album_page(&album));
+                let hb = app.open_list(spec);
+                let n = rt.block_on(app.load_remote(hb));
+                let head = app.list_header(hb);
+                eprintln!(
+                    "{liked:?}: album rows={n:?} header={}",
+                    head.as_ref().is_some_and(|h| !h.title.is_empty())
+                );
+                assert!(n.unwrap_or(0) > 0);
+            }
+        }
     }
 }

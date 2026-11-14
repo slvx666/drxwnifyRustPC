@@ -2,7 +2,7 @@
 //! `yandex/YandexMusic.kt` and `YandexParser.kt`. Ids: `ym_<raw>`, playlists `ym_<uid>_<kind>`.
 
 use crate::js::arr;
-use crate::model::{Album, AlbumRef, ArtistRef, Image, Page, Playlist, Track, User};
+use crate::model::{Album, AlbumRef, ArtistPage, ArtistRef, Image, Page, Playlist, Track, User};
 use drx_core::http::{Http, HttpError, Method, RequestBuilder};
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -431,6 +431,30 @@ impl Yandex {
             album_type: Some(kind),
             tracks,
             total_tracks: total,
+        })
+    }
+
+    /// Artist name, picture and popular tracks (`artists/<id>/brief-info`, anonymous, as YandexMusic.kt).
+    pub async fn artist(&self, artist_id: &str) -> Result<ArtistPage> {
+        let v = self
+            .get(&format!("artists/{}/brief-info", raw(artist_id)), &[], true)
+            .await?;
+        let a = v
+            .get("artist")
+            .filter(|x| x.is_object())
+            .ok_or_else(|| YandexError::Api("bad artist".into()))?;
+        Ok(ArtistPage {
+            id: format!("{PREFIX}{}", raw(artist_id)),
+            name: st(a, "name").unwrap_or_default(),
+            images: cover_images(
+                a.get("cover")
+                    .and_then(|c| st(c, "uri"))
+                    .or_else(|| st(a, "ogImage")),
+            ),
+            top_tracks: arr(&v, "popularTracks")
+                .iter()
+                .filter_map(|t| track(t, None))
+                .collect(),
         })
     }
 

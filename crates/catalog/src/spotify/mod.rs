@@ -8,7 +8,7 @@
 pub mod auth;
 mod parse;
 
-use crate::model::{Album, Page, Playlist, Track, User};
+use crate::model::{Album, ArtistPage, Page, Playlist, Track, User};
 use drx_core::http::{Http, HttpError, Method, StatusCode};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -297,6 +297,13 @@ impl Spotify {
         let vars = json!({ "uri": format!("spotify:album:{album_id}"), "locale": "", "offset": 0, "limit": 50 });
         let v = self.graphql("getAlbum", vars).await?;
         parse::album(&v, album_id).ok_or(SpotifyError::Shape("getAlbum"))
+    }
+
+    /// Artist name, picture and popular tracks (GraphQL `queryArtistOverview`).
+    pub async fn artist(&self, artist_id: &str) -> Result<ArtistPage> {
+        let vars = json!({ "uri": format!("spotify:artist:{artist_id}"), "locale": "" });
+        let v = self.graphql("queryArtistOverview", vars).await?;
+        parse::artist_page(&v, artist_id).ok_or(SpotifyError::Shape("queryArtistOverview"))
     }
 
     /// Top tracks of the user from GraphQL `userTopContent` (PORTING-2.3.0 §4). `range`: SHORT_TERM, MID_TERM,

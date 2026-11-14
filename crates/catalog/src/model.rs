@@ -93,6 +93,15 @@ pub struct Album {
     pub total_tracks: u32,
 }
 
+/// An artist page: name, picture and popular tracks (Catalog.artist + artistTopTracks on Android).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArtistPage {
+    pub id: String,
+    pub name: String,
+    pub images: Vec<Image>,
+    pub top_tracks: Vec<Track>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct User {
     pub id: String,
