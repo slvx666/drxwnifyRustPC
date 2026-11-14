@@ -379,34 +379,7 @@ pub fn top_tracks(v: &Value) -> Vec<Track> {
         .unwrap_or_default()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
 
-    #[test]
-    fn parses_liked_page() {
-        let v = json!({"data":{"me":{"library":{"tracks":{"totalCount":2403,"items":[
-            {"track":{"_uri":"spotify:track:abc","data":{"name":"goodbye","duration":{"totalMilliseconds":1019000},
-              "artists":{"items":[{"uri":"spotify:artist:a1","profile":{"name":"Sewerslvt"}}]},
-              "albumOfTrack":{"uri":"spotify:album:al","name":"we had good times","coverArt":{"sources":[{"url":"https://i/640","width":640},{"url":"https://i/64","width":64}]}}}}}
-        ]}}}}});
-        let p = liked(&v, 0).unwrap();
-        assert_eq!(p.total, 2403);
-        let t = &p.items[0];
-        assert_eq!(
-            (t.id.as_str(), t.title.as_str(), t.duration_ms),
-            ("abc", "goodbye", 1_019_000)
-        );
-        assert_eq!(t.artist_names(), "Sewerslvt");
-        assert_eq!(
-            crate::model::best_image(&t.album.as_ref().unwrap().images, 60)
-                .unwrap()
-                .url,
-            "https://i/64"
-        );
-    }
-}
 
 /// Every section of a searchDesktop answer: tracks, artists, albums, playlists.
 pub fn search_all(v: &Value) -> SearchResults {
@@ -496,4 +469,33 @@ pub fn playlist_info(v: &Value, playlist_id: &str) -> Option<Playlist> {
             .and_then(Value::as_i64)
             .unwrap_or(0) as u32,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parses_liked_page() {
+        let v = json!({"data":{"me":{"library":{"tracks":{"totalCount":2403,"items":[
+            {"track":{"_uri":"spotify:track:abc","data":{"name":"goodbye","duration":{"totalMilliseconds":1019000},
+              "artists":{"items":[{"uri":"spotify:artist:a1","profile":{"name":"Sewerslvt"}}]},
+              "albumOfTrack":{"uri":"spotify:album:al","name":"we had good times","coverArt":{"sources":[{"url":"https://i/640","width":640},{"url":"https://i/64","width":64}]}}}}}
+        ]}}}}});
+        let p = liked(&v, 0).unwrap();
+        assert_eq!(p.total, 2403);
+        let t = &p.items[0];
+        assert_eq!(
+            (t.id.as_str(), t.title.as_str(), t.duration_ms),
+            ("abc", "goodbye", 1_019_000)
+        );
+        assert_eq!(t.artist_names(), "Sewerslvt");
+        assert_eq!(
+            crate::model::best_image(&t.album.as_ref().unwrap().images, 60)
+                .unwrap()
+                .url,
+            "https://i/64"
+        );
+    }
 }
