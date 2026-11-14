@@ -1594,6 +1594,10 @@ dependencies = [
 [[package]]
 name = "drx-platform"
 version = "0.1.0"
+dependencies = [
+ "tracing",
+ "windows 0.62.2",
+]
 
 [[package]]
 name = "drx-resolver"
@@ -1650,10 +1654,13 @@ dependencies = [
  "drx-catalog",
  "drx-core",
  "drx-lyrics",
+ "drx-platform",
+ "embed-resource",
  "rfd",
  "serde_json",
  "slint",
  "slint-build",
+ "tokio",
  "tracing",
 ]
 

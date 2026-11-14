@@ -6,6 +6,7 @@ mod home_view;
 mod lazy_library;
 mod lazy_songs;
 mod nav;
+mod os;
 mod settings_view;
 mod themes;
 
@@ -40,6 +41,14 @@ fn main() {
     let profile = match std::env::var_os("DRX_PROFILE") {
         Some(p) => Profile::at(p),
         None => Profile::default_location().expect("no profile folder (APPDATA)"),
+    };
+    // One instance per profile: a second launch brings the running window up and quits.
+    let guard = match drx_platform::single_instance(
+        &os::instance_name(profile.root()),
+        &os::launch_argument(),
+    ) {
+        drx_platform::Instance::First(g) => g,
+        drx_platform::Instance::Second => return,
     };
     let app = App::start(profile, EditionProfile::mini()).expect("start core");
     // Developer shortcut: `--import <backup>` imports before the window opens.
@@ -600,6 +609,9 @@ fn main() {
         );
         std::mem::forget(t);
     }
+
+    // System media controls (media keys, volume flyout, lock screen) and the tray.
+    let _platform = os::start(&ui, &app, Some(&guard));
 
     ui.run().expect("run UI");
 }

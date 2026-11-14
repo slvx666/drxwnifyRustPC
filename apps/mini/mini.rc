@@ -1,0 +1,2 @@
+// The app icon (resource 1): the exe in Explorer, the taskbar and the tray (drx-platform loads it by id 1).
+1 ICON "../../assets/icon.ico"
