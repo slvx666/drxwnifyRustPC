@@ -1569,3 +1569,74 @@ mod playlist_cover_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(test)]
+mod live_like_report {
+    use super::*;
+
+    /// Compares the app's liked songs with the Spotify account's Liked Songs (numbers only).
+    /// DRX_TEST_PROFILE = an imported profile folder. Not run in CI.
+    #[test]
+    fn liked_vs_spotify() {
+        let Ok(dir) = std::env::var("DRX_TEST_PROFILE") else {
+            return;
+        };
+        let app = App::start(Profile::at(dir), EditionProfile::mini()).unwrap();
+        let rt = app.runtime();
+        let sp = app.spotify().expect("spotify account");
+        let mut account = std::collections::HashSet::new();
+        let mut offset = 0;
+        loop {
+            let page = rt.block_on(sp.liked_songs(offset, 50)).unwrap();
+            let n = page.items.len() as u32;
+            account.extend(page.items.into_iter().map(|t| t.id));
+            offset += 50;
+            if n == 0 || offset >= page.total {
+                break;
+            }
+        }
+        let rows: Vec<(String, Option<String>)> = rt
+            .block_on(app.store().call(|c| {
+                let mut st = c.prepare(
+                    "SELECT s.id, (SELECT m.spotifyId FROM spotify_match m WHERE m.youtubeId = s.id ORDER BY m.isManualOverride DESC, m.matchScore DESC LIMIT 1) FROM song s WHERE s.liked = 1",
+                )?;
+                let r = st
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(r)
+            }))
+            .unwrap();
+        let (mut by_catalog, mut yt_only, mut sources) = (Vec::new(), 0, 0);
+        for (id, matched) in &rows {
+            let sp_id = id
+                .strip_prefix("mfb:")
+                .or_else(|| id.strip_prefix("spotify:"))
+                .filter(|s| s.len() == 22 && s.chars().all(|c| c.is_ascii_alphanumeric()))
+                .map(str::to_string)
+                .or_else(|| matched.clone());
+            match sp_id {
+                Some(s) => by_catalog.push(s),
+                None if id.starts_with("mfb:") => sources += 1,
+                None => yt_only += 1,
+            }
+        }
+        let distinct: std::collections::HashSet<_> = by_catalog.iter().cloned().collect();
+        let both = distinct.intersection(&account).count();
+        eprintln!(
+            "app liked rows={} | spotify-backed rows={} distinct tracks={} (duplicate rows={}) | youtube without spotify={} | other sources={}",
+            rows.len(),
+            by_catalog.len(),
+            distinct.len(),
+            by_catalog.len() - distinct.len(),
+            yt_only,
+            sources
+        );
+        eprintln!(
+            "spotify account liked={} | in both={} | liked in app only={} | liked on spotify only={}",
+            account.len(),
+            both,
+            distinct.len() - both,
+            account.len() - both
+        );
+    }
+}
