@@ -2,7 +2,9 @@
 //! fields around between web-player releases.
 
 use crate::js::{arr, i, obj, path, s};
-use crate::model::{Album, AlbumRef, ArtistPage, ArtistRef, Image, Page, Playlist, Track, User};
+use crate::model::{
+    Album, AlbumRef, ArtistPage, ArtistRef, Image, Page, Playlist, Release, Track, User,
+};
 use serde_json::Value;
 
 fn id_of(uri: &str) -> String {
@@ -228,7 +230,63 @@ pub fn artist_page(v: &Value, artist_id: &str) -> Option<ArtistPage> {
             .to_string(),
         images,
         top_tracks,
+        releases: releases(a),
     })
+}
+
+/// discography.{latest, albums, singles, compilations} → releases, newest first (artistDiscography).
+fn releases(a: &Value) -> Vec<Release> {
+    let Some(d) = obj(a, "discography") else {
+        return Vec::new();
+    };
+    let one = |r: &Value, kind: &str| -> Option<Release> {
+        let uri = s(r, "uri")?;
+        let id = id_of(uri);
+        if id.is_empty() {
+            return None;
+        }
+        let date = obj(r, "date").and_then(|d| {
+            s(d, "isoString")
+                .map(|x| x.chars().take(10).collect::<String>())
+                .or_else(|| i(d, "year").map(|y| y.to_string()))
+        });
+        Some(Release {
+            id,
+            name: s(r, "name")?.to_string(),
+            images: obj(r, "coverArt")
+                .map(|c| images(arr(c, "sources")))
+                .unwrap_or_default(),
+            date,
+            kind: s(r, "type")
+                .map(str::to_lowercase)
+                .unwrap_or_else(|| kind.to_string()),
+        })
+    };
+    let mut out: Vec<Release> = Vec::new();
+    if let Some(l) = obj(d, "latest") {
+        out.extend(one(l, "album"));
+    }
+    for (key, kind) in [
+        ("albums", "album"),
+        ("singles", "single"),
+        ("compilations", "compilation"),
+    ] {
+        if let Some(g) = obj(d, key) {
+            for e in arr(g, "items") {
+                // Each item wraps releases.items[]; the first is the main release.
+                let r = obj(e, "releases")
+                    .and_then(|x| arr(x, "items").first())
+                    .unwrap_or(e);
+                if let Some(rel) = one(r, kind) {
+                    out.push(rel);
+                }
+            }
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|r| seen.insert(r.id.clone()));
+    out.sort_by(|a, b| b.date.cmp(&a.date));
+    out
 }
 
 pub fn search_tracks(v: &Value) -> Vec<Track> {

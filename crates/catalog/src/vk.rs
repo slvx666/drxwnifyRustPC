@@ -6,7 +6,7 @@
 //! Ids: track `src:VK:<owner>_<audio>[_<key>]` (same id as a VK track found by the resolver), playlist/album
 //! `vk_<owner>_<id>[_<key>]`, artist `vkar_<id>`, «Моя музыка» `vk_liked`.
 
-use crate::model::{AlbumRef, ArtistPage, ArtistRef, Image, Playlist, Track, User};
+use crate::model::{AlbumRef, ArtistPage, ArtistRef, Image, Playlist, Release, Track, User};
 use drx_core::http::{Http, HttpError, Method};
 use serde_json::Value;
 use std::time::{Duration, Instant};
@@ -605,6 +605,27 @@ impl Vk {
                 &[("artist_id", raw.clone()), ("count", "50".into())],
             )
             .await?;
+        // Releases are optional: the page still opens without them.
+        let albums = self
+            .call(
+                "audio.getAlbumsByArtist",
+                &[("artist_id", raw.clone()), ("count", "100".into())],
+            )
+            .await
+            .map(|v| {
+                items(&v)
+                    .into_iter()
+                    .filter_map(parse_playlist)
+                    .map(|p| Release {
+                        id: p.playlist.id,
+                        name: p.playlist.name,
+                        images: p.playlist.images,
+                        date: p.year.map(|y| y.to_string()),
+                        kind: "album".into(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let mut seen = std::collections::HashSet::new();
         let audios: Vec<VkAudio> = items(&list)
             .into_iter()
@@ -616,6 +637,11 @@ impl Vk {
             name: nonempty(&r, "name").unwrap_or_default(),
             images: artist_photo(&r),
             top_tracks: audios.iter().map(|a| a.track.clone()).collect(),
+            releases: {
+                let mut r = albums;
+                r.sort_by(|a, b| b.date.cmp(&a.date));
+                r
+            },
         };
         Ok((page, audios))
     }

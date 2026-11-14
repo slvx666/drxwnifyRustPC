@@ -293,10 +293,24 @@ impl Spotify {
         parse::playlist_tracks(&v, offset).ok_or(SpotifyError::Shape("fetchPlaylist"))
     }
 
+    /// An album with all its tracks (getAlbum gives 50 per page; long albums and compilations are paged).
     pub async fn album(&self, album_id: &str) -> Result<Album> {
-        let vars = json!({ "uri": format!("spotify:album:{album_id}"), "locale": "", "offset": 0, "limit": 50 });
-        let v = self.graphql("getAlbum", vars).await?;
-        parse::album(&v, album_id).ok_or(SpotifyError::Shape("getAlbum"))
+        let page = |offset: u32| json!({ "uri": format!("spotify:album:{album_id}"), "locale": "", "offset": offset, "limit": 50 });
+        let v = self.graphql("getAlbum", page(0)).await?;
+        let mut album = parse::album(&v, album_id).ok_or(SpotifyError::Shape("getAlbum"))?;
+        while (album.tracks.len() as u32) < album.total_tracks && album.tracks.len() < 1000 {
+            let v = self
+                .graphql("getAlbum", page(album.tracks.len() as u32))
+                .await?;
+            let more = parse::album(&v, album_id)
+                .map(|a| a.tracks)
+                .unwrap_or_default();
+            if more.is_empty() {
+                break;
+            }
+            album.tracks.extend(more);
+        }
+        Ok(album)
     }
 
     /// Artist name, picture and popular tracks (GraphQL `queryArtistOverview`).

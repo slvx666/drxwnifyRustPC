@@ -100,6 +100,20 @@ pub struct ArtistPage {
     pub name: String,
     pub images: Vec<Image>,
     pub top_tracks: Vec<Track>,
+    /// Albums, EPs and singles, newest first (Catalog.artistReleases).
+    pub releases: Vec<Release>,
+}
+
+/// One release on an artist page.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Release {
+    pub id: String,
+    pub name: String,
+    pub images: Vec<Image>,
+    /// "2021" or "2021-03-14".
+    pub date: Option<String>,
+    /// album | single | ep | compilation
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

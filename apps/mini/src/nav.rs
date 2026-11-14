@@ -28,6 +28,45 @@ thread_local! {
     static HISTORY: RefCell<History> = RefCell::default();
     /// The centre list model (UI thread only; async loads find it here when they finish).
     static SONGS: RefCell<Option<Rc<LazySongs>>> = const { RefCell::new(None) };
+    /// Releases of the artist page on screen (their covers arrive later).
+    static RELEASES: RefCell<Vec<drx_catalog::model::Release>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Rebuilds the release cards (page opened, or covers arrived).
+pub fn refresh_releases(ui: &MainWindow, app: &App) {
+    let items: Vec<crate::ReleaseItem> = RELEASES.with(|r| {
+        r.borrow()
+            .iter()
+            .map(|rel| {
+                let url = drx_catalog::model::best_image(&rel.images, 300).map(|i| i.url.clone());
+                let cover = url.and_then(|u| crate::cover(app, &u, crate::RELEASE_COVER));
+                let kind = match rel.kind.as_str() {
+                    "single" => "Сингл",
+                    "ep" => "EP",
+                    "compilation" => "Сборник",
+                    _ => "Альбом",
+                };
+                let year = rel.date.as_deref().and_then(|d| d.get(..4));
+                crate::ReleaseItem {
+                    id: rel.id.clone().into(),
+                    title: rel.name.clone().into(),
+                    subtitle: match year {
+                        Some(y) => format!("{y} · {kind}"),
+                        None => kind.to_string(),
+                    }
+                    .into(),
+                    has_cover: cover.is_some(),
+                    cover: cover.unwrap_or_default(),
+                }
+            })
+            .collect()
+    });
+    ui.set_view_releases(slint::ModelRc::new(slint::VecModel::from(items)));
+}
+
+fn set_releases(ui: &MainWindow, app: &App, list: Vec<drx_catalog::model::Release>) {
+    RELEASES.with(|r| *r.borrow_mut() = list);
+    refresh_releases(ui, app);
 }
 
 pub fn init(songs: &Rc<LazySongs>) {
@@ -113,6 +152,7 @@ fn apply_header(ui: &MainWindow, app: &App, h: &ListHeader, n: usize) {
     }
     ui.set_view_subtitle(count_line(&h.subtitle, n).into());
     set_header_image(ui, app, h.image.clone());
+    set_releases(ui, app, h.releases.clone());
 }
 
 fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
@@ -121,6 +161,7 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     ui.set_view_title(page.title.clone().into());
     ui.set_current_index(-1);
     set_header_image(ui, app, None);
+    set_releases(ui, app, Vec::new());
     let has_page_header = matches!(
         page.spec,
         ListSpec::Album { .. }

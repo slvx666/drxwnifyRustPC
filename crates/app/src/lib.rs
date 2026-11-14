@@ -521,6 +521,7 @@ impl App {
                                     title: r.get(0)?,
                                     subtitle: sub.join(" · "),
                                     image: r.get(2)?,
+                                    releases: Vec::new(),
                                 })
                             },
                         )
@@ -534,6 +535,7 @@ impl App {
                                     title: r.get(0)?,
                                     subtitle: "Исполнитель".into(),
                                     image: r.get(1)?,
+                                    releases: Vec::new(),
                                 })
                             },
                         )
@@ -1087,10 +1089,11 @@ mod live_pages {
             let n = rt.block_on(app.load_remote(ha));
             let head = app.list_header(ha);
             eprintln!(
-                "{liked:?}: artist page {} rows={n:?} header={} image={}",
+                "{liked:?}: artist page {} rows={n:?} header={} image={} releases={}",
                 matches!(artist, ListSpec::CatalogArtist { .. }),
                 head.as_ref().is_some_and(|h| !h.title.is_empty()),
-                head.as_ref().is_some_and(|h| h.image.is_some())
+                head.as_ref().is_some_and(|h| h.image.is_some()),
+                head.as_ref().map_or(0, |h| h.releases.len())
             );
             assert!(n.unwrap_or(0) > 0);
             if let Some(album) = rows.iter().find_map(|r| r.album_id.clone()) {

@@ -12,6 +12,7 @@ import { Icons } from "icons.slint";
 export { Theme }
 
 export struct SongItem {
+    id: string,
     title: string,
     artists: string,
     duration: string,
@@ -21,6 +22,14 @@ export struct SongItem {
     has-cover: bool,
     artist-id: string,
     album-id: string,
+}
+
+export struct ReleaseItem {
+    id: string,
+    title: string,
+    subtitle: string,
+    cover: image,
+    has-cover: bool,
 }
 
 export struct QueueItem {
@@ -401,14 +410,16 @@ component MainArea inherits VerticalLayout {
     in property <string> title;
     in property <string> subtitle;
     in property <[SongItem]> songs;
-    in property <int> current-index: -1;
+    in property <string> now-id; // the playing track: highlighted wherever it appears
     in property <bool> empty-library;
     in property <image> cover;
     in property <bool> has-cover;
     in property <bool> is-page; // album or artist: the heading gets a cover
+    in property <[ReleaseItem]> releases; // artist pages: albums and singles
     callback play(int);
     callback import-backup();
     callback open-artist(string);
+    callback open-album(string);
     padding-top: Grid.pad;
     padding-bottom: 4px;
     spacing: Grid.gap;
@@ -422,6 +433,31 @@ component MainArea inherits VerticalLayout {
             spacing: 2px;
             Text { text: title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
             Text { text: subtitle; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+        }
+    }
+    // Artist releases: one row of covers that scrolls sideways.
+    if root.releases.length > 0: VerticalLayout {
+        vertical-stretch: 0;
+        spacing: 8px;
+        Caption { x: Grid.pad + 4px; text: "РЕЛИЗЫ"; }
+        Flickable {
+            height: 172px;
+            content-height: self.height;
+            content-width: Grid.pad + 4px + root.releases.length * 140px;
+            for r[i] in root.releases: Rectangle {
+                x: Grid.pad + 4px + i * 140px;
+                y: 0;
+                width: 128px;
+                height: 172px;
+                VerticalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    Cover { size: 128px; source: r.cover; has-source: r.has-cover; }
+                    Text { text: r.title; font-family: Theme.body-font; font-size: 13px; color: rta.has-hover ? Theme.accent : Theme.text; overflow: elide; }
+                    Text { text: r.subtitle; font-family: Theme.body-font; font-size: 11px; color: Theme.mute; overflow: elide; }
+                }
+                rta := TouchArea { mouse-cursor: pointer; clicked => { root.open-album(r.id); } }
+            }
         }
     }
     if root.empty-library: VerticalLayout {
@@ -443,12 +479,13 @@ component MainArea inherits VerticalLayout {
         }
     }
     if !root.empty-library: HorizontalLayout {
+        vertical-stretch: 1;
         padding-left: 8px;
         padding-right: 4px;
         ListView {
             for song in root.songs: SongRow {
                 song: song;
-                current: song.index - 1 == root.current-index;
+                current: root.now-id != "" && song.id == root.now-id;
                 play => { root.play(song.index - 1); }
                 open-artist(id) => { root.open-artist(id); }
             }
@@ -637,6 +674,7 @@ export component MainWindow inherits Window {
     in property <string> view-subtitle;
     in property <[SongItem]> songs;
     in property <int> current-index: -1;
+    in-out property <string> now-id;
     in property <bool> empty-library;
     in property <string> now-title;
     in property <string> now-artists;
@@ -649,6 +687,7 @@ export component MainWindow inherits Window {
     in property <image> view-cover;
     in-out property <string> view-cover-url;
     in property <bool> has-view-cover;
+    in property <[ReleaseItem]> view-releases;
     in property <[QueueItem]> upcoming;
     in property <string> lyric-now;
     in property <string> lyric-next;
@@ -719,12 +758,14 @@ export component MainWindow inherits Window {
                         title: root.view-title;
                         subtitle: root.view-subtitle;
                         songs: root.songs;
-                        current-index: root.current-index;
+                        now-id: root.now-id;
                         empty-library: root.empty-library;
                         is-page: root.view-is-page;
                         cover: root.view-cover;
                         has-cover: root.has-view-cover;
+                        releases: root.view-releases;
                         open-artist(id) => { root.open-artist(id); }
+                        open-album(id) => { root.open-album(id); }
                         play(i) => { root.play(i); }
                         import-backup => { root.import-backup(); }
                     }

@@ -107,6 +107,7 @@ impl Model for LazySongs {
                 .as_deref()
                 .and_then(|u| crate::cover(&self.app, u, crate::ROW_COVER));
             SongItem {
+                id: r.id.into(),
                 title: r.title.into(),
                 artists: r.artists.into(),
                 duration: crate::fmt_time(r.duration_s as f64).into(),

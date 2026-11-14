@@ -412,6 +412,7 @@ impl App {
                                 drx_catalog::model::best_image(&a.images, 600)
                                     .map(|i| i.url.clone())
                             }),
+                            releases: Vec::new(),
                         };
                         self.set_header(handle, header);
                         let rows: Vec<Playable> = audios
@@ -510,6 +511,7 @@ fn album_header(a: &drx_catalog::model::Album) -> ListHeader {
         title: a.name.clone(),
         subtitle: sub.join(" · "),
         image: drx_catalog::model::best_image(&a.images, 600).map(|i| i.url.clone()),
+        releases: Vec::new(),
     }
 }
 
@@ -518,5 +520,6 @@ fn artist_header(p: &drx_catalog::model::ArtistPage) -> ListHeader {
         title: p.name.clone(),
         subtitle: "Исполнитель · популярное".into(),
         image: drx_catalog::model::best_image(&p.images, 600).map(|i| i.url.clone()),
+        releases: p.releases.clone(),
     }
 }

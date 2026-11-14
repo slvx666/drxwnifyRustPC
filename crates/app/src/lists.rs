@@ -124,6 +124,8 @@ pub struct ListHeader {
     /// «Альбом · Исполнитель · 2021», «Исполнитель».
     pub subtitle: String,
     pub image: Option<String>,
+    /// An artist's albums and singles, newest first (empty for other pages).
+    pub releases: Vec<drx_catalog::model::Release>,
 }
 
 /// One song row as lists show it.

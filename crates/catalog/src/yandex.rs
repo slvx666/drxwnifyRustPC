@@ -2,7 +2,9 @@
 //! `yandex/YandexMusic.kt` and `YandexParser.kt`. Ids: `ym_<raw>`, playlists `ym_<uid>_<kind>`.
 
 use crate::js::arr;
-use crate::model::{Album, AlbumRef, ArtistPage, ArtistRef, Image, Page, Playlist, Track, User};
+use crate::model::{
+    Album, AlbumRef, ArtistPage, ArtistRef, Image, Page, Playlist, Release, Track, User,
+};
 use drx_core::http::{Http, HttpError, Method, RequestBuilder};
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -455,6 +457,21 @@ impl Yandex {
                 .iter()
                 .filter_map(|t| track(t, None))
                 .collect(),
+            releases: {
+                let mut r: Vec<Release> = arr(&v, "albums")
+                    .iter()
+                    .filter_map(simple_album)
+                    .map(|(a, _, date, kind, _)| Release {
+                        id: a.id,
+                        name: a.name,
+                        images: a.images,
+                        date,
+                        kind,
+                    })
+                    .collect();
+                r.sort_by(|a, b| b.date.cmp(&a.date));
+                r
+            },
         })
     }
 

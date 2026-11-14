@@ -161,6 +161,9 @@ fn main() {
         ui.on_play(move |i| {
             let Some(ui) = ui_w.upgrade() else { return };
             ui.set_current_index(i);
+            if let Some(r) = songs2.row(i.max(0) as usize) {
+                ui.set_now_id(r.id.into());
+            }
             let (app3, h) = (app2.clone(), songs2.handle());
             app2.runtime().spawn(async move {
                 let _ = app3.play_list(h, i.max(0) as usize).await;
@@ -267,6 +270,7 @@ fn main() {
                     let Some(ui) = ui_w.upgrade() else { return };
                     if let Some(t) = &now.track {
                         ui.set_now_title(t.title.clone().into());
+                        ui.set_now_id(t.id.clone().into());
                         ui.set_now_artists(t.artist_names().into());
                         ui.set_now_artist_id(
                             t.artists
@@ -412,6 +416,7 @@ fn main() {
                     }
                     None => ui.set_has_now_cover(false),
                 }
+                nav::refresh_releases(&ui, &app3);
                 let url = ui.get_view_cover_url().to_string();
                 if !url.is_empty()
                     && let Some(c) = cover(&app3, &url, HEADER_COVER)
@@ -551,6 +556,8 @@ pub const ROW_COVER: u32 = 84;
 pub const NOW_COVER: u32 = 560;
 /// Cover next to an album/artist page title.
 pub const HEADER_COVER: u32 = 240;
+/// Release cards on an artist page.
+pub const RELEASE_COVER: u32 = 256;
 
 /// A cover as a Slint image when it is cached; otherwise asks the core to load it (ImageReady follows).
 pub fn cover(app: &App, url: &str, size: u32) -> Option<slint::Image> {
