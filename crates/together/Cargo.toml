@@ -1,5 +1,5 @@
 [package]
-name = "drx-extras"
+name = "drx-together"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -3,10 +3,17 @@ resolver = "3"
 exclude = ["spikes"]
 members = [
     "crates/core",
+    "crates/app",
     "crates/audio",
-    "crates/sources",
+    "crates/catalog",
+    "crates/resolver",
+    "crates/library",
+    "crates/lyrics",
     "crates/social",
-    "crates/extras",
+    "crates/together",
+    "crates/integrations",
+    "crates/transfer",
+    "crates/jobs",
     "crates/platform",
     "apps/mini",
 ]
@@ -21,10 +28,17 @@ authors = ["DrxwnSlvt"]
 
 [workspace.dependencies]
 drx-core = { path = "crates/core" }
+drx-app = { path = "crates/app" }
 drx-audio = { path = "crates/audio" }
-drx-sources = { path = "crates/sources" }
+drx-catalog = { path = "crates/catalog" }
+drx-resolver = { path = "crates/resolver" }
+drx-library = { path = "crates/library" }
+drx-lyrics = { path = "crates/lyrics" }
 drx-social = { path = "crates/social" }
-drx-extras = { path = "crates/extras" }
+drx-together = { path = "crates/together" }
+drx-integrations = { path = "crates/integrations" }
+drx-transfer = { path = "crates/transfer" }
+drx-jobs = { path = "crates/jobs" }
 drx-platform = { path = "crates/platform" }
 
 [workspace.lints.rust]

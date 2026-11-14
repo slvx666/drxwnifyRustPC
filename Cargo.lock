@@ -25,7 +25,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "drx-app"
+version = "0.1.0"
+
+[[package]]
 name = "drx-audio"
+version = "0.1.0"
+
+[[package]]
+name = "drx-catalog"
 version = "0.1.0"
 
 [[package]]
@@ -41,7 +49,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "drx-extras"
+name = "drx-integrations"
+version = "0.1.0"
+
+[[package]]
+name = "drx-jobs"
+version = "0.1.0"
+
+[[package]]
+name = "drx-library"
+version = "0.1.0"
+
+[[package]]
+name = "drx-lyrics"
 version = "0.1.0"
 
 [[package]]
@@ -49,11 +69,19 @@ name = "drx-platform"
 version = "0.1.0"
 
 [[package]]
+name = "drx-resolver"
+version = "0.1.0"
+
+[[package]]
 name = "drx-social"
 version = "0.1.0"
 
 [[package]]
-name = "drx-sources"
+name = "drx-together"
+version = "0.1.0"
+
+[[package]]
+name = "drx-transfer"
 version = "0.1.0"
 
 [[package]]
