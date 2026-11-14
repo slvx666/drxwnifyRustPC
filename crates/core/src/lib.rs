@@ -9,6 +9,7 @@ pub mod paths;
 pub mod prefs;
 pub mod secrets;
 pub mod shared_prefs;
+pub mod store;
 
 pub use error::{CoreError, Result};
 

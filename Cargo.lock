@@ -147,6 +147,15 @@ dependencies = [
 [[package]]
 name = "drx-app"
 version = "0.1.0"
+dependencies = [
+ "drx-core",
+ "drx-transfer",
+ "rusqlite",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "drx-audio"
