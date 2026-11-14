@@ -11,6 +11,11 @@
 
 use std::path::{Path, PathBuf};
 
+/// Folder name of the default profile under `%APPDATA%`.
+pub const DEFAULT_DIR_WINDOWS: &str = "DrxwnifyPC";
+/// Folder name of the default profile under `$XDG_DATA_HOME`.
+pub const DEFAULT_DIR_LINUX: &str = "drxwnify-pc";
+
 #[derive(Debug, Clone)]
 pub struct Profile {
     root: PathBuf,
@@ -21,11 +26,14 @@ impl Profile {
         Self { root: root.into() }
     }
 
-    /// The default profile: `%APPDATA%\Drxwnify` on Windows, `$XDG_DATA_HOME/drxwnify` (or `~/.local/share/drxwnify`) on Linux.
+    /// The default profile: `%APPDATA%\DrxwnifyPC` on Windows, `$XDG_DATA_HOME/drxwnify-pc` (or
+    /// `~/.local/share/drxwnify-pc`) on Linux. Not `Drxwnify`, `DrxwnifyRust` or `DrxwnifyMini`: those folders belong
+    /// to the Kotlin desktop app and earlier attempts, and their data must not be mixed with this profile.
     pub fn default_location() -> Option<Self> {
         #[cfg(windows)]
         {
-            std::env::var_os("APPDATA").map(|a| Self::at(PathBuf::from(a).join("Drxwnify")))
+            std::env::var_os("APPDATA")
+                .map(|a| Self::at(PathBuf::from(a).join(DEFAULT_DIR_WINDOWS)))
         }
         #[cfg(not(windows))]
         {
@@ -34,7 +42,7 @@ impl Profile {
                 .or_else(|| {
                     std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share"))
                 })?;
-            Some(Self::at(base.join("drxwnify")))
+            Some(Self::at(base.join(DEFAULT_DIR_LINUX)))
         }
     }
 
@@ -87,4 +95,21 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     ));
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path)
+}
+
+#[cfg(test)]
+mod default_location_tests {
+    use super::*;
+
+    /// The default profile never lands in the folders of the Kotlin desktop app or earlier attempts.
+    #[test]
+    fn default_profile_is_its_own_folder() {
+        let p = Profile::default_location().expect("profile base folder");
+        let name = p.root().file_name().unwrap().to_string_lossy().to_string();
+        for taken in ["Drxwnify", "DrxwnifyRust", "DrxwnifyMini", "drxwnify"] {
+            assert_ne!(name, taken);
+        }
+        #[cfg(windows)]
+        assert_eq!(name, DEFAULT_DIR_WINDOWS);
+    }
 }
