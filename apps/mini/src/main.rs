@@ -708,7 +708,7 @@ fn main() {
                     Some(c) => {
                         ui.set_now_cover(c);
                         ui.set_has_now_cover(true);
-                        if let Some(small) = cover_r(&app3, &url, 104, theme_r(10.0, 104, 52.0)) {
+                        if let Some(small) = cover_r(&app3, &url, 104, theme_r(ROW_COVER_R, 104, 52.0)) {
                             ui.set_now_cover_small(small);
                         }
                     }
@@ -978,7 +978,10 @@ pub fn cover(app: &App, url: &str, size: u32) -> Option<slint::Image> {
     cover_r(app, url, size, 0.0)
 }
 
-/// The theme's cover radius (logical px), set when a theme is applied: covers get their corners from it.
+/// Largest corner of covers in rows and the player bar (logical px), as `Grid.row-cover-radius`.
+pub const ROW_COVER_R: f32 = 5.0;
+
+/// The covers' radius (logical px), set when a theme is applied: covers get their corners from it.
 static COVER_RADIUS: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(12f32.to_bits());
 

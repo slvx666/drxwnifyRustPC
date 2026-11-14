@@ -106,7 +106,11 @@ global Grid {
     out property <length> pad: 16px;         // inside a section
     out property <length> gap: 12px;         // between items in a row
     out property <length> item-radius: min(10px, Theme.panel-radius); // list rows, hover backgrounds (square themes stay square)
-    out property <length> small-radius: min(8px, Theme.cover-radius); // small covers, brand mark
+    out property <length> small-radius: min(8px, Theme.cover-radius); // brand mark
+    // Covers are rounded less than the theme's radius (owner: at the theme's radius they looked cut off); covers in
+    // rows and the player bar at most 5 px. Square themes stay square. Mirrored in main.rs (baked corners).
+    out property <length> cover-radius: round(Theme.cover-radius * 2 / 3 / 1px) * 1px;
+    out property <length> row-cover-radius: min(5px, round(Theme.cover-radius * 2 / 3 / 1px) * 1px);
     out property <length> lib-width: 280px;
     out property <length> side-width: 320px;
     out property <length> top-height: 64px;
@@ -215,7 +219,7 @@ component Cover inherits Rectangle {
     in property <string> placeholder: Icons.music;
     in property <color> placeholder-color: Theme.mute;
     in property <length> size;
-    in property <length> radius: Theme.cover-radius;
+    in property <length> radius: Grid.cover-radius;
     // Only behind the placeholder: a loaded cover has its rounded corners baked in, and anything under it would
     // show in those corners (the software renderer does not clip images, and draws gradients without radius).
     in property <brush> placeholder-bg: Theme.fill-hover;
@@ -529,7 +533,7 @@ component LibraryPanel inherits VerticalLayout {
                             placeholder: item.kind == "liked" ? Icons.heart-filled : Icons.music;
                             placeholder-color: item.kind == "liked" ? Theme.on-accent : Theme.mute;
                             placeholder-bg: item.kind == "liked" ? Theme.accent : Theme.fill-hover;
-                            radius: min(Theme.cover-radius, Grid.item-radius);
+                            radius: Grid.row-cover-radius;
                         }
                     }
                     VerticalLayout {
@@ -560,7 +564,7 @@ component SongRow inherits Rectangle {
         padding-right: 12px;
         spacing: Grid.gap;
         Text { width: 28px; text: song.index; font-family: Theme.mono-font; font-size: 12px; color: current ? Theme.accent : Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
-        Middle { Cover { size: 44px; source: song.cover; has-source: song.has-cover; radius: min(Theme.cover-radius, Grid.small-radius); } }
+        Middle { Cover { size: 44px; source: song.cover; has-source: song.has-cover; radius: Grid.row-cover-radius; } }
         VerticalLayout {
             alignment: center;
             spacing: 2px;
@@ -746,7 +750,7 @@ component CardStrip inherits Flickable {
         VerticalLayout {
             spacing: 4px;
             alignment: start;
-            Cover { size: 144px; source: card.cover; has-source: card.has-cover; radius: root.round ? 72px : Theme.cover-radius; }
+            Cover { size: 144px; source: card.cover; has-source: card.has-cover; radius: root.round ? 72px : Grid.cover-radius; }
             Text { text: card.title; font-family: Theme.body-font; font-size: 13px; color: cta.has-hover ? Theme.accent : Theme.text; overflow: elide; horizontal-alignment: root.round ? center : left; }
             Text { text: card.subtitle; font-family: Theme.body-font; font-size: 11px; color: Theme.mute; overflow: elide; horizontal-alignment: root.round ? center : left; }
         }
@@ -818,7 +822,7 @@ component SearchPage inherits Flickable {
                         padding: Grid.pad;
                         spacing: 6px;
                         alignment: start;
-                        Cover { size: 104px; source: root.top-cover; has-source: root.top-has-cover; radius: root.top-kind == "artist" ? 52px : Theme.cover-radius; }
+                        Cover { size: 104px; source: root.top-cover; has-source: root.top-has-cover; radius: root.top-kind == "artist" ? 52px : Grid.cover-radius; }
                         Rectangle { height: 6px; }
                         Text { text: root.top-title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 24px; color: Theme.text; overflow: elide; }
                         Text { text: root.top-sub; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
@@ -1508,7 +1512,7 @@ component PlayerBar inherits HorizontalLayout {
         padding-left: Grid.pad;
         padding-right: Grid.pad;
         spacing: Grid.gap;
-        Middle { Cover { size: 52px; source: root.cover; has-source: root.has-cover; radius: min(Theme.cover-radius, Grid.item-radius); } }
+        Middle { Cover { size: 52px; source: root.cover; has-source: root.has-cover; radius: Grid.row-cover-radius; } }
         VerticalLayout {
             alignment: center;
             spacing: 2px;

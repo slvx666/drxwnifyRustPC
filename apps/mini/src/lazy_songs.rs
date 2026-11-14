@@ -107,7 +107,7 @@ impl Model for LazySongs {
                     &self.app,
                     u,
                     crate::ROW_COVER,
-                    crate::theme_r(8.0, crate::ROW_COVER, 44.0),
+                    crate::theme_r(crate::ROW_COVER_R, crate::ROW_COVER, 44.0),
                 )
             });
             SongItem {

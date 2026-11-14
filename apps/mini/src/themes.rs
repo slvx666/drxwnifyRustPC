@@ -48,6 +48,17 @@ pub fn list(day: bool) -> Vec<(String, String, Color, Color)> {
         .collect()
 }
 
+/// `top` composited over the opaque `base`.
+fn over(top: Color, base: Color) -> Color {
+    let a = top.alpha() as f32 / 255.0;
+    let mix = |t: u8, b: u8| (t as f32 * a + b as f32 * (1.0 - a)).round() as u8;
+    Color::from_rgb_u8(
+        mix(top.red(), base.red()),
+        mix(top.green(), base.green()),
+        mix(top.blue(), base.blue()),
+    )
+}
+
 fn color(v: &Value) -> Color {
     let s = v.as_str().unwrap_or("#000000FF").trim_start_matches('#');
     let n = u32::from_str_radix(s, 16).unwrap_or(0xFF);
@@ -109,7 +120,9 @@ pub fn apply(ui: &MainWindow, id: &str, day: bool) {
     g.set_panel_border(color(&t["panelBorder"]));
     g.set_fill(color(&t["fill"]));
     g.set_fill_hover(color(&t["fillHover"]));
-    g.set_menu(color(&t["menu"]));
+    // pc/ calls it the opaque surface for menus, but stores it at 96–98 % alpha: over a large heading the text
+    // showed through dropdowns. Composited over the theme's background once, so the shade stays the same.
+    g.set_menu(over(color(&t["menu"]), color(&t["bg"])));
     g.set_text(color(&t["text"]));
     g.set_dim(color(&t["dim"]));
     g.set_mute(color(&t["mute"]));
@@ -124,7 +137,8 @@ pub fn apply(ui: &MainWindow, id: &str, day: bool) {
     let px = |k: &str| t[k].as_f64().unwrap_or(0.0) as f32;
     g.set_panel_radius(px("panelRadius"));
     g.set_cover_radius(px("coverRadius"));
-    crate::set_cover_radius(px("coverRadius"));
+    // Covers: two thirds of the theme's radius, as `Grid.cover-radius` in the UI.
+    crate::set_cover_radius((px("coverRadius") * 2.0 / 3.0).round());
     g.set_chip_radius(px("chipRadius"));
     g.set_body_font(family(t["body"].as_str().unwrap_or("manrope")).into());
     g.set_heading_font(family(t["heading"].as_str().unwrap_or("manrope")).into());
