@@ -301,6 +301,17 @@ impl Spotify {
 
     /// Top tracks of the user from GraphQL `userTopContent` (PORTING-2.3.0 §4). `range`: SHORT_TERM, MID_TERM,
     /// LONG_TERM (note: MID_TERM, not MEDIUM_TERM).
+    /// Track search (GraphQL `searchDesktop`).
+    pub async fn search_tracks(&self, query: &str, limit: u32) -> Result<Vec<Track>> {
+        let vars = json!({
+            "searchTerm": query, "offset": 0, "limit": limit, "numberOfTopResults": 5,
+            "includeAudiobooks": false, "includeArtistHasConcertsField": false, "includePreReleases": false,
+            "includeLocalConcertsField": false, "includeAuthors": false
+        });
+        let v = self.graphql("searchDesktop", vars).await?;
+        Ok(parse::search_tracks(&v))
+    }
+
     pub async fn top_tracks(&self, range: &str, limit: u32) -> Result<Vec<Track>> {
         let vars = json!({
             "includeTopArtists": false,

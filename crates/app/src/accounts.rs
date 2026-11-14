@@ -353,6 +353,50 @@ impl App {
                 .map_err(err)?;
                 plain(page.items)
             }
+            ListSpec::Search { query } => {
+                // The main account's catalog answers; Yandex and VK when Spotify is not linked.
+                let found = match self.main_account() {
+                    Some(Source::Yandex) => self
+                        .yandex()
+                        .ok_or_else(|| err("нет Яндекса"))?
+                        .search(query, 50)
+                        .await
+                        .map_err(err)?,
+                    Some(Source::Vk) => {
+                        let vk = self.vk().ok_or_else(|| err("нет ВК"))?;
+                        let found = vk.search(query, 50).await.map_err(err)?;
+                        self.set_rows(
+                            handle,
+                            found
+                                .into_iter()
+                                .map(|a| Playable {
+                                    track: a.track,
+                                    url: a.url,
+                                })
+                                .collect(),
+                            u64::MAX,
+                        );
+                        return Ok(self
+                            .inner
+                            .remote
+                            .lock()
+                            .expect("remote")
+                            .get(&handle)
+                            .map(Vec::len)
+                            .unwrap_or(0));
+                    }
+                    _ => match self.spotify() {
+                        Some(sp) => sp.search_tracks(query, 50).await.map_err(err)?,
+                        None => {
+                            drx_catalog::spotify::Spotify::new(self.inner.http.clone(), None, None)
+                                .search_tracks(query, 50)
+                                .await
+                                .map_err(err)?
+                        }
+                    },
+                };
+                plain(found)
+            }
             _ => return Ok(0),
         };
         let n = rows.len();

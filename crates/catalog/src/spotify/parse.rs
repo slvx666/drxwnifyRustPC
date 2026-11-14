@@ -206,6 +206,27 @@ pub fn album(v: &Value, album_id: &str) -> Option<Album> {
     })
 }
 
+pub fn search_tracks(v: &Value) -> Vec<Track> {
+    path(v, &["data", "searchV2", "tracksV2"])
+        .map(|t| {
+            arr(t, "items")
+                .iter()
+                .filter_map(|e| {
+                    let w = obj(e, "item")?;
+                    if s(w, "__typename") != Some("TrackResponseWrapper") {
+                        return None;
+                    }
+                    let d = obj(w, "data")?;
+                    if s(d, "__typename") != Some("Track") {
+                        return None;
+                    }
+                    track(d, s(w, "_uri").or_else(|| s(w, "uri")), None)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub fn top_tracks(v: &Value) -> Vec<Track> {
     path(v, &["data", "me", "profile", "topTracks"])
         .map(|p| {

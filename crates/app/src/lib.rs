@@ -853,3 +853,23 @@ mod live_youtube {
         assert!(p > 150.0, "seek past the first MiB failed");
     }
 }
+
+#[cfg(test)]
+mod live_search {
+    use super::*;
+
+    /// Search in the main account's catalog returns tracks. DRX_TEST_PROFILE; not run in CI.
+    #[test]
+    fn searches_main_catalog() {
+        let Ok(dir) = std::env::var("DRX_TEST_PROFILE") else {
+            return;
+        };
+        let app = App::start(Profile::at(dir), EditionProfile::mini()).unwrap();
+        let h = app.open_list(ListSpec::Search {
+            query: "Sewerslvt goodbye".into(),
+        });
+        let n = app.runtime().block_on(app.load_remote(h)).unwrap();
+        eprintln!("search results={n}");
+        assert!(n > 0);
+    }
+}

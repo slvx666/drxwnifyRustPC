@@ -37,6 +37,10 @@ pub enum ListSpec {
     YandexPlaylist {
         id: String,
     },
+    /// Track search in the main account's catalog.
+    Search {
+        query: String,
+    },
 }
 
 impl ListSpec {

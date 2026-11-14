@@ -151,7 +151,33 @@ fn main() {
             });
         });
     }
-    ui.on_search(|_| {});
+    {
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_search(move |q| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            let q = q.trim().to_string();
+            if q.is_empty() {
+                return;
+            }
+            songs2.reopen(ListSpec::Search { query: q.clone() });
+            ui.set_selected_id("".into());
+            ui.set_view_title(format!("Поиск: {q}").into());
+            ui.set_view_subtitle("Поиск…".into());
+            ui.set_current_index(-1);
+            let (app3, h, ui_w2) = (app2.clone(), songs2.handle(), ui.as_weak());
+            app2.runtime().spawn(async move {
+                let res = app3.load_remote(h).await;
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_w2.upgrade() {
+                        ui.set_view_subtitle(match res {
+                            Ok(n) => format!("{n} треков").into(),
+                            Err(e) => format!("Поиск не удался: {e}").into(),
+                        });
+                    }
+                });
+            });
+        });
+    }
     {
         let a = app.clone();
         ui.on_toggle(move || a.toggle_play());
