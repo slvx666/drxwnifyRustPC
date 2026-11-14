@@ -501,6 +501,9 @@ impl App {
     /// Audio sources available with this profile's sessions.
     fn install_providers(&self) {
         let mut list: Vec<Arc<dyn drx_resolver::provider::AudioProvider>> = Vec::new();
+        list.push(Arc::new(
+            drx_resolver::providers::soundcloud::SoundCloud::new(self.inner.http.clone()),
+        ));
         if let Some(vk) = self.vk() {
             list.push(Arc::new(drx_resolver::providers::vk::VkProvider::new(vk)));
         }
@@ -777,5 +780,54 @@ mod live_resolve {
             ok >= 3,
             "resolver found too few of the first 5 liked songs: {ok}"
         );
+    }
+}
+
+#[cfg(test)]
+mod live_soundcloud {
+    use super::*;
+
+    /// SoundCloud HLS (fragmented MP4 AAC) plays: resolve a known SoundCloud track and check the clock.
+    /// DRX_TEST_NET=1; not run in CI.
+    #[test]
+    fn plays_soundcloud_hls() {
+        if std::env::var("DRX_TEST_NET").is_err() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let app = App::start(Profile::at(dir.path()), EditionProfile::mini()).unwrap();
+        app.set_volume(0.0);
+        use drx_catalog::model::{ArtistRef, Track};
+        let track = Track {
+            id: "test-sc".into(),
+            title: "goodbye".into(),
+            artists: vec![ArtistRef {
+                id: String::new(),
+                name: "Sewerslvt".into(),
+            }],
+            album: None,
+            duration_ms: 1_019_000,
+            isrc: None,
+            explicit: false,
+        };
+        app.inner
+            .playback
+            .play_list(vec![Playable { track, url: None }], 0);
+        let mut pos = 0.0;
+        for _ in 0..80 {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            pos = app.clock().position_s;
+            if pos > 1.0 {
+                break;
+            }
+            if let Some(e) = app.now_playing().borrow().error.clone() {
+                panic!("{e}");
+            }
+        }
+        eprintln!("soundcloud hls pos={pos:.1}");
+        assert!(pos > 1.0);
+        app.seek(120.0);
+        std::thread::sleep(std::time::Duration::from_millis(3000));
+        eprintln!("after seek pos={:.1}", app.clock().position_s);
     }
 }

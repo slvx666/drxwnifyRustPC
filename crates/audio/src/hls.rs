@@ -250,6 +250,8 @@ pub struct HlsReader {
     pos: usize,
     keys: HashMap<String, [u8; 16]>,
     init_sent: bool,
+    /// AAC configuration of an fMP4 playlist: its segments are turned into ADTS (decodable front to back).
+    adts: Option<crate::fmp4::AudioConfig>,
     /// Container hint for the decoder: "mp3", "aac" or "mp4".
     kind: Option<&'static str>,
 }
@@ -264,6 +266,7 @@ impl HlsReader {
             pos: 0,
             keys: HashMap::new(),
             init_sent: false,
+            adts: None,
             kind: None,
         }
     }
@@ -284,10 +287,20 @@ impl HlsReader {
         if self.playlist.is_fmp4() && !self.init_sent {
             self.init_sent = true;
             if let Some(init) = self.playlist.init.clone() {
-                self.buf = self.fetcher.get(&init)?;
-                self.pos = 0;
-                self.kind = Some("mp4");
-                return Ok(true);
+                let bytes = self.fetcher.get(&init)?;
+                match crate::fmp4::parse_init(&bytes) {
+                    Some(cfg) => {
+                        // AAC: the init carries no samples; segments become ADTS frames.
+                        self.adts = Some(cfg);
+                        self.kind = Some("aac");
+                    }
+                    None => {
+                        self.buf = bytes;
+                        self.pos = 0;
+                        self.kind = Some("mp4");
+                        return Ok(true);
+                    }
+                }
             }
         }
         let Some(seg) = self.playlist.segments.get(self.next).cloned() else {
@@ -314,7 +327,10 @@ impl HlsReader {
                 &k.iv.unwrap_or_else(|| sequence_iv(seg.sequence)),
             )?;
         }
-        if self.playlist.is_fmp4() {
+        if let Some(cfg) = self.adts {
+            self.buf = crate::fmp4::transmux(&data, cfg)
+                .ok_or_else(|| std::io::Error::other("bad fMP4 segment"))?;
+        } else if self.playlist.is_fmp4() {
             self.kind = Some("mp4");
             self.buf = data;
         } else if data.first() == Some(&0x47) {
