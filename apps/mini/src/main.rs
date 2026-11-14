@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 //! Drxwnify Mini: the native, light edition. All logic lives in `drx-app`; this file only binds the UI to it.
 
+mod artist_view;
 mod home_view;
 mod lazy_library;
 mod lazy_songs;
@@ -233,6 +234,14 @@ fn main() {
             settings_view::apply_theme(&ui, &app2);
             if ui.get_view_settings() {
                 settings_view::fill(&ui, &app2);
+            }
+        });
+    }
+    {
+        let (ui_w, songs2) = (ui.as_weak(), songs.clone());
+        ui.on_artist_more(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                artist_view::toggle_more(&ui, &songs2);
             }
         });
     }
@@ -628,7 +637,13 @@ fn main() {
     }
     {
         let songs2 = songs.clone();
-        ui.on_list_changed(move || songs2.invalidate());
+        let ui_w = ui.as_weak();
+        ui.on_list_changed(move || {
+            songs2.invalidate();
+            if let Some(ui) = ui_w.upgrade() {
+                artist_view::set_tracks(&ui, &songs2);
+            }
+        });
     }
     {
         let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
@@ -682,6 +697,7 @@ fn main() {
                 nav::refresh_releases(&ui, &app3);
                 home_view::refresh(&ui, &app3);
                 search_view::refresh_covers(&ui, &app3);
+                artist_view::refresh_covers(&ui, &app3, &songs3);
                 let url = ui.get_view_cover_url().to_string();
                 if !url.is_empty()
                     && let Some(c) = cover_r(
@@ -997,6 +1013,19 @@ fn round_corners(px: &mut [slint::Rgba8Pixel], n: usize, r: f32) {
             }
         }
     }
+}
+
+/// «1 234 567» (no-break spaces between thousands).
+pub fn group_digits(n: u64) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 {
+            out.push('\u{a0}');
+        }
+        out.push(c);
+    }
+    out
 }
 
 pub fn fmt_time(secs: f64) -> String {

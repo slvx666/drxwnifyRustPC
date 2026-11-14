@@ -82,6 +82,9 @@ pub fn track(
         album,
         duration_ms: duration_ms(t),
         isrc: None,
+        plays: s(t, "playcount")
+            .or_else(|| s(t, "playCount"))
+            .and_then(|x| x.parse().ok()),
         explicit: path(t, &["contentRating", "label"]).and_then(Value::as_str) == Some("EXPLICIT"),
     })
 }
@@ -235,7 +238,46 @@ pub fn artist_page(v: &Value, artist_id: &str) -> Option<ArtistPage> {
         related: path(a, &["relatedContent", "relatedArtists"])
             .map(|r| arr(r, "items").iter().filter_map(artist_summary).collect())
             .unwrap_or_default(),
+        appears_on: appears_on(a),
+        monthly_listeners: path(a, &["stats", "monthlyListeners"]).and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|x| x.parse().ok()))
+        }),
+        genres: Vec::new(),
     })
+}
+
+/// relatedContent.appearsOn: releases of others with this artist (Spotify.artistAppearsOn), with their artists.
+fn appears_on(a: &Value) -> Vec<AlbumSummary> {
+    let mut out: Vec<AlbumSummary> = path(a, &["relatedContent", "appearsOn"])
+        .map(|g| {
+            arr(g, "items")
+                .iter()
+                .filter_map(|e| {
+                    let r = obj(e, "releases")
+                        .and_then(|x| arr(x, "items").first())
+                        .unwrap_or(e);
+                    Some(AlbumSummary {
+                        id: id_of(s(r, "uri")?),
+                        name: s(r, "name")?.to_string(),
+                        artists: obj(r, "artists")
+                            .map(|x| arr(x, "items").iter().filter_map(artist).collect())
+                            .unwrap_or_default(),
+                        images: obj(r, "coverArt")
+                            .map(|c| images(arr(c, "sources")))
+                            .unwrap_or_default(),
+                        date: obj(r, "date").and_then(release_date),
+                        kind: s(r, "type")
+                            .map(str::to_lowercase)
+                            .unwrap_or_else(|| "album".into()),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|x| seen.insert(x.id.clone()));
+    out
 }
 
 /// `{uri, profile.name, visuals.avatarImage}` → artist summary (related artists, search).
@@ -378,8 +420,6 @@ pub fn top_tracks(v: &Value) -> Vec<Track> {
         })
         .unwrap_or_default()
 }
-
-
 
 /// Every section of a searchDesktop answer: tracks, artists, albums, playlists.
 pub fn search_all(v: &Value) -> SearchResults {

@@ -151,6 +151,15 @@ fn current_len() -> usize {
     SONGS.with(|s| s.borrow().as_ref().map_or(0, |m| m.len()))
 }
 
+/// The artist view's popular tracks from the current list (after it loads or changes).
+pub fn refresh_artist_tracks(ui: &MainWindow) {
+    SONGS.with(|s| {
+        if let Some(m) = s.borrow().as_ref() {
+            crate::artist_view::set_tracks(ui, m);
+        }
+    });
+}
+
 /// Opens a page and remembers it (drops the forward part of the history, like a browser).
 pub fn go(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     HISTORY.with(|h| {
@@ -274,6 +283,13 @@ fn apply_header(ui: &MainWindow, app: &App, h: &ListHeader, n: usize, secs: i64)
     if !h.title.is_empty() {
         ui.set_view_title(h.title.clone().into());
     }
+    // A release's own kind names the caption (СИНГЛ, EP, СБОРНИК instead of АЛЬБОМ).
+    match h.subtitle.split(" · ").next() {
+        Some("Сингл") => ui.set_view_kind("СИНГЛ".into()),
+        Some("EP") => ui.set_view_kind("EP".into()),
+        Some("Сборник") => ui.set_view_kind("СБОРНИК".into()),
+        _ => {}
+    }
     // The subtitle's own first word is the kind («Альбом · …»): the caption above says it already.
     let sub = h
         .subtitle
@@ -287,9 +303,17 @@ fn apply_header(ui: &MainWindow, app: &App, h: &ListHeader, n: usize, secs: i64)
                 h.subtitle.clone()
             }
         });
-    ui.set_view_subtitle(count_line(&sub, n, secs).into());
+    // An artist page says listeners and genres, not a track count (Spotify, Android).
+    if ui.get_view_artist() && !sub.is_empty() {
+        ui.set_view_subtitle(sub.into());
+    } else {
+        ui.set_view_subtitle(count_line(&sub, n, secs).into());
+    }
     if h.image.is_some() {
         set_header_image(ui, app, h.image.clone());
+    }
+    if ui.get_view_artist() {
+        crate::artist_view::set_header(ui, app, h);
     }
     set_releases(ui, app, h.releases.clone());
 }
@@ -297,6 +321,15 @@ fn apply_header(ui: &MainWindow, app: &App, h: &ListHeader, n: usize, secs: i64)
 fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     ui.set_view_home(page.home);
     ui.set_view_settings(page.settings);
+    ui.set_view_artist(
+        matches!(
+            page.spec,
+            ListSpec::Artist { .. } | ListSpec::CatalogArtist { .. }
+        ) && !page.home
+            && !page.settings
+            && page.search.is_none(),
+    );
+    crate::artist_view::clear(ui);
     ui.set_view_search(page.search.is_some());
     if let Some((q, source)) = &page.search {
         ui.set_selected_id("".into());
@@ -345,6 +378,7 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
             .block_on(app.list_seconds(songs.handle()))
             .unwrap_or(0);
         ui.set_view_can_play(n > 0);
+        crate::artist_view::set_tracks(ui, songs);
         let local = app.runtime().block_on(app.local_header(&page.spec));
         match &local {
             Some(h) => apply_header(ui, app, h, n, secs),
@@ -397,6 +431,7 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
             }
             if let Ok(n) = res {
                 ui.set_view_can_play(n > 0 && !search);
+                refresh_artist_tracks(&ui);
             }
             match (res, header) {
                 (Ok(n), Some(head)) => apply_header(&ui, &app2, &head, n, secs),

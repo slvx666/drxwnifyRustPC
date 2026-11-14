@@ -562,6 +562,7 @@ impl App {
             }),
             duration_ms: e.get("duration").and_then(|d| d.as_u64()).unwrap_or(0),
             isrc: None,
+            plays: None,
             explicit: e
                 .get("isExplicit")
                 .and_then(|x| x.as_bool())
@@ -587,6 +588,7 @@ impl App {
             }),
             duration_ms: secs * 1000,
             isrc: None,
+            plays: None,
             explicit: false,
         })
     }

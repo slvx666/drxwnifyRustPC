@@ -134,6 +134,7 @@ pub fn track(v: &Value, fallback_album: Option<&AlbumRef>) -> Option<Track> {
         album: album.or_else(|| fallback_album.cloned()),
         duration_ms: v.get("durationMs").and_then(Value::as_u64).unwrap_or(0),
         isrc: None,
+        plays: None,
         explicit: st(v, "contentWarning").is_some_and(|w| w.eq_ignore_ascii_case("explicit")),
     })
 }
@@ -483,8 +484,55 @@ impl Yandex {
                 r.sort_by(|a, b| b.date.cmp(&a.date));
                 r
             },
-            related: Vec::new(),
+            related: self.similar_artists(artist_id).await.unwrap_or_default(),
+            appears_on: arr(&v, "alsoAlbums")
+                .iter()
+                .filter_map(simple_album)
+                .map(|(a, artists, date, kind, _)| AlbumSummary {
+                    id: a.id,
+                    name: a.name,
+                    artists,
+                    images: a.images,
+                    date,
+                    kind,
+                })
+                .collect(),
+            monthly_listeners: v
+                .pointer("/stats/lastMonthListeners")
+                .and_then(Value::as_u64),
+            genres: a
+                .get("genres")
+                .and_then(Value::as_array)
+                .map(|g| {
+                    g.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
+    }
+
+    /// Artists like this one (`artists/<id>/similar`, YandexMusic.similarArtists).
+    pub async fn similar_artists(&self, artist_id: &str) -> Result<Vec<ArtistSummary>> {
+        let v = self
+            .get(&format!("artists/{}/similar", raw(artist_id)), &[], true)
+            .await?;
+        Ok(arr(&v, "similarArtists")
+            .iter()
+            .filter_map(|a| {
+                let r = artist(a)?;
+                Some(ArtistSummary {
+                    id: r.id,
+                    name: r.name,
+                    images: cover_images(
+                        a.get("cover")
+                            .and_then(|c| st(c, "uri"))
+                            .or_else(|| st(a, "ogImage")),
+                    ),
+                })
+            })
+            .collect())
     }
 
     /// Everything at once (`search?type=all`): tracks, artists, albums, playlists.

@@ -116,6 +116,7 @@ impl Model for LazySongs {
                 artists: r.artists.into(),
                 duration: crate::fmt_time(r.duration_s as f64).into(),
                 liked: r.liked,
+                plays: r.plays.map(crate::group_digits).unwrap_or_default().into(),
                 artist_id: r.artist_id.unwrap_or_default().into(),
                 album_id: r.album_id.unwrap_or_default().into(),
                 index: row as i32 + 1,

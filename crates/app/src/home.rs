@@ -370,12 +370,13 @@ impl App {
             }
         };
         let page = self.catalog_artist(&cid).await?;
-        Some(crate::ListHeader {
-            title: page.name.clone(),
-            subtitle: "Исполнитель · в медиатеке".into(),
-            image: drx_catalog::model::best_image(&page.images, 600).map(|i| i.url.clone()),
-            releases: page.releases,
-        })
+        let mut h = crate::accounts::artist_header(&page);
+        h.subtitle = if h.subtitle.is_empty() {
+            "В медиатеке".into()
+        } else {
+            format!("{} · в медиатеке", h.subtitle)
+        };
+        Some(h)
     }
 
     /// An artist page from its catalog (Spotify without a session works for public data).

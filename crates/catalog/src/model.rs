@@ -59,6 +59,9 @@ pub struct Track {
     pub duration_ms: u64,
     pub isrc: Option<String>,
     pub explicit: bool,
+    /// Spotify's play count, when the catalog gives it (album pages show it).
+    #[serde(default)]
+    pub plays: Option<u64>,
 }
 
 impl Track {
@@ -102,8 +105,12 @@ pub struct ArtistPage {
     pub top_tracks: Vec<Track>,
     /// Albums, EPs and singles, newest first (Catalog.artistReleases).
     pub releases: Vec<Release>,
-    /// Artists like this one (Spotify only; empty elsewhere).
+    /// Artists like this one (Spotify, Yandex).
     pub related: Vec<ArtistSummary>,
+    /// Releases of other artists this one appears on («Участие»: features, compilations).
+    pub appears_on: Vec<AlbumSummary>,
+    pub monthly_listeners: Option<u64>,
+    pub genres: Vec<String>,
 }
 
 /// An artist in a list (related artists, search results).

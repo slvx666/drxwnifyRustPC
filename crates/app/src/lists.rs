@@ -131,6 +131,9 @@ pub struct ListHeader {
     pub image: Option<String>,
     /// An artist's albums and singles, newest first (empty for other pages).
     pub releases: Vec<drx_catalog::model::Release>,
+    /// An artist's «Участие» and similar artists.
+    pub appears_on: Vec<drx_catalog::model::AlbumSummary>,
+    pub related: Vec<drx_catalog::model::ArtistSummary>,
 }
 
 /// One song row as lists show it.
@@ -146,6 +149,8 @@ pub struct SongRow {
     /// The first artist's id and the album's id, when known: rows link to those pages.
     pub artist_id: Option<String>,
     pub album_id: Option<String>,
+    /// Spotify's play count (catalog album pages).
+    pub plays: Option<u64>,
 }
 
 struct Entry {
@@ -278,6 +283,7 @@ pub(crate) fn rows(
                 liked: r.get(6)?,
                 artist_id: r.get(7)?,
                 album_id: r.get(8)?,
+                plays: None,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -302,6 +308,7 @@ pub(crate) fn forgotten(c: &mut Connection, cut: i64) -> drx_core::Result<Vec<So
                 liked: r.get(6)?,
                 artist_id: r.get(7)?,
                 album_id: r.get(8)?,
+                plays: None,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -326,6 +333,7 @@ pub(crate) fn all_library_rows(c: &mut Connection) -> drx_core::Result<Vec<SongR
                 liked: r.get(6)?,
                 artist_id: r.get(7)?,
                 album_id: r.get(8)?,
+                plays: None,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;

@@ -677,6 +677,8 @@ impl App {
                                     subtitle: sub.join(" · "),
                                     image: r.get(2)?,
                                     releases: Vec::new(),
+                                    appears_on: Vec::new(),
+                                    related: Vec::new(),
                                 })
                             },
                         )
@@ -691,6 +693,8 @@ impl App {
                                     subtitle: "Исполнитель".into(),
                                     image: r.get(1)?,
                                     releases: Vec::new(),
+                                    appears_on: Vec::new(),
+                                    related: Vec::new(),
                                 })
                             },
                         )
@@ -931,6 +935,7 @@ fn row_of(p: &Playable) -> SongRow {
             .as_ref()
             .map(|a| a.id.clone())
             .filter(|i| !i.is_empty()),
+        plays: t.plays.filter(|n| *n > 0),
     }
 }
 
@@ -968,6 +973,7 @@ fn playable_of(r: SongRow) -> Playable {
             }),
             duration_ms: r.duration_s.max(0) as u64 * 1000,
             isrc: None,
+            plays: None,
             explicit: false,
         },
         url: None,
@@ -1227,6 +1233,7 @@ mod live_soundcloud {
             album: None,
             duration_ms: 1_019_000,
             isrc: None,
+            plays: None,
             explicit: false,
         };
         app.inner
@@ -1283,6 +1290,7 @@ mod live_youtube {
             album: None,
             duration_ms: 200_000,
             isrc: None,
+            plays: None,
             explicit: false,
         };
         app.inner

@@ -22,6 +22,7 @@ export struct SongItem {
     has-cover: bool,
     artist-id: string,
     album-id: string,
+    plays: string, // Spotify's play count, «1 234 567» (album pages)
 }
 
 export struct ReleaseItem {
@@ -549,6 +550,7 @@ component SongRow inherits Rectangle {
                 Link { text: song.artists; enabled: song.artist-id != ""; clicked => { root.open-artist(song.artist-id); } }
             }
         }
+        if song.plays != "": Text { width: 96px; text: song.plays; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
         Middle { Icon { icon: song.liked ? Icons.heart-filled : ""; color: Theme.accent; size: 16px; } }
         Text { width: 40px; text: song.duration; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
     }
@@ -842,6 +844,74 @@ component SearchPage inherits Flickable {
     }
 }
 
+// An artist page: popular tracks, then albums, singles, «Участие» and similar artists (Spotify / Android layout).
+component ArtistView inherits Flickable {
+    in property <[SongItem]> tracks;
+    in property <int> tracks-total;
+    in property <bool> expanded;
+    in property <[HomeCard]> albums;
+    in property <[HomeCard]> singles;
+    in property <[HomeCard]> appears;
+    in property <[HomeCard]> related;
+    in property <string> now-id;
+    callback play(int);
+    callback more();
+    callback open-artist(string);
+    callback open-album(string);
+    content-height: body.preferred-height + Grid.pad;
+    body := VerticalLayout {
+        width: root.width;
+        spacing: Grid.pad;
+        alignment: start;
+        if root.tracks.length > 0: VerticalLayout {
+            spacing: 4px;
+            HorizontalLayout {
+                padding-left: Grid.pad + 4px;
+                padding-right: Grid.pad + 4px;
+                height: 28px;
+                Text { horizontal-stretch: 1; text: "Популярные треки"; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; vertical-alignment: center; }
+                if root.tracks-total > 5: Link {
+                    text: root.expanded ? "Свернуть" : "Показать все · " + root.tracks-total;
+                    font-size: 13px;
+                    clicked => { root.more(); }
+                }
+            }
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                VerticalLayout {
+                    for t[i] in root.tracks: SongRow {
+                        song: t;
+                        current: root.now-id != "" && t.id == root.now-id;
+                        play => { root.play(i); }
+                        open-artist(id) => { root.open-artist(id); }
+                    }
+                }
+            }
+        }
+        if root.albums.length > 0: VerticalLayout {
+            spacing: 8px;
+            SectionHead { text: "Альбомы"; }
+            CardStrip { cards: root.albums; clicked(i) => { root.open-album(root.albums[i].id); } }
+        }
+        if root.singles.length > 0: VerticalLayout {
+            spacing: 8px;
+            SectionHead { text: "Синглы и EP"; }
+            CardStrip { cards: root.singles; clicked(i) => { root.open-album(root.singles[i].id); } }
+        }
+        if root.appears.length > 0: VerticalLayout {
+            spacing: 8px;
+            SectionHead { text: "Участие"; }
+            CardStrip { cards: root.appears; clicked(i) => { root.open-album(root.appears[i].id); } }
+        }
+        if root.related.length > 0: VerticalLayout {
+            spacing: 8px;
+            SectionHead { text: "Похожие исполнители"; }
+            CardStrip { cards: root.related; round: true; clicked(i) => { root.open-artist(root.related[i].id); } }
+        }
+    }
+}
+
 component MainArea inherits VerticalLayout {
     in property <string> title;
     in property <string> subtitle;
@@ -860,6 +930,15 @@ component MainArea inherits VerticalLayout {
     in property <bool> home; // the home page: rows of cards instead of a track list
     in property <bool> settings;
     in property <bool> search; // the search page
+    in property <bool> artist-view; // an artist page (sections instead of the track list)
+    in property <[SongItem]> a-tracks;
+    in property <int> a-total;
+    in property <bool> a-expanded;
+    in property <[HomeCard]> a-albums;
+    in property <[HomeCard]> a-singles;
+    in property <[HomeCard]> a-appears;
+    in property <[HomeCard]> a-related;
+    callback a-more();
     in property <[SourceChip]> s-chips;
     in property <string> s-state;
     in property <string> s-top-kind;
@@ -956,8 +1035,8 @@ component MainArea inherits VerticalLayout {
             }
         }
     }
-    // Artist releases: one row of covers that scrolls sideways.
-    if root.releases.length > 0: VerticalLayout {
+    // Releases strip (old artist layout; the artist view shows them in sections now).
+    if root.releases.length > 0 && !root.artist-view: VerticalLayout {
         vertical-stretch: 0;
         spacing: 8px;
         Caption { x: Grid.pad + 4px; text: "РЕЛИЗЫ"; }
@@ -998,6 +1077,21 @@ component MainArea inherits VerticalLayout {
                 ta := TouchArea { clicked => { root.import-backup(); } }
             }
         }
+    }
+    if root.artist-view && !root.empty-library: ArtistView {
+        vertical-stretch: 1;
+        tracks: root.a-tracks;
+        tracks-total: root.a-total;
+        expanded: root.a-expanded;
+        albums: root.a-albums;
+        singles: root.a-singles;
+        appears: root.a-appears;
+        related: root.a-related;
+        now-id: root.now-id;
+        play(i) => { root.play(i); }
+        more => { root.a-more(); }
+        open-artist(id) => { root.open-artist(id); }
+        open-album(id) => { root.open-album(id); }
     }
     if root.search: SearchPage {
         vertical-stretch: 1;
@@ -1103,7 +1197,7 @@ component MainArea inherits VerticalLayout {
             }
         }
     }
-    if !root.home && !root.settings && !root.search && !root.empty-library: HorizontalLayout {
+    if !root.home && !root.settings && !root.search && !root.artist-view && !root.empty-library: HorizontalLayout {
         vertical-stretch: 1;
         padding-left: 8px;
         padding-right: 4px;
@@ -1329,6 +1423,15 @@ export component MainWindow inherits Window {
     in property <[ReleaseItem]> view-releases;
     in property <bool> view-home;
     in property <bool> view-search;
+    in property <bool> view-artist;
+    in property <[SongItem]> artist-tracks;
+    in property <int> artist-total;
+    in property <bool> artist-expanded;
+    in property <[HomeCard]> artist-albums;
+    in property <[HomeCard]> artist-singles;
+    in property <[HomeCard]> artist-appears;
+    in property <[HomeCard]> artist-related;
+    callback artist-more();
     in property <[SourceChip]> search-chips;
     in property <string> search-state;
     in property <string> search-top-kind;
@@ -1476,6 +1579,15 @@ export component MainWindow inherits Window {
                         home: root.view-home;
                         settings: root.view-settings;
                         search: root.view-search;
+                        artist-view: root.view-artist;
+                        a-tracks: root.artist-tracks;
+                        a-total: root.artist-total;
+                        a-expanded: root.artist-expanded;
+                        a-albums: root.artist-albums;
+                        a-singles: root.artist-singles;
+                        a-appears: root.artist-appears;
+                        a-related: root.artist-related;
+                        a-more => { root.artist-more(); }
                         s-chips: root.search-chips;
                         s-state: root.search-state;
                         s-top-kind: root.search-top-kind;

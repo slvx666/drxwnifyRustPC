@@ -279,6 +279,7 @@ pub fn parse_audio(o: &Value) -> Option<VkAudio> {
             album,
             duration_ms: o.get("duration").and_then(Value::as_u64).unwrap_or(0) * 1000,
             isrc: None,
+            plays: None,
             explicit: o
                 .get("is_explicit")
                 .and_then(Value::as_bool)
@@ -646,6 +647,9 @@ impl Vk {
                 r
             },
             related: Vec::new(),
+            appears_on: Vec::new(),
+            monthly_listeners: None,
+            genres: Vec::new(),
         };
         Ok((page, audios))
     }

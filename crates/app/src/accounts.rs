@@ -473,6 +473,8 @@ impl App {
                                     .map(|i| i.url.clone())
                             }),
                             releases: Vec::new(),
+                            appears_on: Vec::new(),
+                            related: Vec::new(),
                         };
                         self.set_header(handle, header);
                         let rows: Vec<Playable> = audios
@@ -564,22 +566,98 @@ fn album_header(a: &drx_catalog::model::Album) -> ListHeader {
     if !artists.is_empty() {
         sub.push(artists);
     }
-    if let Some(y) = a.release_date.as_deref().and_then(|d| d.get(..4)) {
-        sub.push(y.to_string());
+    if let Some(d) = a.release_date.as_deref() {
+        sub.push(full_date(d));
     }
     ListHeader {
         title: a.name.clone(),
         subtitle: sub.join(" · "),
         image: drx_catalog::model::best_image(&a.images, 600).map(|i| i.url.clone()),
         releases: Vec::new(),
+        appears_on: Vec::new(),
+        related: Vec::new(),
     }
 }
 
-fn artist_header(p: &drx_catalog::model::ArtistPage) -> ListHeader {
+/// «12 тыс.», «1,2 млн».
+pub(crate) fn listeners_words(n: u64) -> String {
+    let num = if n >= 1_000_000 {
+        format!("{:.1} млн", n as f64 / 1e6)
+            .replace(".0 ", " ")
+            .replace('.', ",")
+    } else if n >= 1000 {
+        format!("{} тыс.", n / 1000)
+    } else {
+        n.to_string()
+    };
+    format!("{num} слушателей в месяц")
+}
+
+pub(crate) fn artist_header(p: &drx_catalog::model::ArtistPage) -> ListHeader {
+    let mut sub: Vec<String> = Vec::new();
+    if let Some(n) = p.monthly_listeners.filter(|n| *n > 0) {
+        sub.push(listeners_words(n));
+    }
+    if !p.genres.is_empty() {
+        sub.push(
+            p.genres
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    }
     ListHeader {
         title: p.name.clone(),
-        subtitle: "Исполнитель · популярное".into(),
+        subtitle: sub.join(" · "),
         image: drx_catalog::model::best_image(&p.images, 600).map(|i| i.url.clone()),
         releases: p.releases.clone(),
+        appears_on: p.appears_on.clone(),
+        related: p.related.clone(),
+    }
+}
+
+/// «14 марта 2024» from "2024-03-14"; just the year when that is all the catalog knows.
+pub(crate) fn full_date(d: &str) -> String {
+    const MONTHS: [&str; 12] = [
+        "января",
+        "февраля",
+        "марта",
+        "апреля",
+        "мая",
+        "июня",
+        "июля",
+        "августа",
+        "сентября",
+        "октября",
+        "ноября",
+        "декабря",
+    ];
+    let parts: Vec<&str> = d.get(..10).unwrap_or(d).split('-').collect();
+    match parts.as_slice() {
+        [y, m, day] => match (m.parse::<usize>(), day.parse::<u32>()) {
+            (Ok(m), Ok(day)) if (1..=12).contains(&m) => format!("{day} {} {y}", MONTHS[m - 1]),
+            _ => y.to_string(),
+        },
+        _ => d.get(..4).unwrap_or(d).to_string(),
+    }
+}
+
+#[cfg(test)]
+mod words_tests {
+    #[test]
+    fn dates_and_listeners() {
+        assert_eq!(super::full_date("2024-03-14"), "14 марта 2024");
+        assert_eq!(super::full_date("2021"), "2021");
+        assert_eq!(
+            super::listeners_words(1_234_567),
+            "1,2 млн слушателей в месяц"
+        );
+        assert_eq!(
+            super::listeners_words(2_000_000),
+            "2 млн слушателей в месяц"
+        );
+        assert_eq!(super::listeners_words(45_300), "45 тыс. слушателей в месяц");
     }
 }

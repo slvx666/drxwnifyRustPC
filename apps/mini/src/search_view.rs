@@ -242,6 +242,7 @@ pub fn render(ui: &MainWindow, app: &App) {
                     index: i as i32 + 1,
                     has_cover: c.is_some(),
                     cover: c.unwrap_or_default(),
+                    plays: t.plays.map(crate::group_digits).unwrap_or_default().into(),
                     artist_id: t
                         .artists
                         .first()
