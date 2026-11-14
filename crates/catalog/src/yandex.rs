@@ -1,7 +1,7 @@
 //! Yandex Music as a catalog (metadata and library only; audio comes from the resolver). Port of
 //! `yandex/YandexMusic.kt` and `YandexParser.kt`. Ids: `ym_<raw>`, playlists `ym_<uid>_<kind>`.
 
-use crate::js::{arr, s};
+use crate::js::arr;
 use crate::model::{Album, AlbumRef, ArtistRef, Image, Page, Playlist, Track, User};
 use drx_core::http::{Http, HttpError, Method, RequestBuilder};
 use serde_json::Value;
@@ -74,7 +74,10 @@ fn artist(v: &Value) -> Option<ArtistRef> {
     })
 }
 
-fn simple_album(v: &Value) -> Option<(AlbumRef, Vec<ArtistRef>, Option<String>, String, u32)> {
+/// Album reference, its artists, release date, album type, track count.
+type SimpleAlbum = (AlbumRef, Vec<ArtistRef>, Option<String>, String, u32);
+
+fn simple_album(v: &Value) -> Option<SimpleAlbum> {
     let id = st(v, "id")?;
     let tc = v.get("trackCount").and_then(Value::as_u64).unwrap_or(0) as u32;
     let kind = match st(v, "type").as_deref().map(str::to_lowercase).as_deref() {
@@ -478,7 +481,6 @@ mod tests {
         assert_eq!(t.title, "Song (Remix)");
         assert_eq!(t.artists[0].id, "ym_7");
         assert_eq!(t.album.unwrap().images[1].url, "https://x/400x400");
-        let _ = s;
     }
 
     /// Real account check with the token from an imported profile. DRX_TEST_PROFILE; counts only.
