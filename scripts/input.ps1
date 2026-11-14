@@ -1,6 +1,6 @@
 # Developer checks with real input: mouse into the Mini window at client coordinates (the window may sit on the
 # second monitor; the cursor moves there). Pair with shotwin.ps1 -Client. Run Mini with DRX_MUTE=1 so clicks stay silent.
-param([string]$Do = "wheel", [int]$X, [int]$Y, [int]$Amount = -3, [string]$Text = "", [int]$Key = 0)
+param([string]$Do = "wheel", [int]$X, [int]$Y, [int]$Amount = -3, [string]$Text = "", [int]$Key = 0, [switch]$Ctrl)
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -25,6 +25,12 @@ public static class DrxIn {
         }
         SendInput(2, a, Marshal.SizeOf(typeof(INPUT)));
     }
+    static void One(ushort vk, uint flags) {
+        var a = new INPUT[1]; a[0].Type = 1; a[0].Ki.Vk = vk; a[0].Ki.Flags = flags;
+        SendInput(1, a, Marshal.SizeOf(typeof(INPUT)));
+    }
+    public static void Down(ushort vk) { One(vk, 0); }
+    public static void Up(ushort vk) { One(vk, 2); }
 }
 "@
 $p = Get-Process drxwnify-mini | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
@@ -45,6 +51,6 @@ switch ($Do) {
   "type"   { if ([DrxIn]::GetForegroundWindow() -ne $p.MainWindowHandle) { Write-Error "Mini is not active: no keys sent"; exit 3 }
              foreach ($c in $Text.ToCharArray()) { [DrxIn]::Key(0, [uint16]$c); Start-Sleep -Milliseconds 40 } }
   "key"    { if ([DrxIn]::GetForegroundWindow() -ne $p.MainWindowHandle) { Write-Error "Mini is not active: no keys sent"; exit 3 }
-             [DrxIn]::Key([uint16]$Key, 0) }
+             if ($Ctrl) { [DrxIn]::Down(0x11) }; [DrxIn]::Key([uint16]$Key, 0); if ($Ctrl) { [DrxIn]::Up(0x11) } }
 }
 Start-Sleep -Milliseconds 400
