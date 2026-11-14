@@ -1,8 +1,13 @@
 // Drxwnify Mini: the same layout as the Kotlin desktop app (pc/ Shell.kt): top bar, library on the left,
 // content in the middle, «Сейчас играет» on the right, player bar at the bottom. Static themes, no animation loops.
+//
+// One construction, not floating pieces: the three columns and the player bar are sections of a single surface
+// split by hairlines, and the player bar's sections have the same widths as the columns above them. Every size and
+// gap comes from `Grid` (4 px steps); icons are vector paths with their ink centred (icons.slint).
 
-import { ListView, LineEdit, ScrollView } from "std-widgets.slint";
-import { Theme, Icons } from "theme.slint";
+import { ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Icons } from "icons.slint";
 
 export { Theme }
 
@@ -30,28 +35,57 @@ export struct LibItem {
     has-cover: bool,
 }
 
-component Icon inherits Text {
-    font-family: "tabler-icons";
-    font-size: 18px;
-    color: Theme.dim;
-    horizontal-alignment: center;
-    vertical-alignment: center;
+global Grid {
+    out property <length> gutter: 12px;      // window edge, top bar to surface
+    out property <length> pad: 16px;         // inside a section
+    out property <length> gap: 12px;         // between items in a row
+    out property <length> item-radius: min(10px, Theme.panel-radius); // list rows, hover backgrounds (square themes stay square)
+    out property <length> small-radius: min(8px, Theme.cover-radius); // small covers, brand mark
+    out property <length> lib-width: 280px;
+    out property <length> side-width: 320px;
+    out property <length> top-height: 64px;
+    out property <length> bar-height: 84px;
+    out property <length> control: 40px;     // top bar controls
+    out property <length> button: 36px;      // icon buttons elsewhere
+    out property <length> row: 60px;         // list rows
+}
+
+// A vector icon centred in a square box.
+component Icon {
+    in property <string> icon;
+    in property <length> size: 20px;
+    in property <color> color: Theme.dim;
+    width: size;
+    height: size;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 1000;
+        viewbox-height: 1000;
+        commands: root.icon;
+        fill: root.color;
+    }
 }
 
 component IconButton inherits Rectangle {
     in property <string> icon;
-    in property <length> size: 34px;
-    in property <length> icon-size: 18px;
+    in property <length> size: Grid.button;
+    in property <length> icon-size: 20px;
     in property <bool> filled: false;
     in property <bool> active: false;
     in property <color> tint: Theme.dim;
     callback clicked();
     width: size;
     height: size;
-    border-radius: Theme.chip-radius > size / 2 ? size / 2 : Theme.chip-radius;
+    border-radius: min(Theme.chip-radius, size / 2);
     background: ta.has-hover ? Theme.fill-hover : (filled || active ? Theme.fill : transparent);
-    Icon { text: icon; font-size: icon-size; color: active ? Theme.text : tint; }
+    Icon { icon: root.icon; size: root.icon-size; color: root.active || ta.has-hover ? Theme.text : root.tint; }
     ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+// Puts a fixed-size child in the vertical middle of a layout cell.
+component Middle inherits VerticalLayout {
+    alignment: center;
 }
 
 component Chip inherits Rectangle {
@@ -59,11 +93,11 @@ component Chip inherits Rectangle {
     in property <bool> selected;
     callback clicked();
     height: 28px;
-    border-radius: Theme.chip-radius > 14px ? 14px : Theme.chip-radius;
+    border-radius: min(Theme.chip-radius, 14px);
     background: selected ? Theme.accent : (ta.has-hover ? Theme.fill-hover : Theme.fill);
     HorizontalLayout {
-        padding-left: 11px;
-        padding-right: 11px;
+        padding-left: 12px;
+        padding-right: 12px;
         Text {
             text: label;
             font-size: 12px;
@@ -75,12 +109,46 @@ component Chip inherits Rectangle {
     ta := TouchArea { clicked => { root.clicked(); } }
 }
 
-component Panel inherits Rectangle {
-    background: Theme.panel;
-    border-color: Theme.panel-border;
-    border-width: 1px;
-    border-radius: Theme.panel-radius;
+component Cover inherits Rectangle {
+    in property <image> source;
+    in property <bool> has-source;
+    in property <string> placeholder: Icons.music;
+    in property <color> placeholder-color: Theme.mute;
+    in property <length> size;
+    in property <length> radius: Theme.cover-radius;
+    width: size;
+    height: size;
+    border-radius: radius;
     clip: true;
+    background: Theme.fill-hover;
+    if !root.has-source: Icon { icon: root.placeholder; size: round(root.size * 0.4 / 1px) * 1px; color: root.placeholder-color; }
+    if root.has-source: Image { source: root.source; width: root.size; height: root.size; image-fit: ImageFit.cover; }
+}
+
+component SectionTitle inherits Text {
+    font-family: Theme.heading-font;
+    font-weight: 700;
+    font-size: 15px;
+    color: Theme.text;
+    vertical-alignment: center;
+}
+
+component Caption inherits Text {
+    font-family: Theme.body-font;
+    font-weight: 700;
+    font-size: 11px;
+    color: Theme.mute;
+    letter-spacing: 1.5px;
+}
+
+component HLine inherits Rectangle {
+    height: 1px;
+    background: Theme.panel-border;
+}
+
+component VLine inherits Rectangle {
+    width: 1px;
+    background: Theme.panel-border;
 }
 
 // Static vector backdrop: soft mist blobs in the theme colours, drawn once (no animation in Mini).
@@ -102,27 +170,29 @@ component Backdrop inherits Rectangle {
     }
 }
 
+// The home button and search field sit exactly in the window's middle (placed by x, not by the layout, so the
+// different widths of the side groups do not move them). Side padding matches the sections below: the logo starts
+// where the library's titles start, the last icon ends where the right column's content ends.
 component TopBar inherits Rectangle {
     in-out property <string> search-text;
     callback search(string);
     callback home();
     callback import-backup();
-    height: 64px;
+    height: Grid.top-height;
     HorizontalLayout {
-        padding-left: 16px;
-        padding-right: 16px;
-        spacing: 6px;
-        alignment: space-between;
+        padding-left: Grid.pad;
+        padding-right: Grid.pad - 2px;
         HorizontalLayout {
-            spacing: 6px;
             alignment: start;
-            Rectangle {
-                width: 32px;
-                height: 32px;
-                y: (parent.height - self.height) / 2;
-                border-radius: 8px;
-                background: Theme.accent2;
-                Text { text: Theme.brand; font-family: "Noto Serif JP"; font-size: 18px; color: white; horizontal-alignment: center; vertical-alignment: center; }
+            spacing: 8px;
+            Middle {
+                Rectangle {
+                    width: 32px;
+                    height: 32px;
+                    border-radius: Grid.small-radius;
+                    background: Theme.accent2;
+                    Text { text: Theme.brand; font-family: "Noto Serif JP"; font-size: 18px; color: white; }
+                }
             }
             Text {
                 text: "drxwnify";
@@ -132,102 +202,122 @@ component TopBar inherits Rectangle {
                 color: Theme.text;
                 vertical-alignment: center;
             }
-            Rectangle { width: 12px; }
-            IconButton { icon: Icons.chevron-left; filled: true; y: (parent.height - self.height) / 2; }
-            IconButton { icon: Icons.chevron-right; filled: true; y: (parent.height - self.height) / 2; }
+            Rectangle { width: 8px; }
+            Middle { IconButton { icon: Icons.chevron-left; filled: true; } }
+            Middle { IconButton { icon: Icons.chevron-right; filled: true; } }
         }
         HorizontalLayout {
-            spacing: 8px;
-            alignment: center;
-            IconButton { icon: Icons.home; size: 46px; icon-size: 21px; filled: true; y: (parent.height - self.height) / 2; clicked => { root.home(); } }
+            alignment: end;
+            spacing: 4px;
+            Middle { IconButton { icon: Icons.users; } }
+            Middle { IconButton { icon: Icons.puzzle; } }
+            Middle { IconButton { icon: Icons.download; } }
+            Middle { IconButton { icon: Icons.upload; clicked => { root.import-backup(); } } }
+        }
+    }
+    HorizontalLayout {
+        x: (root.width - self.width) / 2;
+        width: Grid.control + 8px + 400px;
+        height: root.height;
+        spacing: 8px;
+        Middle { IconButton { icon: Icons.home; size: Grid.control; filled: true; clicked => { root.home(); } } }
+        Middle {
             Rectangle {
                 width: 400px;
-                height: 46px;
-                y: (parent.height - self.height) / 2;
-                border-radius: Theme.chip-radius > 23px ? 23px : Theme.chip-radius;
+                height: Grid.control;
+                border-radius: min(Theme.chip-radius, Grid.control / 2);
                 background: Theme.fill;
                 border-color: Theme.panel-border;
                 border-width: 1px;
                 HorizontalLayout {
-                    padding-left: 14px;
-                    padding-right: 14px;
+                    padding-left: 12px;
+                    padding-right: 16px;
                     spacing: 8px;
-                    Icon { text: Icons.search; width: 20px; }
-                    input := TextInput {
-                        text <=> root.search-text;
-                        font-family: Theme.body-font;
-                        font-size: 14px;
-                        color: Theme.text;
-                        vertical-alignment: center;
-                        accepted => { root.search(self.text); }
+                    Middle { Icon { icon: Icons.search; size: 18px; } }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        input := TextInput {
+                            width: 100%;
+                            height: 100%;
+                            text <=> root.search-text;
+                            font-family: Theme.body-font;
+                            font-size: 14px;
+                            color: Theme.text;
+                            vertical-alignment: center;
+                            accepted => { root.search(self.text); }
+                        }
+                        Text {
+                            x: 0;
+                            width: 100%;
+                            height: 100%;
+                            visible: root.search-text == "";
+                            text: "Что хочешь включить?";
+                            font-family: Theme.body-font;
+                            font-size: 14px;
+                            color: Theme.mute;
+                            vertical-alignment: center;
+                        }
                     }
                     Text { text: "Ctrl K"; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; }
                 }
-                Text {
-                    x: 42px;
-                    visible: root.search-text == "";
-                    text: "Что хочешь включить?";
-                    font-family: Theme.body-font;
-                    font-size: 14px;
-                    color: Theme.mute;
-                    height: parent.height;
-                    vertical-alignment: center;
-                }
             }
-        }
-        HorizontalLayout {
-            spacing: 4px;
-            alignment: end;
-            IconButton { icon: Icons.users; y: (parent.height - self.height) / 2; }
-            IconButton { icon: Icons.puzzle; y: (parent.height - self.height) / 2; }
-            IconButton { icon: Icons.download; y: (parent.height - self.height) / 2; }
-            IconButton { icon: Icons.upload; y: (parent.height - self.height) / 2; clicked => { root.import-backup(); } }
         }
     }
 }
 
-component LibraryPanel inherits Panel {
+// Section header row: the same height and top offset in all three columns, so their titles line up.
+component Header inherits HorizontalLayout {
+    height: 32px;
+}
+
+component LibraryPanel inherits VerticalLayout {
     in property <[LibItem]> items;
     in property <string> selected-id;
     callback open(LibItem);
-    VerticalLayout {
-        padding: 14px;
-        spacing: 10px;
-        HorizontalLayout {
-            Text { text: "Медиатека"; font-family: Theme.heading-font; font-weight: 700; font-size: 15px; color: Theme.text; vertical-alignment: center; }
-            Rectangle { }
-            IconButton { icon: Icons.plus; size: 30px; icon-size: 16px; }
-        }
-        HorizontalLayout {
-            spacing: 6px;
-            alignment: start;
-            Chip { label: "Плейлисты"; }
-            Chip { label: "Альбомы"; }
-            Chip { label: "Артисты"; }
-        }
+    padding-top: Grid.pad;
+    padding-bottom: 4px;
+    spacing: Grid.gap;
+    Header {
+        padding-left: Grid.pad;
+        padding-right: Grid.pad - 6px;
+        SectionTitle { text: "Медиатека"; horizontal-stretch: 1; }
+        Middle { IconButton { icon: Icons.plus; size: 32px; icon-size: 18px; } }
+    }
+    HorizontalLayout {
+        padding-left: Grid.pad;
+        spacing: 6px;
+        alignment: start;
+        Chip { label: "Плейлисты"; }
+        Chip { label: "Альбомы"; }
+        Chip { label: "Артисты"; }
+    }
+    // Rows are inset by 8 px and their content by 8 more, so covers line up with the titles above (16 px).
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 4px;
         ListView {
             for item in root.items: Rectangle {
-                height: 64px;
-                border-radius: 10px;
+                height: Grid.row;
+                border-radius: Grid.item-radius;
                 background: item.id == root.selected-id ? Theme.fill-hover : (ta.has-hover ? Theme.fill : transparent);
                 HorizontalLayout {
-                    padding: 6px;
-                    spacing: 12px;
-                    Rectangle {
-                        width: 52px;
-                        height: 52px;
-                        border-radius: Theme.cover-radius;
-                        clip: true;
-                        background: item.kind == "liked" ? Theme.accent : Theme.fill-hover;
-                        if !item.has-cover: Icon {
-                            text: item.kind == "liked" ? Icons.heart-filled : Icons.music;
-                            color: item.kind == "liked" ? Theme.on-accent : Theme.mute;
-                            font-size: 20px;
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    spacing: Grid.gap;
+                    Middle {
+                        Cover {
+                            size: 44px;
+                            source: item.cover;
+                            has-source: item.has-cover;
+                            placeholder: item.kind == "liked" ? Icons.heart-filled : Icons.music;
+                            placeholder-color: item.kind == "liked" ? Theme.on-accent : Theme.mute;
+                            background: item.kind == "liked" ? Theme.accent : Theme.fill-hover;
+                            radius: min(Theme.cover-radius, Grid.item-radius);
                         }
-                        if item.has-cover: Image { source: item.cover; width: 52px; height: 52px; image-fit: ImageFit.cover; }
                     }
                     VerticalLayout {
                         alignment: center;
+                        spacing: 2px;
                         Text { text: item.title; font-family: Theme.body-font; font-size: 14px; color: Theme.text; overflow: elide; }
                         Text { text: item.subtitle; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; overflow: elide; }
                     }
@@ -242,35 +332,28 @@ component SongRow inherits Rectangle {
     in property <SongItem> song;
     in property <bool> current;
     callback play();
-    height: 62px;
-    border-radius: 10px;
+    height: Grid.row;
+    border-radius: Grid.item-radius;
     background: current ? Theme.fill-hover : (ta.has-hover ? Theme.fill : transparent);
     HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 16px;
-        spacing: 12px;
-        Text { width: 28px; text: song.index; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
-        Rectangle {
-            width: 42px;
-            height: 42px;
-            y: (parent.height - self.height) / 2;
-            border-radius: Theme.cover-radius > 8px ? 8px : Theme.cover-radius;
-            clip: true;
-            background: Theme.fill;
-            if song.has-cover: Image { source: song.cover; width: 42px; height: 42px; image-fit: ImageFit.cover; }
-        }
+        padding-left: 8px;
+        padding-right: 12px;
+        spacing: Grid.gap;
+        Text { width: 28px; text: song.index; font-family: Theme.mono-font; font-size: 12px; color: current ? Theme.accent : Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
+        Middle { Cover { size: 44px; source: song.cover; has-source: song.has-cover; radius: min(Theme.cover-radius, Grid.small-radius); } }
         VerticalLayout {
             alignment: center;
+            spacing: 2px;
             Text { text: song.title; font-family: Theme.body-font; font-size: 15px; color: current ? Theme.accent : Theme.text; overflow: elide; }
             Text { text: song.artists; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
         }
-        Icon { width: 22px; text: song.liked ? Icons.heart-filled : ""; color: Theme.accent; font-size: 16px; }
-        Text { width: 48px; text: song.duration; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
+        Middle { Icon { icon: song.liked ? Icons.heart-filled : ""; color: Theme.accent; size: 16px; } }
+        Text { width: 40px; text: song.duration; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
     }
     ta := TouchArea { double-clicked => { root.play(); } }
 }
 
-component MainArea inherits Rectangle {
+component MainArea inherits VerticalLayout {
     in property <string> title;
     in property <string> subtitle;
     in property <[SongItem]> songs;
@@ -278,31 +361,38 @@ component MainArea inherits Rectangle {
     in property <bool> empty-library;
     callback play(int);
     callback import-backup();
+    padding-top: Grid.pad;
+    padding-bottom: 4px;
+    spacing: Grid.gap;
     VerticalLayout {
-        padding-left: 16px;
-        padding-right: 8px;
-        padding-top: 12px;
-        spacing: 8px;
-        Text { text: title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 30px; color: Theme.text; }
+        padding-left: Grid.pad + 4px;
+        padding-right: Grid.pad;
+        spacing: 2px;
+        Text { text: title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
         Text { text: subtitle; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; }
-        if root.empty-library: VerticalLayout {
+    }
+    if root.empty-library: VerticalLayout {
+        alignment: center;
+        spacing: Grid.gap;
+        Text { text: "Медиатека пуста"; font-family: Theme.heading-font; font-weight: 700; font-size: 20px; color: Theme.text; horizontal-alignment: center; }
+        Text { text: "Перенеси всё с телефона: резервная копия Drxwnify для Android (.backup)"; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; horizontal-alignment: center; }
+        HorizontalLayout {
             alignment: center;
-            spacing: 14px;
-            Text { text: "Медиатека пуста"; font-family: Theme.heading-font; font-size: 20px; color: Theme.text; horizontal-alignment: center; }
-            Text { text: "Перенеси всё с телефона: резервная копия Drxwnify для Android (.backup)"; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; horizontal-alignment: center; }
-            HorizontalLayout {
-                alignment: center;
-                Rectangle {
-                    width: 260px;
-                    height: 44px;
-                    border-radius: Theme.chip-radius > 22px ? 22px : Theme.chip-radius;
-                    background: ta.has-hover ? Theme.accent2 : Theme.accent;
-                    Text { text: "Импортировать резервную копию"; font-family: Theme.body-font; font-weight: 700; color: Theme.on-accent; }
-                    ta := TouchArea { clicked => { root.import-backup(); } }
-                }
+            padding-top: 4px;
+            Rectangle {
+                width: 264px;
+                height: 44px;
+                border-radius: min(Theme.chip-radius, 22px);
+                background: ta.has-hover ? Theme.accent2 : Theme.accent;
+                Text { text: "Импортировать резервную копию"; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.on-accent; }
+                ta := TouchArea { clicked => { root.import-backup(); } }
             }
         }
-        if !root.empty-library: ListView {
+    }
+    if !root.empty-library: HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 4px;
+        ListView {
             for song in root.songs: SongRow {
                 song: song;
                 current: song.index - 1 == root.current-index;
@@ -312,7 +402,9 @@ component MainArea inherits Rectangle {
     }
 }
 
-component RightPanel inherits Panel {
+// On short windows the queue/lyrics block is cut off at the bottom, instead of the column
+// pushing the player bar out of the window.
+component RightPanel inherits VerticalLayout {
     in property <string> title;
     in property <string> artists;
     in property <string> info;
@@ -322,38 +414,67 @@ component RightPanel inherits Panel {
     in property <string> lyric-now;
     in property <string> lyric-next;
     in property <bool> has-lyrics;
-    VerticalLayout {
-        padding: 16px;
-        spacing: 12px;
-        Text { text: "Сейчас играет"; font-family: Theme.heading-font; font-weight: 700; font-size: 15px; color: Theme.text; }
+    property <length> cover-size: root.width - 2 * Grid.pad;
+    padding: Grid.pad;
+    padding-bottom: 0;
+    spacing: Grid.gap;
+    Header { SectionTitle { text: "Сейчас играет"; } }
+    HorizontalLayout {
+        alignment: start;
         Rectangle {
-            height: self.width;
+            width: root.cover-size;
+            height: root.cover-size;
             border-radius: Theme.cover-radius;
             clip: true;
             background: @linear-gradient(135deg, Theme.accent.with-alpha(0.35) 0%, Theme.fill 100%);
-            if !root.has-cover: Icon { text: Icons.music; font-size: 64px; color: Theme.mute; }
+            if !root.has-cover: Icon { icon: Icons.music; size: 64px; color: Theme.mute; }
             if root.has-cover: Image { source: root.cover; width: parent.width; height: parent.height; image-fit: ImageFit.cover; }
         }
+    }
+    VerticalLayout {
+        spacing: 4px;
         Text { text: title == "" ? "Ничего не играет" : title; font-family: Theme.heading-font; font-weight: 700; font-size: 20px; color: Theme.text; overflow: elide; }
-        Text { text: artists; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
-        Text { text: info; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; }
-        Rectangle { height: 1px; background: Theme.panel-border; }
-        Text { text: "ДАЛЕЕ"; font-family: Theme.body-font; font-weight: 700; font-size: 11px; color: Theme.mute; letter-spacing: 1.5px; }
-        for q[i] in root.upcoming: VerticalLayout {
-            if i < 3: VerticalLayout {
+        if artists != "": Text { text: artists; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+        if info != "": Text { text: info; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; overflow: elide; }
+    }
+    Rectangle {
+        vertical-stretch: 1;
+        min-height: 0;
+        clip: true;
+        VerticalLayout {
+            y: 0;
+            height: self.preferred-height;
+            alignment: start;
+            spacing: Grid.gap;
+            HLine { }
+            Caption { text: "ДАЛЕЕ"; }
+            if root.upcoming.length == 0: Text { text: "Очередь пуста"; font-family: Theme.body-font; font-size: 13px; color: Theme.mute; }
+            // The core sends the next three tracks.
+            for q in root.upcoming: VerticalLayout {
+                spacing: 2px;
                 Text { text: q.title; font-family: Theme.body-font; font-size: 13px; color: Theme.text; overflow: elide; }
                 Text { text: q.artists; font-family: Theme.body-font; font-size: 11px; color: Theme.dim; overflow: elide; }
             }
+            if root.has-lyrics: HLine { }
+            if root.has-lyrics: Caption { text: "ТЕКСТ"; }
+            if root.has-lyrics: Text { text: root.lyric-now == "" ? "…" : root.lyric-now; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.accent; wrap: word-wrap; }
+            if root.has-lyrics && root.lyric-next != "": Text { text: root.lyric-next; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; wrap: word-wrap; }
         }
-        if root.has-lyrics: Rectangle { height: 1px; background: Theme.panel-border; }
-        if root.has-lyrics: Text { text: "ТЕКСТ"; font-family: Theme.body-font; font-weight: 700; font-size: 11px; color: Theme.mute; letter-spacing: 1.5px; }
-        if root.has-lyrics: Text { text: root.lyric-now; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.accent; wrap: word-wrap; }
-        if root.has-lyrics: Text { text: root.lyric-next; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; wrap: word-wrap; }
-        Rectangle { }
     }
 }
 
-component PlayerBar inherits Panel {
+component Slider inherits Rectangle {
+    in property <float> value; // 0..1
+    in property <color> fill: Theme.accent;
+    callback picked(float);
+    height: 16px;
+    Rectangle { y: (parent.height - 4px) / 2; height: 4px; border-radius: 2px; background: Theme.fill-hover; }
+    Rectangle { x: 0; y: (parent.height - 4px) / 2; height: 4px; width: parent.width * clamp(root.value, 0, 1); border-radius: 2px; background: root.fill; }
+    ta := TouchArea { clicked => { root.picked(clamp(self.mouse-x / self.width, 0, 1)); } }
+}
+
+// Player bar: three sections as wide as the columns above (library | content | now playing).
+component PlayerBar inherits HorizontalLayout {
     in property <image> cover;
     in property <bool> has-cover;
     in property <string> title;
@@ -368,67 +489,65 @@ component PlayerBar inherits Panel {
     callback prev();
     callback seek(float);
     callback volume-changed(float);
+    height: Grid.bar-height;
     HorizontalLayout {
-        padding-left: 14px;
-        padding-right: 18px;
-        spacing: 14px;
-        HorizontalLayout {
-            width: 300px;
-            spacing: 12px;
-            Rectangle { width: 56px; height: 56px; y: (parent.height - self.height) / 2; border-radius: Theme.cover-radius; background: Theme.fill-hover; clip: true;
-                if !root.has-cover: Icon { text: Icons.music; color: Theme.mute; }
-                if root.has-cover: Image { source: root.cover; width: 56px; height: 56px; image-fit: ImageFit.cover; } }
-            VerticalLayout {
-                alignment: center;
-                Text { text: title; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.text; overflow: elide; }
-                Text { text: artists; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
-            }
-        }
+        width: Grid.lib-width + 1px;
+        padding-left: Grid.pad;
+        padding-right: Grid.pad;
+        spacing: Grid.gap;
+        Middle { Cover { size: 52px; source: root.cover; has-source: root.has-cover; radius: min(Theme.cover-radius, Grid.item-radius); } }
         VerticalLayout {
             alignment: center;
-            spacing: 4px;
-            HorizontalLayout {
-                alignment: center;
-                spacing: 14px;
-                IconButton { icon: Icons.shuffle; }
-                IconButton { icon: Icons.prev; clicked => { root.prev(); } }
+            spacing: 2px;
+            Text { text: title == "" ? "Ничего не играет" : title; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: title == "" ? Theme.mute : Theme.text; overflow: elide; }
+            if artists != "": Text { text: artists; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        spacing: 4px;
+        padding-left: Grid.pad;
+        padding-right: Grid.pad;
+        HorizontalLayout {
+            alignment: center;
+            spacing: Grid.gap;
+            Middle { IconButton { icon: Icons.shuffle; } }
+            Middle { IconButton { icon: Icons.prev; clicked => { root.prev(); } } }
+            Middle {
                 Rectangle {
-                    width: 42px;
-                    height: 42px;
-                    border-radius: 21px;
+                    width: 44px;
+                    height: 44px;
+                    border-radius: min(Theme.chip-radius, 22px);
                     background: pta.has-hover ? Theme.accent2 : Theme.accent;
-                    Icon { text: root.playing ? Icons.pause : Icons.play; color: Theme.on-accent; font-size: 20px; }
+                    Icon { icon: root.playing ? Icons.pause : Icons.play; size: 22px; color: Theme.on-accent; }
                     pta := TouchArea { clicked => { root.toggle(); } }
                 }
-                IconButton { icon: Icons.next; clicked => { root.next(); } }
-                IconButton { icon: Icons.repeat; }
             }
-            HorizontalLayout {
-                spacing: 10px;
-                Text { text: position; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; width: 44px; horizontal-alignment: right; }
-                Rectangle {
-                    height: 16px;
-                    Rectangle { y: 6px; height: 4px; border-radius: 2px; background: Theme.fill-hover; }
-                    Rectangle { x: 0; y: 6px; height: 4px; width: parent.width * root.progress; border-radius: 2px; background: Theme.accent; }
-                    sta := TouchArea { clicked => { root.seek(self.mouse-x / self.width); } }
-                }
-                Text { text: duration; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; width: 44px; }
-            }
+            Middle { IconButton { icon: Icons.next; clicked => { root.next(); } } }
+            Middle { IconButton { icon: Icons.repeat; } }
         }
         HorizontalLayout {
-            width: 220px;
             spacing: 8px;
-            alignment: end;
-            IconButton { icon: Icons.moon; y: (parent.height - self.height) / 2; }
-            IconButton { icon: Icons.list; y: (parent.height - self.height) / 2; }
-            Icon { text: Icons.volume; width: 24px; }
-            Rectangle {
-                width: 90px;
-                Rectangle { y: (parent.height - 4px) / 2; height: 4px; border-radius: 2px; background: Theme.fill-hover; }
-                Rectangle { x: 0; y: (parent.height - 4px) / 2; height: 4px; width: parent.width * root.volume; border-radius: 2px; background: Theme.text; }
-                vta := TouchArea {
-                    clicked => { root.volume = max(0, min(1, self.mouse-x / self.width)); root.volume-changed(root.volume); }
-                }
+            Text { text: position; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; width: 40px; horizontal-alignment: right; }
+            Slider { value: root.progress; picked(f) => { root.seek(f); } }
+            Text { text: duration; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; width: 40px; }
+        }
+    }
+    HorizontalLayout {
+        width: Grid.side-width + 1px;
+        padding-left: Grid.pad;
+        padding-right: Grid.pad;
+        spacing: 4px;
+        alignment: end;
+        Middle { IconButton { icon: Icons.moon; } }
+        Middle { IconButton { icon: Icons.list; } }
+        Middle { IconButton { icon: Icons.volume; } }
+        Middle {
+            Slider {
+                width: 96px;
+                value: root.volume;
+                fill: Theme.text;
+                picked(v) => { root.volume = v; root.volume-changed(v); }
             }
         }
     }
@@ -436,7 +555,7 @@ component PlayerBar inherits Panel {
 
 export component MainWindow inherits Window {
     title: "Drxwnify Mini";
-    min-width: 1000px;
+    min-width: 1080px;
     min-height: 640px;
     preferred-width: 1440px;
     preferred-height: 900px;
@@ -483,71 +602,83 @@ export component MainWindow inherits Window {
 
     Backdrop { }
     VerticalLayout {
+        padding-left: Grid.gutter;
+        padding-right: Grid.gutter;
+        padding-bottom: Grid.gutter;
         TopBar {
             import-backup => { root.import-backup(); }
             search(q) => { root.search(q); }
         }
-        HorizontalLayout {
-            padding-left: 12px;
-            padding-right: 12px;
-            spacing: 10px;
-            LibraryPanel {
-                width: 270px;
-                items: root.library;
-                selected-id: root.selected-id;
-                open(item) => { root.selected-id = item.id; root.open-library(item); }
-            }
-            MainArea {
-                title: root.view-title;
-                subtitle: root.view-subtitle;
-                songs: root.songs;
-                current-index: root.current-index;
-                empty-library: root.empty-library;
-                play(i) => { root.play(i); }
-                import-backup => { root.import-backup(); }
-            }
-            RightPanel {
-                width: 310px;
-                title: root.now-title;
-                artists: root.now-artists;
-                info: root.now-info;
-                cover: root.now-cover;
-                has-cover: root.has-now-cover;
-                upcoming: root.upcoming;
-                lyric-now: root.lyric-now;
-                lyric-next: root.lyric-next;
-                has-lyrics: root.has-lyrics;
+        // The single surface: columns on top, the player bar under a hairline.
+        Rectangle {
+            vertical-stretch: 1;
+            background: Theme.panel;
+            border-color: Theme.panel-border;
+            border-width: 1px;
+            border-radius: Theme.panel-radius;
+            clip: true;
+            VerticalLayout {
+                HorizontalLayout {
+                    vertical-stretch: 1;
+                    LibraryPanel {
+                        width: Grid.lib-width;
+                        items: root.library;
+                        selected-id: root.selected-id;
+                        open(item) => { root.selected-id = item.id; root.open-library(item); }
+                    }
+                    VLine { }
+                    MainArea {
+                        horizontal-stretch: 1;
+                        title: root.view-title;
+                        subtitle: root.view-subtitle;
+                        songs: root.songs;
+                        current-index: root.current-index;
+                        empty-library: root.empty-library;
+                        play(i) => { root.play(i); }
+                        import-backup => { root.import-backup(); }
+                    }
+                    VLine { }
+                    RightPanel {
+                        width: Grid.side-width;
+                        title: root.now-title;
+                        artists: root.now-artists;
+                        info: root.now-info;
+                        cover: root.now-cover;
+                        has-cover: root.has-now-cover;
+                        upcoming: root.upcoming;
+                        lyric-now: root.lyric-now;
+                        lyric-next: root.lyric-next;
+                        has-lyrics: root.has-lyrics;
+                    }
+                }
+                HLine { }
+                PlayerBar {
+                    title: root.now-title;
+                    artists: root.now-artists;
+                    cover: root.now-cover;
+                    has-cover: root.has-now-cover;
+                    playing: root.playing;
+                    progress: root.progress;
+                    position: root.position;
+                    duration: root.duration;
+                    toggle => { root.toggle(); }
+                    next => { root.next(); }
+                    prev => { root.prev(); }
+                    seek(f) => { root.seek(f); }
+                    volume-changed(v) => { root.volume-changed(v); }
+                }
             }
         }
-        HorizontalLayout {
-            padding-left: 12px;
-            padding-right: 12px;
-            PlayerBar {
-                height: 88px;
-                title: root.now-title;
-                artists: root.now-artists;
-                cover: root.now-cover;
-                has-cover: root.has-now-cover;
-                playing: root.playing;
-                progress: root.progress;
-                position: root.position;
-                duration: root.duration;
-                toggle => { root.toggle(); }
-                next => { root.next(); }
-                prev => { root.prev(); }
-                seek(f) => { root.seek(f); }
-                volume-changed(v) => { root.volume-changed(v); }
-            }
-        }
-        Rectangle { height: 12px; }
     }
     if root.toast != "": Rectangle {
-        x: (root.width - 420px) / 2;
-        y: root.height - 160px;
-        width: 420px;
+        x: (root.width - self.width) / 2;
+        y: root.height - Grid.gutter - Grid.bar-height - self.height - Grid.gap;
+        width: min(520px, root.width - 2 * Grid.gutter);
         height: 44px;
-        border-radius: 12px;
+        border-radius: Grid.item-radius;
         background: Theme.menu;
+        border-color: Theme.panel-border;
+        border-width: 1px;
         Text { text: root.toast; color: Theme.text; font-size: 13px; }
     }
 }

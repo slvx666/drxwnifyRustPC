@@ -54,7 +54,12 @@ fn main() {
     }
     let ui = MainWindow::new().expect("create window");
 
-    themes::apply(&ui, &themes::current_theme_id(&app), false);
+    // Developer check of other themes: `DRX_THEME=<id>` or `DRX_THEME=<id>:day`.
+    let (theme, day) = match std::env::var("DRX_THEME") {
+        Ok(v) => (v.trim_end_matches(":day").to_string(), v.ends_with(":day")),
+        Err(_) => (themes::current_theme_id(&app), false),
+    };
+    themes::apply(&ui, &theme, day);
 
     let songs = Rc::new(LazySongs::new(app.clone(), ListSpec::LikedSongs));
     ui.set_songs(ModelRc::from(songs.clone()));
@@ -250,6 +255,7 @@ fn main() {
                     let up: Vec<QueueItem> = now
                         .upcoming
                         .iter()
+                        .take(3)
                         .map(|t| QueueItem {
                             title: t.title.clone().into(),
                             artists: t.artist_names().into(),
@@ -398,8 +404,17 @@ fn main() {
             demo
         };
         app.set_volume(0.0);
+        // The list's own title when the library has it (VK «Моя музыка» etc.), so screenshots look real.
+        let title = app
+            .runtime()
+            .block_on(app.library_entries())
+            .unwrap_or_default()
+            .into_iter()
+            .find(|e| e.id == id)
+            .map(|e| e.title)
+            .unwrap_or_else(|| id.clone());
         let item = LibItem {
-            title: id.clone().into(),
+            title: title.into(),
             subtitle: "".into(),
             kind: "remote".into(),
             id: id.into(),
