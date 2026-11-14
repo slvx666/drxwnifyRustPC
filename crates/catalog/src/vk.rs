@@ -642,6 +642,7 @@ impl Vk {
                 r.sort_by(|a, b| b.date.cmp(&a.date));
                 r
             },
+            related: Vec::new(),
         };
         Ok((page, audios))
     }

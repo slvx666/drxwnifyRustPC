@@ -18,6 +18,36 @@ pub fn current_theme_id(app: &App) -> String {
         .unwrap_or_else(|| "tategaki".into())
 }
 
+/// Setting key for the day (light) variant of the theme (PC only).
+pub const DAY_KEY: &str = "pcThemeDay";
+
+pub fn current_day(app: &App) -> bool {
+    std::fs::read(app.profile().prefs_pb())
+        .ok()
+        .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
+        .and_then(|p| p.get_bool(DAY_KEY))
+        .unwrap_or(false)
+}
+
+/// Every theme for the settings page: id, name, accent and background of the night or day variant.
+pub fn list(day: bool) -> Vec<(String, String, Color, Color)> {
+    let Ok(specs) = serde_json::from_str::<Vec<Value>>(THEMES) else {
+        return Vec::new();
+    };
+    specs
+        .iter()
+        .map(|s| {
+            let t = &s[if day { "day" } else { "night" }];
+            (
+                s["id"].as_str().unwrap_or("").to_string(),
+                t["name"].as_str().unwrap_or("").to_string(),
+                color(&t["accent"]),
+                color(&t["bg"]),
+            )
+        })
+        .collect()
+}
+
 fn color(v: &Value) -> Color {
     let s = v.as_str().unwrap_or("#000000FF").trim_start_matches('#');
     let n = u32::from_str_radix(s, 16).unwrap_or(0xFF);

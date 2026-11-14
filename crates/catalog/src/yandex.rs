@@ -472,6 +472,7 @@ impl Yandex {
                 r.sort_by(|a, b| b.date.cmp(&a.date));
                 r
             },
+            related: Vec::new(),
         })
     }
 

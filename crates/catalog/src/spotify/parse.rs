@@ -3,7 +3,8 @@
 
 use crate::js::{arr, i, obj, path, s};
 use crate::model::{
-    Album, AlbumRef, ArtistPage, ArtistRef, Image, Page, Playlist, Release, Track, User,
+    Album, AlbumRef, ArtistPage, ArtistRef, ArtistSummary, Image, Page, Playlist, Release, Track,
+    User,
 };
 use serde_json::Value;
 
@@ -231,7 +232,63 @@ pub fn artist_page(v: &Value, artist_id: &str) -> Option<ArtistPage> {
         images,
         top_tracks,
         releases: releases(a),
+        related: path(a, &["relatedContent", "relatedArtists"])
+            .map(|r| arr(r, "items").iter().filter_map(artist_summary).collect())
+            .unwrap_or_default(),
     })
+}
+
+/// `{uri, profile.name, visuals.avatarImage}` → artist summary (related artists, search).
+fn artist_summary(a: &Value) -> Option<ArtistSummary> {
+    let id = id_of(s(a, "uri")?);
+    let name = path(a, &["profile", "name"]).and_then(Value::as_str)?;
+    (!id.is_empty()).then(|| ArtistSummary {
+        id,
+        name: name.to_string(),
+        images: path(a, &["visuals", "avatarImage"])
+            .map(|x| images(arr(x, "sources")))
+            .unwrap_or_default(),
+    })
+}
+
+/// Artists from a searchDesktop answer.
+pub fn search_artists(v: &Value) -> Vec<ArtistSummary> {
+    path(v, &["data", "searchV2", "artists"])
+        .map(|t| {
+            arr(t, "items")
+                .iter()
+                .filter_map(|e| {
+                    if s(e, "__typename") != Some("ArtistResponseWrapper") {
+                        return None;
+                    }
+                    let d = obj(e, "data")?;
+                    (s(d, "__typename") == Some("Artist"))
+                        .then(|| artist_summary(d))
+                        .flatten()
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A release date as precise as Spotify knows it (gqlReleaseDate): "2025-03-14" when the day is known, else the year.
+fn release_date(d: &Value) -> Option<String> {
+    let Some(year) = i(d, "year") else {
+        return s(d, "isoString").map(|x| x.chars().take(4).collect());
+    };
+    let precision = s(d, "precision");
+    if precision.is_none() || precision == Some("DAY") {
+        if let Some(iso) = s(d, "isoString")
+            && iso.len() >= 10
+            && iso.starts_with(&year.to_string())
+        {
+            return Some(iso[..10].to_string());
+        }
+        if let (Some(m), Some(day)) = (i(d, "month"), i(d, "day")) {
+            return Some(format!("{year:04}-{m:02}-{day:02}"));
+        }
+    }
+    Some(year.to_string())
 }
 
 /// discography.{latest, albums, singles, compilations} → releases, newest first (artistDiscography).
@@ -245,11 +302,7 @@ fn releases(a: &Value) -> Vec<Release> {
         if id.is_empty() {
             return None;
         }
-        let date = obj(r, "date").and_then(|d| {
-            s(d, "isoString")
-                .map(|x| x.chars().take(10).collect::<String>())
-                .or_else(|| i(d, "year").map(|y| y.to_string()))
-        });
+        let date = obj(r, "date").and_then(release_date);
         Some(Release {
             id,
             name: s(r, "name")?.to_string(),

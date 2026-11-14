@@ -4,7 +4,7 @@
 use crate::MainWindow;
 use crate::lazy_songs::LazySongs;
 use drx_app::{App, ListHeader, ListSpec};
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -16,6 +16,34 @@ pub struct Page {
     pub subtitle: String,
     /// Library row to highlight ("" when the page is not in the library).
     pub selected: String,
+    /// The home page (rows of cards); `spec` is then unused.
+    pub home: bool,
+    /// The settings page; `spec` is then unused.
+    pub settings: bool,
+}
+
+impl Page {
+    pub fn home() -> Self {
+        Page {
+            spec: ListSpec::LikedSongs,
+            title: "Главная".into(),
+            subtitle: String::new(),
+            selected: String::new(),
+            home: true,
+            settings: false,
+        }
+    }
+
+    pub fn settings() -> Self {
+        Page {
+            spec: ListSpec::LikedSongs,
+            title: "Настройки".into(),
+            subtitle: String::new(),
+            selected: String::new(),
+            home: false,
+            settings: true,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -30,11 +58,11 @@ thread_local! {
     static SONGS: RefCell<Option<Rc<LazySongs>>> = const { RefCell::new(None) };
     /// Releases of the artist page on screen (their covers arrive later).
     static RELEASES: RefCell<Vec<drx_catalog::model::Release>> = const { RefCell::new(Vec::new()) };
+    static RELEASE_MODEL: RefCell<Option<Rc<slint::VecModel<crate::ReleaseItem>>>> = const { RefCell::new(None) };
 }
 
-/// Rebuilds the release cards (page opened, or covers arrived).
-pub fn refresh_releases(ui: &MainWindow, app: &App) {
-    let items: Vec<crate::ReleaseItem> = RELEASES.with(|r| {
+fn release_items(app: &App) -> Vec<crate::ReleaseItem> {
+    RELEASES.with(|r| {
         r.borrow()
             .iter()
             .map(|rel| {
@@ -60,13 +88,27 @@ pub fn refresh_releases(ui: &MainWindow, app: &App) {
                 }
             })
             .collect()
+    })
+}
+
+/// Covers arrived: fills in the release cards still waiting for theirs (the strip keeps its scroll position).
+pub fn refresh_releases(_ui: &MainWindow, app: &App) {
+    RELEASE_MODEL.with(|m| {
+        let m = m.borrow();
+        let Some(model) = m.as_ref() else { return };
+        for (i, item) in release_items(app).into_iter().enumerate() {
+            if item.has_cover && model.row_data(i).is_some_and(|c| !c.has_cover) {
+                model.set_row_data(i, item);
+            }
+        }
     });
-    ui.set_view_releases(slint::ModelRc::new(slint::VecModel::from(items)));
 }
 
 fn set_releases(ui: &MainWindow, app: &App, list: Vec<drx_catalog::model::Release>) {
     RELEASES.with(|r| *r.borrow_mut() = list);
-    refresh_releases(ui, app);
+    let model = Rc::new(slint::VecModel::from(release_items(app)));
+    ui.set_view_releases(slint::ModelRc::from(model.clone()));
+    RELEASE_MODEL.with(|m| *m.borrow_mut() = Some(model));
 }
 
 pub fn init(songs: &Rc<LazySongs>) {
@@ -75,6 +117,10 @@ pub fn init(songs: &Rc<LazySongs>) {
 
 fn current_handle() -> Option<drx_app::ListHandle> {
     SONGS.with(|s| s.borrow().as_ref().map(|m| m.handle()))
+}
+
+fn current_len() -> usize {
+    SONGS.with(|s| s.borrow().as_ref().map_or(0, |m| m.len()))
 }
 
 /// Opens a page and remembers it (drops the forward part of the history, like a browser).
@@ -156,6 +202,27 @@ fn apply_header(ui: &MainWindow, app: &App, h: &ListHeader, n: usize) {
 }
 
 fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
+    ui.set_view_home(page.home);
+    ui.set_view_settings(page.settings);
+    if page.settings {
+        ui.set_selected_id("".into());
+        ui.set_view_title(page.title.clone().into());
+        ui.set_view_subtitle("Аккаунты и оформление".into());
+        ui.set_view_is_page(false);
+        set_header_image(ui, app, None);
+        set_releases(ui, app, Vec::new());
+        crate::settings_view::fill(ui, app);
+        return;
+    }
+    if page.home {
+        ui.set_selected_id("".into());
+        ui.set_view_title(page.title.clone().into());
+        ui.set_view_is_page(false);
+        set_header_image(ui, app, None);
+        set_releases(ui, app, Vec::new());
+        crate::home_view::show(ui, app, false);
+        return;
+    }
     songs.reopen(page.spec.clone());
     ui.set_selected_id(page.selected.clone().into());
     ui.set_view_title(page.title.clone().into());
@@ -171,9 +238,33 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     );
     ui.set_view_is_page(has_page_header);
     if !page.spec.is_remote() {
-        match app.runtime().block_on(app.local_header(&page.spec)) {
-            Some(h) => apply_header(ui, app, &h, songs.len()),
+        let local = app.runtime().block_on(app.local_header(&page.spec));
+        match &local {
+            Some(h) => apply_header(ui, app, h, songs.len()),
             None => ui.set_view_subtitle(count_line(&page.subtitle, songs.len()).into()),
+        }
+        let (name, local_image) = local.map(|h| (h.title, h.image)).unwrap_or_default();
+        // A library artist who is also in a catalog: its photo and releases join the page.
+        if let ListSpec::Artist { id } = &page.spec {
+            let (app2, h, ui_w, id) = (app.clone(), songs.handle(), ui.as_weak(), id.clone());
+            app.runtime().spawn(async move {
+                let Some(mut head) = app2.library_artist_header(&id, &name).await else {
+                    return;
+                };
+                // The library's own picture and name stay when it has them.
+                head.title = name;
+                if head.image.is_none() {
+                    head.image = local_image;
+                }
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(ui) = ui_w.upgrade() else { return };
+                    if current_handle() != Some(h) {
+                        return;
+                    }
+                    let n = current_len();
+                    apply_header(&ui, &app2, &head, n);
+                });
+            });
         }
         return;
     }

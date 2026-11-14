@@ -32,6 +32,37 @@ export struct ReleaseItem {
     has-cover: bool,
 }
 
+export struct HomeCard {
+    id: string,
+    title: string,
+    subtitle: string,
+    cover: image,
+    has-cover: bool,
+    album: bool, // an album card opens the album; a track card plays its row from there
+}
+
+export struct HomeSection {
+    title: string,
+    artist-id: string, // «Похоже на …»: the title links to the artist
+    cards: [HomeCard],
+}
+
+export struct AccountRow {
+    key: string, // SPOTIFY | YANDEX | VK
+    label: string,
+    linked: bool,
+    main: bool,
+    tab: bool,
+}
+
+export struct ThemeChip {
+    id: string,
+    name: string,
+    accent: color,
+    bg: color,
+    selected: bool,
+}
+
 export struct QueueItem {
     title: string,
     artists: string,
@@ -226,6 +257,7 @@ component TopBar inherits Rectangle {
     callback back();
     callback forward();
     callback import-backup();
+    callback open-settings();
     height: Grid.top-height;
     HorizontalLayout {
         padding-left: Grid.pad;
@@ -261,6 +293,7 @@ component TopBar inherits Rectangle {
             Middle { IconButton { icon: Icons.puzzle; } }
             Middle { IconButton { icon: Icons.download; } }
             Middle { IconButton { icon: Icons.upload; clicked => { root.import-backup(); } } }
+            Middle { IconButton { icon: Icons.settings; clicked => { root.open-settings(); } } }
         }
     }
     HorizontalLayout {
@@ -406,6 +439,146 @@ component SongRow inherits Rectangle {
     }
 }
 
+// A switch: a pill with a knob, accent when on.
+component Toggle inherits Rectangle {
+    in property <bool> on;
+    in property <bool> enabled: true;
+    callback toggled(bool);
+    width: 40px;
+    height: 22px;
+    border-radius: min(Theme.chip-radius, 11px);
+    background: on ? Theme.accent : Theme.fill-hover;
+    opacity: enabled ? 1 : 0.45;
+    Rectangle {
+        x: root.on ? parent.width - self.width - 3px : 3px;
+        y: 3px;
+        width: 16px;
+        height: 16px;
+        border-radius: min(Theme.chip-radius, 8px);
+        background: root.on ? Theme.on-accent : Theme.dim;
+    }
+    TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.toggled(!root.on); }
+    }
+}
+
+// One settings row: label (and a hint) on the left, a control on the right.
+component SettingRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> hint;
+    spacing: Grid.gap;
+    min-height: 52px;
+    VerticalLayout {
+        horizontal-stretch: 1;
+        alignment: center;
+        spacing: 2px;
+        Text { text: root.label; font-family: Theme.body-font; font-size: 14px; color: Theme.text; overflow: elide; }
+        if root.hint != "": Text { text: root.hint; font-family: Theme.body-font; font-size: 12px; color: Theme.mute; overflow: elide; }
+    }
+    @children
+}
+
+component SettingsPage inherits Flickable {
+    in property <[AccountRow]> accounts;
+    in property <[ThemeChip]> themes;
+    in property <bool> day;
+    callback set-main(string);
+    callback set-tab(string, bool);
+    callback set-theme(string);
+    callback set-day(bool);
+    content-height: body.preferred-height + Grid.pad;
+    body := VerticalLayout {
+        width: root.width;
+        padding-left: Grid.pad + 4px;
+        padding-right: Grid.pad + 4px;
+        spacing: Grid.gap;
+        alignment: start;
+        Caption { text: "АККАУНТЫ"; }
+        Text {
+            text: "Основной аккаунт отвечает за поиск, главную и страницы исполнителей. Остальные можно показать в медиатеке.";
+            font-family: Theme.body-font; font-size: 12px; color: Theme.mute; wrap: word-wrap;
+        }
+        for a in root.accounts: Rectangle {
+            border-radius: Grid.item-radius;
+            background: Theme.fill;
+            HorizontalLayout {
+                padding-left: Grid.pad;
+                padding-right: Grid.pad;
+                padding-top: 10px;
+                padding-bottom: 10px;
+                spacing: Grid.pad;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    spacing: 2px;
+                    Text { text: a.label; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.text; }
+                    Text {
+                        text: !a.linked ? "Не подключён: войдите на телефоне и перенесите резервную копию" : (a.main ? "Основной аккаунт" : "Подключён");
+                        font-family: Theme.body-font; font-size: 12px; color: a.main ? Theme.accent : Theme.mute; overflow: elide;
+                    }
+                }
+                if a.linked && !a.main: Middle {
+                    horizontal-stretch: 0;
+                    Rectangle {
+                        height: 30px;
+                        width: mt.preferred-width + 24px;
+                        border-radius: min(Theme.chip-radius, 15px);
+                        background: mta.has-hover ? Theme.fill-hover : transparent;
+                        border-color: Theme.panel-border;
+                        border-width: 1px;
+                        mt := Text { text: "Сделать основным"; font-family: Theme.body-font; font-size: 12px; color: Theme.text; }
+                        mta := TouchArea { mouse-cursor: pointer; clicked => { root.set-main(a.key); } }
+                    }
+                }
+                if a.linked: HorizontalLayout {
+                    horizontal-stretch: 0;
+                    spacing: 8px;
+                    Text { text: "В медиатеке"; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; vertical-alignment: center; }
+                    Middle { Toggle { on: a.tab; enabled: !a.main; toggled(v) => { root.set-tab(a.key, v); } } }
+                }
+            }
+        }
+        Rectangle { height: 8px; }
+        Caption { text: "ОФОРМЛЕНИЕ"; }
+        SettingRow {
+            label: "Светлая тема";
+            hint: "Дневной вариант выбранной темы";
+            Middle { Toggle { on: root.day; toggled(v) => { root.set-day(v); } } }
+        }
+        // Theme cards: a swatch of the theme's background and accent, the name under it.
+        Flickable {
+            height: 104px;
+            content-height: self.height;
+            content-width: root.themes.length * 116px;
+            for t[i] in root.themes: Rectangle {
+                x: i * 116px;
+                width: 104px;
+                height: 104px;
+                VerticalLayout {
+                    spacing: 6px;
+                    Rectangle {
+                        height: 72px;
+                        border-radius: Grid.item-radius;
+                        background: t.bg;
+                        border-color: t.selected ? Theme.accent : (tta.has-hover ? Theme.dim : Theme.panel-border);
+                        border-width: t.selected ? 2px : 1px;
+                        Rectangle {
+                            width: 28px;
+                            height: 28px;
+                            border-radius: 14px;
+                            background: t.accent;
+                        }
+                    }
+                    Text { text: t.name; font-family: Theme.body-font; font-size: 12px; color: t.selected ? Theme.accent : Theme.text; horizontal-alignment: center; overflow: elide; }
+                }
+                tta := TouchArea { mouse-cursor: pointer; clicked => { root.set-theme(t.id); } }
+            }
+        }
+    }
+}
+
 component MainArea inherits VerticalLayout {
     in property <string> title;
     in property <string> subtitle;
@@ -416,6 +589,17 @@ component MainArea inherits VerticalLayout {
     in property <bool> has-cover;
     in property <bool> is-page; // album or artist: the heading gets a cover
     in property <[ReleaseItem]> releases; // artist pages: albums and singles
+    in property <bool> home; // the home page: rows of cards instead of a track list
+    in property <bool> settings;
+    in property <[AccountRow]> accounts;
+    in property <[ThemeChip]> themes;
+    in property <bool> day;
+    callback set-main(string);
+    callback set-tab(string, bool);
+    callback set-theme(string);
+    callback set-day(bool);
+    in property <[HomeSection]> sections;
+    callback home-play(int, int); // section, card
     callback play(int);
     callback import-backup();
     callback open-artist(string);
@@ -478,7 +662,82 @@ component MainArea inherits VerticalLayout {
             }
         }
     }
-    if !root.empty-library: HorizontalLayout {
+    if root.settings: SettingsPage {
+        vertical-stretch: 1;
+        accounts: root.accounts;
+        themes: root.themes;
+        day: root.day;
+        set-main(k) => { root.set-main(k); }
+        set-tab(k, v) => { root.set-tab(k, v); }
+        set-theme(id) => { root.set-theme(id); }
+        set-day(v) => { root.set-day(v); }
+    }
+    // Home: rows of cards, the page scrolls down, each row sideways.
+    if root.home && !root.settings && !root.empty-library: Flickable {
+        vertical-stretch: 1;
+        content-height: root.sections.length * 244px + Grid.pad;
+        for sec[si] in root.sections: VerticalLayout {
+            x: 0;
+            y: si * 244px;
+            width: parent.width;
+            height: 224px;
+            spacing: 8px;
+            HorizontalLayout {
+                padding-left: Grid.pad + 4px;
+                height: 28px;
+                alignment: start;
+                Link {
+                    text: sec.title;
+                    font-family: Theme.heading-font;
+                    font-weight: 700;
+                    font-size: 18px;
+                    color: Theme.text;
+                    enabled: sec.artist-id != "";
+                    clicked => { root.open-artist(sec.artist-id); }
+                }
+            }
+            Flickable {
+                height: 188px;
+                content-height: self.height;
+                content-width: Grid.pad + 4px + sec.cards.length * 156px;
+                for card[ci] in sec.cards: cb := Rectangle {
+                    x: Grid.pad + 4px + ci * 156px;
+                    y: 0;
+                    width: 144px;
+                    height: 188px;
+                    property <bool> playing: !card.album && root.now-id != "" && card.id == root.now-id;
+                    VerticalLayout {
+                        spacing: 4px;
+                        alignment: start;
+                        Rectangle {
+                            width: 144px;
+                            height: 144px;
+                            Cover { size: 144px; source: card.cover; has-source: card.has-cover; }
+                            // Play hint over a track cover on hover (and while it plays).
+                            if !card.album && (cta.has-hover || cb.playing): Rectangle {
+                                x: parent.width - 44px;
+                                y: parent.height - 44px;
+                                width: 36px;
+                                height: 36px;
+                                border-radius: min(Theme.chip-radius, 18px);
+                                background: Theme.accent;
+                                Icon { icon: Icons.play; size: 18px; color: Theme.on-accent; }
+                            }
+                        }
+                        Text { text: card.title; font-family: Theme.body-font; font-size: 13px; color: cb.playing || cta.has-hover ? Theme.accent : Theme.text; overflow: elide; }
+                        Text { text: card.subtitle; font-family: Theme.body-font; font-size: 11px; color: Theme.mute; overflow: elide; }
+                    }
+                    cta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            if card.album { root.open-album(card.id); } else { root.home-play(si, ci); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if !root.home && !root.settings && !root.empty-library: HorizontalLayout {
         vertical-stretch: 1;
         padding-left: 8px;
         padding-right: 4px;
@@ -592,6 +851,8 @@ component PlayerBar inherits HorizontalLayout {
     callback prev();
     callback seek(float);
     callback volume-changed(float);
+    in property <bool> day;
+    callback set-day(bool);
     height: Grid.bar-height;
     HorizontalLayout {
         width: Grid.lib-width + 1px;
@@ -645,7 +906,7 @@ component PlayerBar inherits HorizontalLayout {
         padding-right: Grid.pad;
         spacing: 4px;
         alignment: end;
-        Middle { IconButton { icon: Icons.moon; } }
+        Middle { IconButton { icon: root.day ? Icons.sun : Icons.moon; clicked => { root.set-day(!root.day); } } }
         Middle { IconButton { icon: Icons.list; } }
         Middle { IconButton { icon: Icons.volume; } }
         Middle {
@@ -688,6 +949,12 @@ export component MainWindow inherits Window {
     in-out property <string> view-cover-url;
     in property <bool> has-view-cover;
     in property <[ReleaseItem]> view-releases;
+    in property <bool> view-home;
+    in property <bool> view-settings;
+    in property <[AccountRow]> settings-accounts;
+    in property <[ThemeChip]> settings-themes;
+    in property <bool> day-theme;
+    in property <[HomeSection]> home-sections;
     in property <[QueueItem]> upcoming;
     in property <string> lyric-now;
     in property <string> lyric-next;
@@ -702,6 +969,12 @@ export component MainWindow inherits Window {
     in property <string> toast;
 
     callback open-library(LibItem);
+    callback home-play(int, int);
+    callback open-settings();
+    callback set-main-account(string);
+    callback set-account-tab(string, bool);
+    callback set-theme(string);
+    callback set-day(bool);
     callback open-artist(string);
     callback open-album(string);
     callback back();
@@ -732,6 +1005,7 @@ export component MainWindow inherits Window {
             back => { root.back(); }
             forward => { root.forward(); }
             home => { root.home(); }
+            open-settings => { root.open-settings(); }
             import-backup => { root.import-backup(); }
             search(q) => { root.search(q); }
         }
@@ -764,6 +1038,17 @@ export component MainWindow inherits Window {
                         cover: root.view-cover;
                         has-cover: root.has-view-cover;
                         releases: root.view-releases;
+                        home: root.view-home;
+                        settings: root.view-settings;
+                        accounts: root.settings-accounts;
+                        themes: root.settings-themes;
+                        day: root.day-theme;
+                        set-main(k) => { root.set-main-account(k); }
+                        set-tab(k, v) => { root.set-account-tab(k, v); }
+                        set-theme(id) => { root.set-theme(id); }
+                        set-day(v) => { root.set-day(v); }
+                        sections: root.home-sections;
+                        home-play(s, c) => { root.home-play(s, c); }
                         open-artist(id) => { root.open-artist(id); }
                         open-album(id) => { root.open-album(id); }
                         play(i) => { root.play(i); }
@@ -796,6 +1081,8 @@ export component MainWindow inherits Window {
                     cover: root.now-cover;
                     has-cover: root.has-now-cover;
                     playing: root.playing;
+                    day: root.day-theme;
+                    set-day(v) => { root.set-day(v); }
                     progress: root.progress;
                     position: root.position;
                     duration: root.duration;

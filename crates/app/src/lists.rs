@@ -21,6 +21,8 @@ pub enum ListSpec {
     },
     /// Listening history, newest first.
     History,
+    /// Songs heard lately, each once, the latest first (home «Недавно слушали»).
+    RecentSongs,
     /// A saved album, in track order (`song_album_map.index`, as Android's album page).
     Album {
         id: String,
@@ -68,6 +70,7 @@ impl ListSpec {
                 | ListSpec::LibrarySongs
                 | ListSpec::Playlist { .. }
                 | ListSpec::History
+                | ListSpec::RecentSongs
                 | ListSpec::Album { .. }
                 | ListSpec::Artist { .. }
         )
@@ -109,7 +112,9 @@ impl ListSpec {
             ListSpec::Playlist { .. } => {
                 &["playlist_song_map", "song", "song_artist_map", "artist"]
             }
-            ListSpec::History => &["event", "song", "song_artist_map", "artist"],
+            ListSpec::History | ListSpec::RecentSongs => {
+                &["event", "song", "song_artist_map", "artist"]
+            }
             ListSpec::Album { .. } => &["song_album_map", "song", "song_artist_map", "artist"],
             ListSpec::Artist { .. } => &["song_artist_map", "song", "artist"],
             _ => &[],
@@ -207,6 +212,11 @@ fn base(spec: &ListSpec) -> (String, Vec<String>) {
             vec![id.clone()],
         ),
         ListSpec::History => ("FROM event e JOIN song s ON s.id = e.songId ORDER BY e.timestamp DESC".into(), vec![]),
+        ListSpec::RecentSongs => (
+            "FROM (SELECT songId, max(timestamp) AS last FROM event GROUP BY songId ORDER BY last DESC LIMIT 200) r              JOIN song s ON s.id = r.songId ORDER BY r.last DESC"
+                .into(),
+            vec![],
+        ),
         ListSpec::Album { id } => (
             "FROM song_album_map m JOIN song s ON s.id = m.songId WHERE m.albumId = ?1 ORDER BY m.`index`".into(),
             vec![id.clone()],
@@ -247,6 +257,30 @@ pub(crate) fn rows(
     let mut st = c.prepare_cached(&sql)?;
     let out = st
         .query_map(rusqlite::params_from_iter(params.iter()), |r| {
+            Ok(SongRow {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                artists: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                album: r.get(3)?,
+                duration_s: r.get(4)?,
+                thumbnail: r.get(5)?,
+                liked: r.get(6)?,
+                artist_id: r.get(7)?,
+                album_id: r.get(8)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(out)
+}
+
+/// Liked songs liked before `cut` (Unix ms) and not played since (home «Давно не слушали»).
+pub(crate) fn forgotten(c: &mut Connection, cut: i64) -> drx_core::Result<Vec<SongRow>> {
+    let sql = format!(
+        "SELECT s.id, s.title, {ARTISTS}, s.albumName, s.duration, s.thumbnailUrl, s.liked, {FIRST_ARTIST}, s.albumId          FROM song s WHERE s.liked = 1 AND s.likedDate > 0 AND s.likedDate < ?1          AND NOT EXISTS (SELECT 1 FROM event e WHERE e.songId = s.id AND e.timestamp > ?1) LIMIT 2000"
+    );
+    let mut st = c.prepare_cached(&sql)?;
+    let out = st
+        .query_map([cut], |r| {
             Ok(SongRow {
                 id: r.get(0)?,
                 title: r.get(1)?,

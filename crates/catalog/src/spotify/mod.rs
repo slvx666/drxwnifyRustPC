@@ -8,7 +8,7 @@
 pub mod auth;
 mod parse;
 
-use crate::model::{Album, ArtistPage, Page, Playlist, Track, User};
+use crate::model::{Album, ArtistPage, ArtistSummary, Page, Playlist, Track, User};
 use drx_core::http::{Http, HttpError, Method, StatusCode};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -331,6 +331,17 @@ impl Spotify {
         });
         let v = self.graphql("searchDesktop", vars).await?;
         Ok(parse::search_tracks(&v))
+    }
+
+    /// Artist search (the same `searchDesktop` query, artists part).
+    pub async fn search_artists(&self, query: &str, limit: u32) -> Result<Vec<ArtistSummary>> {
+        let vars = json!({
+            "searchTerm": query, "offset": 0, "limit": limit, "numberOfTopResults": 5,
+            "includeAudiobooks": false, "includeArtistHasConcertsField": false, "includePreReleases": false,
+            "includeLocalConcertsField": false, "includeAuthors": false
+        });
+        let v = self.graphql("searchDesktop", vars).await?;
+        Ok(parse::search_artists(&v))
     }
 
     pub async fn top_tracks(&self, range: &str, limit: u32) -> Result<Vec<Track>> {

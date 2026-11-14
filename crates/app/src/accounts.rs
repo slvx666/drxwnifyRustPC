@@ -40,6 +40,17 @@ pub(crate) struct Clients {
     pub remote_entries: std::sync::Mutex<Vec<LibraryEntry>>,
 }
 
+/// One catalog account as the settings page shows it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AccountState {
+    pub source: Source,
+    pub label: &'static str,
+    pub linked: bool,
+    pub main: bool,
+    /// Its liked songs and playlists are in the library (always for the main account).
+    pub tab: bool,
+}
+
 fn err(e: impl std::fmt::Display) -> AppError {
     AppError::Other(e.to_string())
 }
@@ -138,6 +149,37 @@ impl App {
                 .into_iter()
                 .find(|s| self.has_account(*s))
         })
+    }
+
+    /// Every catalog account for the settings page: linked or not, main, shown in the library.
+    pub fn accounts_state(&self) -> Vec<AccountState> {
+        let prefs = self.prefs_now();
+        let main = self.main_account();
+        [Source::Spotify, Source::Yandex, Source::Vk]
+            .into_iter()
+            .map(|s| AccountState {
+                source: s,
+                label: source_label(s),
+                linked: self.has_account(s),
+                main: Some(s) == main,
+                tab: Some(s) == main || prefs.get_bool(&tab_key(s)) == Some(true),
+            })
+            .collect()
+    }
+
+    /// Makes `s` the main account (catalog of search, home, links). The home page is built anew.
+    pub fn set_main_account(&self, s: Source) -> AppResult<()> {
+        self.set_pref(
+            MAIN_ACCOUNT_KEY,
+            drx_core::prefs::PrefValue::String(source_name(s).into()),
+        )?;
+        let _ = std::fs::remove_file(self.profile().root().join("home_feed.json"));
+        Ok(())
+    }
+
+    /// Shows or hides an account's liked songs and playlists in the library.
+    pub fn set_account_tab(&self, s: Source, on: bool) -> AppResult<()> {
+        self.set_pref(&tab_key(s), drx_core::prefs::PrefValue::Bool(on))
     }
 
     /// Accounts shown in the library: the main one always, the others when their tab is on (off by default).

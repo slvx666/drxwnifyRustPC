@@ -3,15 +3,18 @@
 
 mod accounts;
 pub mod edition;
+mod home;
 pub mod lists;
 pub mod playback;
 
+pub use accounts::AccountState;
 pub use drx_audio::player::PlaybackClock;
 use drx_core::http::Http;
 use drx_core::paths::Profile;
 use drx_core::store::Store;
 use drx_transfer::backup::{self, Accounts, ImportOptions};
 pub use edition::{Edition, EditionProfile};
+pub use home::{HomeAlbum, HomeFeed, HomeRow, HomeRowKind};
 pub use lists::{ListHandle, ListHeader, ListSpec, SongRow};
 pub use playback::{NowPlaying, Playable};
 use std::collections::HashMap;
@@ -120,6 +123,8 @@ struct Inner {
     /// Rows of remote lists (VK), filled when the list is opened.
     remote: Mutex<HashMap<ListHandle, Vec<Playable>>>,
     headers: Mutex<HashMap<ListHandle, ListHeader>>,
+    /// One home build at a time.
+    home_lock: tokio::sync::Mutex<()>,
     clients: accounts::Clients,
     images: drx_core::images::Images,
 }
@@ -159,6 +164,7 @@ impl App {
             playback,
             remote: Mutex::default(),
             headers: Mutex::default(),
+            home_lock: tokio::sync::Mutex::new(()),
             clients: accounts::Clients::default(),
             images,
             lists: lists::Lists::default(),
@@ -192,6 +198,18 @@ impl App {
     }
     pub fn profile(&self) -> &Profile {
         &self.inner.profile
+    }
+
+    /// Changes one setting in `settings.preferences_pb` (the file the phone's backup carries).
+    pub fn set_pref(&self, key: &str, value: drx_core::prefs::PrefValue) -> AppResult<()> {
+        let path = self.inner.profile.prefs_pb();
+        let mut prefs = std::fs::read(&path)
+            .ok()
+            .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
+            .unwrap_or_default();
+        prefs.set(key, value);
+        drx_core::paths::write_atomic(&path, &prefs.encode())
+            .map_err(|e| AppError::Other(e.to_string()))
     }
     fn store(&self) -> Store {
         self.inner.store.read().expect("store lock").clone()
@@ -1108,5 +1126,32 @@ mod live_pages {
                 assert!(n.unwrap_or(0) > 0);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod live_home {
+    use super::*;
+
+    /// Builds the home page from the real profile. Prints row kinds and sizes only. DRX_TEST_PROFILE; not in CI.
+    #[test]
+    fn builds_home() {
+        let Ok(dir) = std::env::var("DRX_TEST_PROFILE") else {
+            return;
+        };
+        let app = App::start(Profile::at(dir), EditionProfile::mini()).unwrap();
+        let t = std::time::Instant::now();
+        let feed = app.runtime().block_on(app.home(true)).unwrap();
+        for r in &feed.rows {
+            let kind = r.title.split(' ').next().unwrap_or("");
+            eprintln!(
+                "row {kind}…: tracks={} albums={}",
+                r.tracks.len(),
+                r.albums.len()
+            );
+        }
+        eprintln!("built in {:.1}s", t.elapsed().as_secs_f32());
+        assert!(feed.rows.len() >= 3);
+        assert!(app.home_cached().is_some());
     }
 }

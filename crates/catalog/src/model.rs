@@ -102,6 +102,16 @@ pub struct ArtistPage {
     pub top_tracks: Vec<Track>,
     /// Albums, EPs and singles, newest first (Catalog.artistReleases).
     pub releases: Vec<Release>,
+    /// Artists like this one (Spotify only; empty elsewhere).
+    pub related: Vec<ArtistSummary>,
+}
+
+/// An artist in a list (related artists, search results).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArtistSummary {
+    pub id: String,
+    pub name: String,
+    pub images: Vec<Image>,
 }
 
 /// One release on an artist page.

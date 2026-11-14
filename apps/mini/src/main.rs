@@ -2,9 +2,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 //! Drxwnify Mini: the native, light edition. All logic lives in `drx-app`; this file only binds the UI to it.
 
+mod home_view;
 mod lazy_library;
 mod lazy_songs;
 mod nav;
+mod settings_view;
 mod themes;
 
 use drx_app::{App, AppEvent, Command, CommandOutcome, EditionProfile, LibraryKind, ListSpec};
@@ -58,9 +60,10 @@ fn main() {
     // Developer check of other themes: `DRX_THEME=<id>` or `DRX_THEME=<id>:day`.
     let (theme, day) = match std::env::var("DRX_THEME") {
         Ok(v) => (v.trim_end_matches(":day").to_string(), v.ends_with(":day")),
-        Err(_) => (themes::current_theme_id(&app), false),
+        Err(_) => (themes::current_theme_id(&app), themes::current_day(&app)),
     };
     themes::apply(&ui, &theme, day);
+    ui.set_day_theme(day);
 
     let songs = Rc::new(LazySongs::new(app.clone(), ListSpec::LikedSongs));
     ui.set_songs(ModelRc::from(songs.clone()));
@@ -94,6 +97,8 @@ fn main() {
                 title: item.title.to_string(),
                 subtitle: String::new(),
                 selected: item.id.to_string(),
+                home: false,
+                settings: false,
             };
             nav::go(&ui, &app2, &songs2, page);
         });
@@ -113,6 +118,8 @@ fn main() {
                 title: String::new(),
                 subtitle: String::new(),
                 selected: String::new(),
+                home: false,
+                settings: false,
             };
             nav::go(&ui, &app2, &songs2, page);
         });
@@ -128,6 +135,8 @@ fn main() {
                 title: String::new(),
                 subtitle: String::new(),
                 selected: String::new(),
+                home: false,
+                settings: false,
             };
             nav::go(&ui, &app2, &songs2, page);
         });
@@ -146,14 +155,75 @@ fn main() {
         let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
         ui.on_home(move || {
             if let Some(ui) = ui_w.upgrade() {
-                let page = nav::Page {
-                    spec: ListSpec::LikedSongs,
-                    title: "Любимые треки".into(),
-                    subtitle: String::new(),
-                    selected: "liked".into(),
-                };
-                nav::go(&ui, &app2, &songs2, page);
+                nav::go(&ui, &app2, &songs2, nav::Page::home());
             }
+        });
+    }
+    // Settings: every change is saved at once and applied without a restart.
+    {
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_open_settings(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                nav::go(&ui, &app2, &songs2, nav::Page::settings());
+            }
+        });
+        let accounts_changed = {
+            let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+            Rc::new(move || {
+                let Some(ui) = ui_w.upgrade() else { return };
+                settings_view::fill(&ui, &app2);
+                refresh_library(&ui, &app2, &songs2);
+                let a = app2.clone();
+                app2.runtime().spawn(async move {
+                    let _ = a.refresh_remote_library().await;
+                });
+            })
+        };
+        let (app2, ui_w, changed) = (app.clone(), ui.as_weak(), accounts_changed.clone());
+        ui.on_set_main_account(move |k| {
+            if let Some(s) = settings_view::source_of(&k) {
+                match app2.set_main_account(s) {
+                    Ok(()) => changed(),
+                    Err(e) => {
+                        if let Some(ui) = ui_w.upgrade() {
+                            ui.set_toast(format!("Не удалось сохранить: {e}").into());
+                        }
+                    }
+                }
+            }
+        });
+        let (app2, changed) = (app.clone(), accounts_changed);
+        ui.on_set_account_tab(move |k, on| {
+            if let Some(s) = settings_view::source_of(&k)
+                && app2.set_account_tab(s, on).is_ok()
+            {
+                changed();
+            }
+        });
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_set_theme(move |id| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            let _ = app2.set_pref(
+                themes::THEME_KEY,
+                drx_core::prefs::PrefValue::String(id.to_string()),
+            );
+            settings_view::apply_theme(&ui, &app2);
+            settings_view::fill(&ui, &app2);
+        });
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_set_day(move |day| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            let _ = app2.set_pref(themes::DAY_KEY, drx_core::prefs::PrefValue::Bool(day));
+            settings_view::apply_theme(&ui, &app2);
+            if ui.get_view_settings() {
+                settings_view::fill(&ui, &app2);
+            }
+        });
+    }
+    {
+        let app2 = app.clone();
+        ui.on_home_play(move |sec, card| {
+            home_view::play(&app2, sec.max(0) as usize, card.max(0) as usize)
         });
     }
     {
@@ -236,6 +306,8 @@ fn main() {
                 title: format!("Поиск: {q}"),
                 subtitle: String::new(),
                 selected: String::new(),
+                home: false,
+                settings: false,
             };
             nav::go(&ui, &app2, &songs2, page);
         });
@@ -417,6 +489,7 @@ fn main() {
                     None => ui.set_has_now_cover(false),
                 }
                 nav::refresh_releases(&ui, &app3);
+                home_view::refresh(&ui, &app3);
                 let url = ui.get_view_cover_url().to_string();
                 if !url.is_empty()
                     && let Some(c) = cover(&app3, &url, HEADER_COVER)
@@ -458,6 +531,13 @@ fn main() {
 
     // Developer check without clicking (no automation needed): DRX_DEMO=<library id> opens that list and plays
     // the first track at volume 0 (`vk` = VK «Моя музыка», `album`/`artist` = the first saved one). Not a user feature.
+    // Developer checks with real clicks stay silent: DRX_MUTE=1.
+    if std::env::var("DRX_MUTE").is_ok() {
+        app.set_volume(0.0);
+    }
+    if std::env::var("DRX_DEMO").is_err() {
+        nav::go(&ui, &app, &songs, nav::Page::home());
+    }
     if let Ok(demo) = std::env::var("DRX_DEMO") {
         app.set_volume(0.0);
         let entries = app
