@@ -3,15 +3,19 @@
 
 pub mod edition;
 pub mod lists;
+pub mod playback;
 
+pub use drx_audio::player::PlaybackClock;
 use drx_core::http::Http;
 use drx_core::paths::Profile;
 use drx_core::store::Store;
 use drx_transfer::backup::{self, Accounts, ImportOptions};
 pub use edition::{Edition, EditionProfile};
 pub use lists::{ListHandle, ListSpec, SongRow};
+pub use playback::{NowPlaying, Playable};
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::{broadcast, watch};
 
 #[derive(Debug, thiserror::Error)]
@@ -69,6 +73,8 @@ pub enum LibraryKind {
     Playlist,
     Album,
     Artist,
+    /// VK «Моя музыка» (loaded from VK).
+    VkMyMusic,
 }
 
 /// Library numbers shown on the home page and in settings.
@@ -105,6 +111,10 @@ struct Inner {
     state_tx: watch::Sender<AppState>,
     events: broadcast::Sender<AppEvent>,
     lists: lists::Lists,
+    playback: Arc<playback::Playback>,
+    /// Rows of remote lists (VK), filled when the list is opened.
+    remote: Mutex<HashMap<ListHandle, Vec<Playable>>>,
+    vk: std::sync::OnceLock<Option<Arc<drx_catalog::vk::Vk>>>,
 }
 
 /// The running core. Cheap to clone; UIs call the async methods through [`App::runtime`].
@@ -129,8 +139,14 @@ impl App {
         let store = Store::open(&profile.song_db())?;
         let (state_tx, _) = watch::channel(AppState::default());
         let (events, _) = broadcast::channel(256);
+        let http = Http::new()?;
+        let playback =
+            playback::Playback::new(http.clone(), runtime.handle().clone(), profile.cache_dir());
         let inner = Arc::new(Inner {
-            http: Http::new()?,
+            http,
+            playback,
+            remote: Mutex::default(),
+            vk: std::sync::OnceLock::new(),
             lists: lists::Lists::default(),
             profile,
             edition,
@@ -317,6 +333,24 @@ impl App {
 
     /// Rows of the library panel: liked songs, local playlists, saved albums and artists (newest first).
     pub async fn library_entries(&self) -> AppResult<Vec<LibraryEntry>> {
+        let mut entries = self.db_library_entries().await?;
+        if self.has_vk() {
+            entries.insert(
+                1,
+                LibraryEntry {
+                    kind: LibraryKind::VkMyMusic,
+                    id: drx_catalog::vk::LIKED_ID.into(),
+                    title: "ВК · Моя музыка".into(),
+                    subtitle: "ВКонтакте".into(),
+                    thumbnail: None,
+                    pinned: true,
+                },
+            );
+        }
+        Ok(entries)
+    }
+
+    async fn db_library_entries(&self) -> AppResult<Vec<LibraryEntry>> {
         Ok(self
             .store()
             .call(|c| {
@@ -400,6 +434,16 @@ impl App {
             .lists
             .spec(handle)
             .ok_or_else(|| AppError::Other("list is closed".into()))?;
+        if spec.is_remote() {
+            return Ok(self
+                .inner
+                .remote
+                .lock()
+                .expect("remote")
+                .get(&handle)
+                .map(Vec::len)
+                .unwrap_or(0));
+        }
         Ok(self.store().call(move |c| lists::count(c, &spec)).await?)
     }
 
@@ -414,10 +458,179 @@ impl App {
             .lists
             .spec(handle)
             .ok_or_else(|| AppError::Other("list is closed".into()))?;
+        if spec.is_remote() {
+            let remote = self.inner.remote.lock().expect("remote");
+            let rows = remote.get(&handle).map(Vec::as_slice).unwrap_or(&[]);
+            let end = range.end.min(rows.len());
+            let start = range.start.min(end);
+            return Ok(rows[start..end].iter().map(row_of).collect());
+        }
         Ok(self
             .store()
             .call(move |c| lists::rows(c, &spec, range))
             .await?)
+    }
+
+    /// The VK client, when the profile has a VK session.
+    fn vk(&self) -> Option<Arc<drx_catalog::vk::Vk>> {
+        self.inner
+            .vk
+            .get_or_init(|| {
+                let vault = drx_core::secrets::Vault::load(&self.inner.profile).ok()?;
+                let token = vault.pref(drx_core::keys::vk::ACCESS_TOKEN)?.to_string();
+                let prefs = std::fs::read(self.inner.profile.prefs_pb())
+                    .ok()
+                    .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok());
+                let uid = prefs.and_then(|p| {
+                    p.get_str(drx_core::keys::vk::USER_ID)
+                        .and_then(|u| u.parse().ok())
+                });
+                Some(Arc::new(drx_catalog::vk::Vk::new(
+                    self.inner.http.clone(),
+                    Some(token),
+                    uid,
+                )))
+            })
+            .clone()
+    }
+
+    pub fn has_vk(&self) -> bool {
+        self.vk().is_some()
+    }
+
+    /// Loads a remote list from its catalog; the UI gets [`AppEvent::ListChanged`] when rows arrive.
+    pub async fn load_remote(&self, handle: ListHandle) -> AppResult<usize> {
+        let spec = self
+            .inner
+            .lists
+            .spec(handle)
+            .ok_or_else(|| AppError::Other("list is closed".into()))?;
+        let vk = self
+            .vk()
+            .ok_or_else(|| AppError::Other("нет входа во ВКонтакте".into()))?;
+        let found = match spec {
+            ListSpec::VkMyMusic => vk.my_tracks().await,
+            ListSpec::VkPlaylist { ref id } => {
+                let (o, p, k) = drx_catalog::vk::parse_playlist_id(id)
+                    .ok_or_else(|| AppError::Other("bad VK id".into()))?;
+                vk.playlist_tracks(o, p, k).await
+            }
+            _ => return Ok(0),
+        }
+        .map_err(|e| AppError::Other(e.to_string()))?;
+        let rows: Vec<Playable> = found
+            .into_iter()
+            .map(|a| Playable {
+                track: a.track,
+                url: a.url,
+            })
+            .collect();
+        let n = rows.len();
+        self.inner
+            .remote
+            .lock()
+            .expect("remote")
+            .insert(handle, rows);
+        let _ = self
+            .inner
+            .events
+            .send(AppEvent::ListChanged { handle, version: 1 });
+        Ok(n)
+    }
+
+    /// Plays a list from `index`; the list becomes the queue.
+    pub async fn play_list(&self, handle: ListHandle, index: usize) -> AppResult<()> {
+        let spec = self
+            .inner
+            .lists
+            .spec(handle)
+            .ok_or_else(|| AppError::Other("list is closed".into()))?;
+        let items: Vec<Playable> = if spec.is_remote() {
+            self.inner
+                .remote
+                .lock()
+                .expect("remote")
+                .get(&handle)
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            let n = self.list_len(handle).await?;
+            self.list_rows(handle, 0..n)
+                .await?
+                .into_iter()
+                .map(playable_of)
+                .collect()
+        };
+        self.inner.playback.play_list(items, index);
+        Ok(())
+    }
+
+    pub fn toggle_play(&self) {
+        self.inner.playback.toggle();
+    }
+    pub fn next_track(&self) {
+        self.inner.playback.next();
+    }
+    pub fn previous_track(&self) {
+        self.inner.playback.previous();
+    }
+    pub fn seek(&self, secs: f64) {
+        self.inner.playback.seek(secs);
+    }
+    pub fn set_volume(&self, v: f32) {
+        self.inner.playback.set_volume(v);
+    }
+    pub fn now_playing(&self) -> watch::Receiver<NowPlaying> {
+        self.inner.playback.now.subscribe()
+    }
+    pub fn clock(&self) -> PlaybackClock {
+        self.inner.playback.clock()
+    }
+}
+
+fn row_of(p: &Playable) -> SongRow {
+    let t = &p.track;
+    SongRow {
+        id: t.id.clone(),
+        title: t.title.clone(),
+        artists: t.artist_names(),
+        album: t.album.as_ref().map(|a| a.name.clone()),
+        duration_s: (t.duration_ms / 1000) as i64,
+        thumbnail: t
+            .album
+            .as_ref()
+            .and_then(|a| drx_catalog::model::best_image(&a.images, 120))
+            .map(|i| i.url.clone()),
+        liked: false,
+    }
+}
+
+/// A database row as a track. Its audio is found by the resolver (milestone 5), so no URL yet.
+fn playable_of(r: SongRow) -> Playable {
+    use drx_catalog::model::{AlbumRef, ArtistRef, Track};
+    Playable {
+        track: Track {
+            id: r.id,
+            title: r.title,
+            artists: r
+                .artists
+                .split(", ")
+                .filter(|a| !a.is_empty())
+                .map(|a| ArtistRef {
+                    id: String::new(),
+                    name: a.to_string(),
+                })
+                .collect(),
+            album: r.album.map(|name| AlbumRef {
+                id: String::new(),
+                name,
+                images: Vec::new(),
+            }),
+            duration_ms: r.duration_s.max(0) as u64 * 1000,
+            isrc: None,
+            explicit: false,
+        },
+        url: None,
     }
 }
 
@@ -456,5 +669,58 @@ mod tests {
         let state = app.state().borrow().clone();
         eprintln!("liked={n} state={:?}", state.library);
         assert_eq!(state.library.liked as usize, n);
+    }
+}
+
+#[cfg(test)]
+mod live_playback {
+    use super::*;
+
+    /// Plays the first VK «Моя музыка» track through the real device at volume 0 and checks the clock moves.
+    /// DRX_TEST_PROFILE = an imported profile folder. Not run in CI.
+    #[test]
+    fn plays_vk_track() {
+        let Ok(dir) = std::env::var("DRX_TEST_PROFILE") else {
+            return;
+        };
+        let app = App::start(Profile::at(dir), EditionProfile::mini()).unwrap();
+        assert!(app.has_vk());
+        app.set_volume(0.0);
+        let rt = app.runtime();
+        let h = app.open_list(ListSpec::VkMyMusic);
+        let n = rt.block_on(app.load_remote(h)).unwrap();
+        assert!(n > 0);
+        rt.block_on(app.play_list(h, 0)).unwrap();
+        let mut moved = false;
+        for _ in 0..40 {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            let c = app.clock();
+            if c.position_s > 1.0 {
+                eprintln!(
+                    "playing: pos={:.1}s dur={:?}",
+                    c.position_s,
+                    c.duration_s.map(|d| d.round())
+                );
+                moved = true;
+                break;
+            }
+            if let Some(e) = app.now_playing().borrow().error.clone() {
+                panic!("playback error: {e}");
+            }
+        }
+        assert!(moved, "clock did not move");
+        app.seek(30.0);
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        let c = app.clock();
+        eprintln!("after seek: pos={:.1}s", c.position_s);
+        assert!(c.position_s > 29.0);
+        app.next_track();
+        std::thread::sleep(std::time::Duration::from_millis(4000));
+        let c = app.clock();
+        eprintln!(
+            "next track: pos={:.1}s index={:?}",
+            c.position_s,
+            app.now_playing().borrow().index
+        );
     }
 }

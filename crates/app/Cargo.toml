@@ -10,6 +10,9 @@ authors.workspace = true
 [dependencies]
 drx-core.workspace = true
 drx-transfer.workspace = true
+drx-audio.workspace = true
+drx-catalog.workspace = true
+reqwest = { version = "0.13", default-features = false }
 rusqlite = { version = "0.42", features = ["bundled"] }
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }

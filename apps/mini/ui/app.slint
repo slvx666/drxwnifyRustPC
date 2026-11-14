@@ -412,7 +412,7 @@ export component MainWindow inherits Window {
     in property <string> now-title;
     in property <string> now-artists;
     in property <string> now-info;
-    in property <bool> playing;
+    in-out property <bool> playing;
     in property <float> progress;
     in property <string> position: "0:00";
     in property <string> duration: "0:00";
@@ -429,6 +429,7 @@ export component MainWindow inherits Window {
     callback search(string);
     callback list-changed();
     callback library-changed();
+    callback playing-changed();
 
     Backdrop { }
     VerticalLayout {

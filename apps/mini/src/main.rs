@@ -41,7 +41,7 @@ fn main() {
     refresh_library(&ui, &app, &songs);
 
     {
-        let (ui_w, songs2) = (ui.as_weak(), songs.clone());
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
         ui.on_open_library(move |item| {
             let Some(ui) = ui_w.upgrade() else { return };
             let spec = match item.kind.as_str() {
@@ -49,6 +49,7 @@ fn main() {
                     id: item.id.to_string(),
                 },
                 "liked" => ListSpec::LikedSongs,
+                "vkliked" => ListSpec::VkMyMusic,
                 _ => {
                     ui.set_toast(
                         "Страницы альбомов и исполнителей появятся вместе с каталогами".into(),
@@ -56,26 +57,40 @@ fn main() {
                     return;
                 }
             };
+            let remote = spec.is_remote();
             songs2.reopen(spec);
             ui.set_view_title(item.title.clone());
-            ui.set_view_subtitle(format!("{} треков", songs2.len()).into());
             ui.set_current_index(-1);
+            if remote {
+                ui.set_view_subtitle("Загрузка…".into());
+                let (app3, h) = (app2.clone(), songs2.handle());
+                let ui_w2 = ui.as_weak();
+                app2.runtime().spawn(async move {
+                    let res = app3.load_remote(h).await;
+                    let _ = slint::invoke_from_event_loop(move || {
+                        let Some(ui) = ui_w2.upgrade() else { return };
+                        match res {
+                            Ok(n) => ui.set_view_subtitle(format!("{n} треков").into()),
+                            Err(e) => {
+                                ui.set_view_subtitle(format!("Не удалось загрузить: {e}").into())
+                            }
+                        }
+                    });
+                });
+            } else {
+                ui.set_view_subtitle(format!("{} треков", songs2.len()).into());
+            }
         });
     }
     {
-        let (ui_w, songs2) = (ui.as_weak(), songs.clone());
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
         ui.on_play(move |i| {
             let Some(ui) = ui_w.upgrade() else { return };
-            if let Some(row) = songs2.row(i as usize) {
-                ui.set_current_index(i);
-                ui.set_now_title(row.title.clone().into());
-                ui.set_now_artists(row.artists.clone().into());
-                ui.set_now_info(row.album.clone().unwrap_or_default().into());
-                ui.set_duration(fmt_time(row.duration_s as f64).into());
-                ui.set_toast(
-                    "Поиск звука для треков каталога появится на вехе 5 (источники)".into(),
-                );
-            }
+            ui.set_current_index(i);
+            let (app3, h) = (app2.clone(), songs2.handle());
+            app2.runtime().spawn(async move {
+                let _ = app3.play_list(h, i.max(0) as usize).await;
+            });
         });
     }
     {
@@ -132,11 +147,81 @@ fn main() {
         });
     }
     ui.on_search(|_| {});
-    ui.on_toggle(|| {});
-    ui.on_next(|| {});
-    ui.on_prev(|| {});
-    ui.on_seek(|_| {});
-    ui.on_volume_changed(|_| {});
+    {
+        let a = app.clone();
+        ui.on_toggle(move || a.toggle_play());
+        let a = app.clone();
+        ui.on_next(move || a.next_track());
+        let a = app.clone();
+        ui.on_prev(move || a.previous_track());
+        let a = app.clone();
+        ui.on_seek(move |f| {
+            if let Some(d) = a.clock().duration_s {
+                a.seek(d * f as f64);
+            }
+        });
+        let a = app.clone();
+        ui.on_volume_changed(move |v| a.set_volume(v));
+    }
+
+    // Now playing → UI. The progress timer runs only while something plays (Mini: no redraws when idle).
+    let progress = Rc::new(slint::Timer::default());
+    {
+        let mut rx = app.now_playing();
+        let ui_w = ui.as_weak();
+        app.runtime().spawn(async move {
+            while rx.changed().await.is_ok() {
+                let now = rx.borrow().clone();
+                let ui_w = ui_w.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(ui) = ui_w.upgrade() else { return };
+                    if let Some(t) = &now.track {
+                        ui.set_now_title(t.title.clone().into());
+                        ui.set_now_artists(t.artist_names().into());
+                        ui.set_now_info(
+                            t.album
+                                .as_ref()
+                                .map(|a| a.name.clone())
+                                .unwrap_or_default()
+                                .into(),
+                        );
+                        ui.set_duration(fmt_time(t.duration_ms as f64 / 1000.0).into());
+                    }
+                    if let Some(i) = now.index {
+                        ui.set_current_index(i as i32);
+                    }
+                    ui.set_playing(now.playing);
+                    if let Some(e) = &now.error {
+                        ui.set_toast(format!("Не удалось включить: {e}").into());
+                    }
+                    ui.invoke_playing_changed();
+                });
+            }
+        });
+        let (a, ui_w) = (app.clone(), ui.as_weak());
+        let timer = progress.clone();
+        ui.on_playing_changed(move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            if ui.get_playing() {
+                let (a, ui_w) = (a.clone(), ui_w.clone());
+                timer.start(
+                    slint::TimerMode::Repeated,
+                    std::time::Duration::from_millis(500),
+                    move || {
+                        let Some(ui) = ui_w.upgrade() else { return };
+                        let c = a.clock();
+                        ui.set_position(fmt_time(c.position_s).into());
+                        if let Some(d) = c.duration_s.filter(|d| *d > 0.0) {
+                            ui.set_duration(fmt_time(d).into());
+                            ui.set_progress((c.position_s / d).clamp(0.0, 1.0) as f32);
+                        }
+                    },
+                );
+            } else {
+                timer.stop();
+            }
+        });
+    }
     {
         let songs2 = songs.clone();
         ui.on_list_changed(move || songs2.invalidate());
@@ -171,6 +256,27 @@ fn main() {
         });
     }
 
+    // Developer check without clicking (no automation needed): DRX_DEMO=vk opens VK «Моя музыка» and plays
+    // the first track at volume 0. Not a user feature.
+    if std::env::var("DRX_DEMO").as_deref() == Ok("vk") && app.has_vk() {
+        app.set_volume(0.0);
+        let item = LibItem { title: "ВК · Моя музыка".into(), subtitle: "".into(), kind: "vkliked".into(), id: "vk_liked".into() };
+        ui.set_selected_id(item.id.clone());
+        ui.invoke_open_library(item);
+        let (ui_w, songs2) = (ui.as_weak(), songs.clone());
+        let t = slint::Timer::default();
+        t.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(500), move || {
+            if songs2.len() > 0
+                && let Some(ui) = ui_w.upgrade()
+                && !ui.get_playing()
+                && ui.get_current_index() < 0
+            {
+                ui.invoke_play(0);
+            }
+        });
+        std::mem::forget(t);
+    }
+
     ui.run().expect("run UI");
 }
 
@@ -189,6 +295,7 @@ fn refresh_library(ui: &MainWindow, app: &App, songs: &LazySongs) {
                 LibraryKind::Playlist => "playlist",
                 LibraryKind::Album => "album",
                 LibraryKind::Artist => "artist",
+                LibraryKind::VkMyMusic => "vkliked",
             }),
             id: e.id.clone().into(),
         })

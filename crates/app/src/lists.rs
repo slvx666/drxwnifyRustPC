@@ -19,6 +19,17 @@ pub enum ListSpec {
     Playlist { id: String },
     /// Listening history, newest first.
     History,
+    /// VK «Моя музыка», loaded from VK (not stored in the database).
+    VkMyMusic,
+    /// A VK album or playlist (`vk_<owner>_<id>[_<key>]`), loaded from VK.
+    VkPlaylist { id: String },
+}
+
+impl ListSpec {
+    /// Lists that live in memory, filled from a catalog over the network.
+    pub fn is_remote(&self) -> bool {
+        matches!(self, ListSpec::VkMyMusic | ListSpec::VkPlaylist { .. })
+    }
 }
 
 impl ListSpec {
@@ -30,6 +41,7 @@ impl ListSpec {
                 &["playlist_song_map", "song", "song_artist_map", "artist"]
             }
             ListSpec::History => &["event", "song", "song_artist_map", "artist"],
+            ListSpec::VkMyMusic | ListSpec::VkPlaylist { .. } => &[],
         }
     }
 }
@@ -107,6 +119,8 @@ fn base(spec: &ListSpec) -> (String, Vec<String>) {
             vec![id.clone()],
         ),
         ListSpec::History => ("FROM event e JOIN song s ON s.id = e.songId ORDER BY e.timestamp DESC".into(), vec![]),
+        // Remote lists never reach SQL; an empty query keeps the match total.
+        ListSpec::VkMyMusic | ListSpec::VkPlaylist { .. } => ("FROM song s WHERE 0".into(), vec![]),
     }
 }
 

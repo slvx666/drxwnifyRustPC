@@ -30,6 +30,10 @@ impl LazySongs {
         }
     }
 
+    pub fn handle(&self) -> ListHandle {
+        self.handle.get()
+    }
+
     pub fn len(&self) -> usize {
         self.len.get()
     }
