@@ -3,6 +3,7 @@
 
 pub mod model;
 pub mod spotify;
+pub mod yandex;
 
 /// JSON navigation helpers: missing or wrong-typed fields read as None (Spotify reshuffles fields often).
 pub(crate) mod js {

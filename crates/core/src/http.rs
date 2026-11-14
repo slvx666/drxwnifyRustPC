@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Once};
 use std::time::{Duration, Instant};
 
-pub use reqwest::{Method, StatusCode, header};
+pub use reqwest::{Method, RequestBuilder, StatusCode, header};
 
 /// A desktop browser User-Agent for sites that refuse unknown clients.
 pub const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
