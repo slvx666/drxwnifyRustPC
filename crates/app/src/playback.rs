@@ -35,6 +35,50 @@ pub struct NowPlaying {
     pub upcoming: Vec<Track>,
     /// Lyrics of the current track, when found (LRCLIB).
     pub lyrics: Option<Arc<drx_lyrics::Lyrics>>,
+    pub shuffle: bool,
+    pub repeat: Repeat,
+}
+
+/// Repeat mode (Media3 REPEAT_MODE_*: the numbers are the phone's `repeatMode` setting).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Repeat {
+    #[default]
+    Off = 0,
+    One = 1,
+    All = 2,
+}
+
+impl Repeat {
+    pub fn from_i32(v: i32) -> Repeat {
+        match v {
+            1 => Repeat::One,
+            2 => Repeat::All,
+            _ => Repeat::Off,
+        }
+    }
+    /// The next mode of the repeat button: off → all → one → off (as Android's player).
+    pub fn next(self) -> Repeat {
+        match self {
+            Repeat::Off => Repeat::All,
+            Repeat::All => Repeat::One,
+            Repeat::One => Repeat::Off,
+        }
+    }
+}
+
+/// Shuffles in place (xorshift seeded by the clock: no random crate needed for a queue).
+fn shuffle_in_place<T>(v: &mut [T]) {
+    let mut x = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x2545_F491_4F6C_DD1D)
+        | 1;
+    for i in (1..v.len()).rev() {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        v.swap(i, (x % (i as u64 + 1)) as usize);
+    }
 }
 
 /// Blocking body reader for the download thread (it is not a runtime thread, so `block_on` is fine).
@@ -151,6 +195,8 @@ pub(crate) struct Playback {
     cache_dir: PathBuf,
     player: Mutex<Option<Arc<Player>>>,
     queue: Mutex<(Vec<Playable>, usize)>,
+    /// The queue in its own order while shuffle is on (to go back to it).
+    original: Mutex<Option<Vec<Playable>>>,
     current_id: Mutex<Option<drx_audio::player::TrackId>>,
     pub now: Arc<watch::Sender<NowPlaying>>,
     volume: Mutex<f32>,
@@ -170,6 +216,7 @@ impl Playback {
             cache_dir,
             player: Mutex::new(None),
             queue: Mutex::new((Vec::new(), 0)),
+            original: Mutex::new(None),
             current_id: Mutex::new(None),
             now: Arc::new(watch::channel(NowPlaying::default()).0),
             volume: Mutex::new(0.8),
@@ -203,8 +250,16 @@ impl Playback {
                     if let PlayerEvent::Ended(id) = ev {
                         let cur = *this.current_id.lock().expect("current");
                         if cur == Some(id) {
-                            // Track finished on its own: continue with the queue.
-                            let next = this.queue.lock().expect("queue").1 + 1;
+                            // Track finished on its own: repeat one, or continue (wrapping with repeat all).
+                            let (i, len) = {
+                                let q = this.queue.lock().expect("queue");
+                                (q.1, q.0.len())
+                            };
+                            let next = match this.now.borrow().repeat {
+                                Repeat::One => i,
+                                Repeat::All if i + 1 >= len => 0,
+                                _ => i + 1,
+                            };
                             this.start_index(next);
                         }
                     }
@@ -427,9 +482,79 @@ impl Playback {
     }
 
     /// Plays `list` from `index` (the queue becomes this list).
+    /// Plays `list` from `index`. With shuffle on, that track plays first and the rest follow in random order.
     pub fn play_list(self: &Arc<Self>, list: Vec<Playable>, index: usize) {
-        *self.queue.lock().expect("queue") = (list, index);
-        self.start_index(index);
+        if self.now.borrow().shuffle && index < list.len() {
+            let mut rest = list.clone();
+            let first = rest.remove(index);
+            shuffle_in_place(&mut rest);
+            rest.insert(0, first);
+            *self.original.lock().expect("original") = Some(list);
+            *self.queue.lock().expect("queue") = (rest, 0);
+            self.start_index(0);
+        } else {
+            *self.original.lock().expect("original") = None;
+            *self.queue.lock().expect("queue") = (list, index);
+            self.start_index(index);
+        }
+    }
+
+    /// «Перемешать» on a page: shuffle on and the list from a random track.
+    pub fn play_shuffled(self: &Arc<Self>, list: Vec<Playable>) {
+        if list.is_empty() {
+            return;
+        }
+        self.now.send_modify(|n| n.shuffle = true);
+        let mut order: Vec<usize> = (0..list.len()).collect();
+        shuffle_in_place(&mut order);
+        self.play_list(list, order[0]);
+    }
+
+    /// Shuffle on: the current track stays, everything else is mixed. Off: the list's own order comes back, at
+    /// the current track.
+    pub fn set_shuffle(self: &Arc<Self>, on: bool) {
+        if self.now.borrow().shuffle == on {
+            return;
+        }
+        {
+            let mut q = self.queue.lock().expect("queue");
+            let mut orig = self.original.lock().expect("original");
+            if on {
+                if !q.0.is_empty() {
+                    let mut rest = q.0.clone();
+                    let cur = rest.remove(q.1.min(rest.len() - 1));
+                    shuffle_in_place(&mut rest);
+                    rest.insert(0, cur);
+                    *orig = Some(std::mem::replace(&mut q.0, rest));
+                    q.1 = 0;
+                }
+            } else if let Some(list) = orig.take() {
+                let cur_id = q.0.get(q.1).map(|p| p.track.id.clone());
+                let at = cur_id
+                    .and_then(|id| list.iter().position(|p| p.track.id == id))
+                    .unwrap_or(0);
+                *q = (list, at);
+            }
+        }
+        let upcoming = self.upcoming();
+        self.now.send_modify(|n| {
+            n.shuffle = on;
+            n.upcoming = upcoming;
+            n.index = Some(self.queue.lock().expect("queue").1);
+        });
+    }
+
+    pub fn set_repeat(&self, r: Repeat) {
+        self.now.send_modify(|n| n.repeat = r);
+    }
+
+    fn upcoming(&self) -> Vec<Track> {
+        let q = self.queue.lock().expect("queue");
+        q.0.iter()
+            .skip(q.1 + 1)
+            .take(5)
+            .map(|p| p.track.clone())
+            .collect()
     }
 
     fn start_index(self: &Arc<Self>, index: usize) {
@@ -514,7 +639,16 @@ impl Playback {
     }
 
     pub fn next(self: &Arc<Self>) {
-        let i = self.queue.lock().expect("queue").1 + 1;
+        let (i, len) = {
+            let q = self.queue.lock().expect("queue");
+            (q.1 + 1, q.0.len())
+        };
+        // Past the end: back to the start with repeat all.
+        let i = if i >= len && self.now.borrow().repeat == Repeat::All {
+            0
+        } else {
+            i
+        };
         self.start_index(i);
     }
 
@@ -524,7 +658,15 @@ impl Playback {
             self.seek(0.0);
             return;
         }
-        let i = self.queue.lock().expect("queue").1.saturating_sub(1);
+        let (i, len) = {
+            let q = self.queue.lock().expect("queue");
+            (q.1, q.0.len())
+        };
+        let i = if i == 0 && self.now.borrow().repeat == Repeat::All {
+            len.saturating_sub(1)
+        } else {
+            i.saturating_sub(1)
+        };
         self.start_index(i);
     }
 
@@ -574,6 +716,29 @@ fn is_youtube_video_id(id: &str) -> bool {
         && id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+#[cfg(test)]
+mod order_tests {
+    use super::*;
+
+    #[test]
+    fn shuffle_keeps_every_item() {
+        let mut v: Vec<u32> = (0..200).collect();
+        shuffle_in_place(&mut v);
+        assert_ne!(v, (0..200).collect::<Vec<_>>());
+        v.sort();
+        assert_eq!(v, (0..200).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn repeat_button_cycles_like_android() {
+        assert_eq!(Repeat::Off.next(), Repeat::All);
+        assert_eq!(Repeat::All.next(), Repeat::One);
+        assert_eq!(Repeat::One.next(), Repeat::Off);
+        assert_eq!(Repeat::from_i32(2), Repeat::All);
+        assert_eq!(Repeat::from_i32(7), Repeat::Off);
+    }
 }
 
 #[cfg(test)]

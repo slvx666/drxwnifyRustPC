@@ -51,6 +51,12 @@ ICONS = {
     "settings": 0xEB20,
     "check": 0xEA5E,
     "sun": 0xEB30,
+    "repeat-once": 0xEB71,
+    "dots": 0xEA95,
+    "pencil": 0xEB04,
+    "trash": 0xEB41,
+    "clock": 0xEA70,
+    "chart": 0xEA59,
 }
 OPTICAL = {"play"}
 

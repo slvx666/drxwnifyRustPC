@@ -20,6 +20,8 @@ pub struct Page {
     pub home: bool,
     /// The settings page; `spec` is then unused.
     pub settings: bool,
+    /// The library row's cover (playlists of the accounts have no other heading).
+    pub image: Option<String>,
 }
 
 impl Page {
@@ -31,6 +33,7 @@ impl Page {
             selected: String::new(),
             home: true,
             settings: false,
+            image: None,
         }
     }
 
@@ -42,6 +45,7 @@ impl Page {
             selected: String::new(),
             home: false,
             settings: true,
+            image: None,
         }
     }
 }
@@ -169,11 +173,54 @@ fn update_arrows(ui: &MainWindow) {
     ui.set_can_forward(fwd);
 }
 
-fn count_line(prefix: &str, n: usize) -> String {
-    if prefix.is_empty() {
-        format!("{n} треков")
+/// «1 трек», «3 трека», «12 треков».
+pub fn tracks_word(n: usize) -> String {
+    let w = match (n % 10, n % 100) {
+        (1, x) if x != 11 => "трек",
+        (2..=4, x) if !(12..=14).contains(&x) => "трека",
+        _ => "треков",
+    };
+    format!("{n} {w}")
+}
+
+/// «47 мин», «1 ч 3 мин».
+pub fn length_words(secs: i64) -> String {
+    let m = (secs + 30) / 60;
+    if m >= 60 {
+        format!("{} ч {} мин", m / 60, m % 60)
     } else {
-        format!("{prefix} · {n} треков")
+        format!("{} мин", m.max(1))
+    }
+}
+
+/// «Альбом · Prado · 2021 · 12 треков · 47 мин».
+fn count_line(prefix: &str, n: usize, secs: i64) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if !prefix.is_empty() {
+        parts.push(prefix.to_string());
+    }
+    parts.push(tracks_word(n));
+    if secs > 0 && n > 0 {
+        parts.push(length_words(secs));
+    }
+    parts.join(" · ")
+}
+
+/// Kind caption over the title and whether the heading shows the liked heart instead of a cover.
+fn kind_of(spec: &ListSpec) -> (&'static str, bool) {
+    match spec {
+        ListSpec::LikedSongs
+        | ListSpec::SpotifyLiked
+        | ListSpec::YandexLiked
+        | ListSpec::VkMyMusic => ("ПЛЕЙЛИСТ", true),
+        ListSpec::Playlist { .. }
+        | ListSpec::SpotifyPlaylist { .. }
+        | ListSpec::YandexPlaylist { .. }
+        | ListSpec::VkPlaylist { .. } => ("ПЛЕЙЛИСТ", false),
+        ListSpec::Album { .. } | ListSpec::CatalogAlbum { .. } => ("АЛЬБОМ", false),
+        ListSpec::Artist { .. } | ListSpec::CatalogArtist { .. } => ("ИСПОЛНИТЕЛЬ", false),
+        ListSpec::History | ListSpec::RecentSongs => ("ИСТОРИЯ", false),
+        _ => ("", false),
     }
 }
 
@@ -192,12 +239,27 @@ fn set_header_image(ui: &MainWindow, app: &App, url: Option<String>) {
     }
 }
 
-fn apply_header(ui: &MainWindow, app: &App, h: &ListHeader, n: usize) {
+fn apply_header(ui: &MainWindow, app: &App, h: &ListHeader, n: usize, secs: i64) {
     if !h.title.is_empty() {
         ui.set_view_title(h.title.clone().into());
     }
-    ui.set_view_subtitle(count_line(&h.subtitle, n).into());
-    set_header_image(ui, app, h.image.clone());
+    // The subtitle's own first word is the kind («Альбом · …»): the caption above says it already.
+    let sub = h
+        .subtitle
+        .split_once(" · ")
+        .filter(|(k, _)| matches!(*k, "Альбом" | "Сингл" | "EP" | "Сборник" | "Исполнитель"))
+        .map(|(_, rest)| rest.to_string())
+        .unwrap_or_else(|| {
+            if matches!(h.subtitle.as_str(), "Исполнитель" | "Альбом") {
+                String::new()
+            } else {
+                h.subtitle.clone()
+            }
+        });
+    ui.set_view_subtitle(count_line(&sub, n, secs).into());
+    if h.image.is_some() {
+        set_header_image(ui, app, h.image.clone());
+    }
     set_releases(ui, app, h.releases.clone());
 }
 
@@ -227,21 +289,25 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     ui.set_selected_id(page.selected.clone().into());
     ui.set_view_title(page.title.clone().into());
     ui.set_current_index(-1);
-    set_header_image(ui, app, None);
+    set_header_image(ui, app, page.image.clone());
     set_releases(ui, app, Vec::new());
-    let has_page_header = matches!(
-        page.spec,
-        ListSpec::Album { .. }
-            | ListSpec::Artist { .. }
-            | ListSpec::CatalogAlbum { .. }
-            | ListSpec::CatalogArtist { .. }
-    );
-    ui.set_view_is_page(has_page_header);
+    let (kind, liked) = kind_of(&page.spec);
+    let search = matches!(page.spec, ListSpec::Search { .. });
+    ui.set_view_kind(kind.into());
+    ui.set_view_liked_cover(liked);
+    ui.set_view_is_page(!search);
+    ui.set_view_can_play(false);
     if !page.spec.is_remote() {
+        let n = songs.len();
+        let secs = app
+            .runtime()
+            .block_on(app.list_seconds(songs.handle()))
+            .unwrap_or(0);
+        ui.set_view_can_play(n > 0);
         let local = app.runtime().block_on(app.local_header(&page.spec));
         match &local {
-            Some(h) => apply_header(ui, app, h, songs.len()),
-            None => ui.set_view_subtitle(count_line(&page.subtitle, songs.len()).into()),
+            Some(h) => apply_header(ui, app, h, n, secs),
+            None => ui.set_view_subtitle(count_line(&page.subtitle, n, secs).into()),
         }
         let (name, local_image) = local.map(|h| (h.title, h.image)).unwrap_or_default();
         // A library artist who is also in a catalog: its photo and releases join the page.
@@ -262,7 +328,8 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
                         return;
                     }
                     let n = current_len();
-                    apply_header(&ui, &app2, &head, n);
+                    let secs = app2.runtime().block_on(app2.list_seconds(h)).unwrap_or(0);
+                    apply_header(&ui, &app2, &head, n, secs);
                 });
             });
         }
@@ -280,15 +347,21 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     app.runtime().spawn(async move {
         let res = app2.load_remote(h).await;
         let header = app2.list_header(h);
+        let secs = app2.list_seconds(h).await.unwrap_or(0);
         let _ = slint::invoke_from_event_loop(move || {
             let Some(ui) = ui_w.upgrade() else { return };
             // Another page was opened meanwhile.
             if current_handle() != Some(h) {
                 return;
             }
+            if let Ok(n) = res {
+                ui.set_view_can_play(n > 0 && !search);
+            }
             match (res, header) {
-                (Ok(n), Some(head)) => apply_header(&ui, &app2, &head, n),
-                (Ok(n), None) => ui.set_view_subtitle(count_line(&page.subtitle, n).into()),
+                (Ok(n), Some(head)) => apply_header(&ui, &app2, &head, n, secs),
+                (Ok(n), None) => ui.set_view_subtitle(
+                    count_line(&page.subtitle, n, if search { 0 } else { secs }).into(),
+                ),
                 (Err(e), _) => ui.set_view_subtitle(format!("Не удалось загрузить: {e}").into()),
             }
         });

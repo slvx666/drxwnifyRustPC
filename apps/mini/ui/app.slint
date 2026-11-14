@@ -75,6 +75,7 @@ export struct LibItem {
     id: string,
     cover: image,
     has-cover: bool,
+    thumb: string, // the cover's URL (the page heading shows it big)
 }
 
 global Grid {
@@ -117,13 +118,14 @@ component IconButton inherits Rectangle {
     in property <bool> active: false;
     in property <color> tint: Theme.dim;
     in property <bool> enabled: true;
+    in property <color> active-color: Theme.text; // icon colour while on (shuffle, repeat: the accent)
     callback clicked();
     width: size;
     height: size;
     border-radius: min(Theme.chip-radius, size / 2);
     background: ta.has-hover && enabled ? Theme.fill-hover : (filled || active ? Theme.fill : transparent);
     opacity: enabled ? 1 : 0.4;
-    Icon { icon: root.icon; size: root.icon-size; color: root.active || (ta.has-hover && root.enabled) ? Theme.text : root.tint; }
+    Icon { icon: root.icon; size: root.icon-size; color: root.active ? root.active-color : (ta.has-hover && root.enabled ? Theme.text : root.tint); }
     ta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
 }
 
@@ -351,26 +353,126 @@ component Header inherits HorizontalLayout {
     height: 32px;
 }
 
+// One line of a small menu (sort order): a check mark on the chosen one.
+component MenuItem inherits Rectangle {
+    in property <string> label;
+    in property <bool> checked;
+    callback clicked();
+    height: 34px;
+    border-radius: Grid.small-radius;
+    background: ta.has-hover ? Theme.fill-hover : transparent;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 8px;
+        Middle { Icon { icon: root.checked ? Icons.check : ""; size: 16px; color: Theme.accent; } }
+        Text { text: root.label; font-family: Theme.body-font; font-size: 13px; color: root.checked ? Theme.text : Theme.dim; vertical-alignment: center; }
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
 component LibraryPanel inherits VerticalLayout {
     in property <[LibItem]> items;
     in property <string> selected-id;
+    in property <string> filter;     // "" | playlists | albums | artists
+    in property <string> sort;       // added | name | updated
+    in property <bool> descending;
+    in-out property <string> query;
+    in-out property <bool> searching;
     callback open(LibItem);
+    callback set-filter(string);
+    callback set-sort(string);
+    callback set-descending(bool);
+    callback query-changed(string);
     padding-top: Grid.pad;
     padding-bottom: 4px;
     spacing: Grid.gap;
     Header {
         padding-left: Grid.pad;
         padding-right: Grid.pad - 6px;
+        spacing: 2px;
         SectionTitle { text: "Медиатека"; horizontal-stretch: 1; }
-        Middle { IconButton { icon: Icons.plus; size: 32px; icon-size: 18px; } }
+        Middle {
+            IconButton {
+                icon: Icons.search; size: 32px; icon-size: 18px; active: root.searching;
+                clicked => {
+                    root.searching = !root.searching;
+                    if !root.searching && root.query != "" { root.query = ""; root.query-changed(""); }
+                }
+            }
+        }
+        Middle { sort-btn := IconButton { icon: Icons.sort; size: 32px; icon-size: 18px; clicked => { sort-menu.show(); } } }
+    }
+    if root.searching: Rectangle {
+        height: 34px;
+        x: Grid.pad;
+        width: parent.width - 2 * Grid.pad;
+        border-radius: min(Theme.chip-radius, 17px);
+        background: Theme.fill;
+        border-color: Theme.panel-border;
+        border-width: 1px;
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            spacing: 6px;
+            Middle { Icon { icon: Icons.search; size: 15px; color: Theme.mute; } }
+            Rectangle {
+                horizontal-stretch: 1;
+                qi := TextInput {
+                    width: 100%;
+                    height: 100%;
+                    text <=> root.query;
+                    font-family: Theme.body-font;
+                    font-size: 13px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    edited => { root.query-changed(self.text); }
+                    init => { self.focus(); }
+                }
+                if root.query == "": Text {
+                    x: 0;
+                    width: 100%;
+                    height: 100%;
+                    text: "Поиск в медиатеке";
+                    font-family: Theme.body-font;
+                    font-size: 13px;
+                    color: Theme.mute;
+                    vertical-alignment: center;
+                }
+            }
+        }
     }
     HorizontalLayout {
         padding-left: Grid.pad;
         spacing: 6px;
         alignment: start;
-        Chip { label: "Плейлисты"; }
-        Chip { label: "Альбомы"; }
-        Chip { label: "Артисты"; }
+        Chip { label: "Плейлисты"; selected: root.filter == "playlists"; clicked => { root.set-filter(root.filter == "playlists" ? "" : "playlists"); } }
+        Chip { label: "Альбомы"; selected: root.filter == "albums"; clicked => { root.set-filter(root.filter == "albums" ? "" : "albums"); } }
+        Chip { label: "Артисты"; selected: root.filter == "artists"; clicked => { root.set-filter(root.filter == "artists" ? "" : "artists"); } }
+    }
+    // Sort menu under the sort button (Android: «Недавно добавленные / Название / Дата обновления» and the direction).
+    sort-menu := PopupWindow {
+        x: root.width - 216px - Grid.pad + 6px;
+        y: Grid.pad + 34px;
+        width: 216px;
+        Rectangle {
+            border-radius: Grid.item-radius;
+            background: Theme.menu;
+            border-color: Theme.panel-border;
+            border-width: 1px;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000060;
+            VerticalLayout {
+                padding: 6px;
+                spacing: 2px;
+                MenuItem { label: "Недавно добавленные"; checked: root.sort == "added"; clicked => { root.set-sort("added"); } }
+                MenuItem { label: "Название"; checked: root.sort == "name"; clicked => { root.set-sort("name"); } }
+                MenuItem { label: "Дата обновления"; checked: root.sort == "updated"; clicked => { root.set-sort("updated"); } }
+                HLine { }
+                MenuItem { label: root.sort == "name" ? "От Я до А" : "Сначала новые"; checked: root.descending; clicked => { root.set-descending(true); } }
+                MenuItem { label: root.sort == "name" ? "От А до Я" : "Сначала старые"; checked: !root.descending; clicked => { root.set-descending(false); } }
+            }
+        }
     }
     // Rows are inset by 8 px and their content by 8 more, so covers line up with the titles above (16 px).
     HorizontalLayout {
@@ -601,7 +703,12 @@ component MainArea inherits VerticalLayout {
     in property <bool> empty-library;
     in property <image> cover;
     in property <bool> has-cover;
-    in property <bool> is-page; // album or artist: the heading gets a cover
+    in property <bool> is-page; // a list page: the heading gets a cover
+    in property <string> kind-label; // «АЛЬБОМ», «ПЛЕЙЛИСТ», «ИСПОЛНИТЕЛЬ»…
+    in property <bool> liked-cover; // the liked list: a heart on the accent instead of a cover
+    in property <bool> can-play; // Play / Shuffle buttons
+    callback play-all();
+    callback shuffle-all();
     in property <[ReleaseItem]> releases; // artist pages: albums and singles
     in property <bool> home; // the home page: rows of cards instead of a track list
     in property <bool> settings;
@@ -625,16 +732,60 @@ component MainArea inherits VerticalLayout {
     padding-top: Grid.pad;
     padding-bottom: 4px;
     spacing: Grid.gap;
+    // Page heading: cover, kind, title, «N треков · 47 мин», and Play / Shuffle for lists.
     HorizontalLayout {
         padding-left: Grid.pad + 4px;
         padding-right: Grid.pad;
-        spacing: Grid.pad;
-        if root.is-page: Cover { size: 96px; source: root.cover; has-source: root.has-cover; }
+        spacing: Grid.pad + 4px;
+        if root.is-page: Cover {
+            size: 132px;
+            source: root.cover;
+            has-source: root.has-cover;
+            placeholder: root.liked-cover ? Icons.heart-filled : Icons.music;
+            placeholder-color: root.liked-cover ? Theme.on-accent : Theme.mute;
+            background: root.liked-cover ? Theme.accent : Theme.fill-hover;
+        }
         VerticalLayout {
             alignment: root.is-page ? end : start;
-            spacing: 2px;
+            spacing: 4px;
+            if root.kind-label != "": Caption { text: root.kind-label; }
             Text { text: title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
             Text { text: subtitle; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+            if root.can-play: HorizontalLayout {
+                padding-top: 6px;
+                spacing: Grid.gap;
+                alignment: start;
+                Rectangle {
+                    width: pl.preferred-width + 54px;
+                    height: 38px;
+                    border-radius: min(Theme.chip-radius, 19px);
+                    background: pa.has-hover ? Theme.accent2 : Theme.accent;
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 18px;
+                        spacing: 6px;
+                        Middle { Icon { icon: Icons.play; size: 16px; color: Theme.on-accent; } }
+                        pl := Text { text: "Слушать"; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.on-accent; vertical-alignment: center; }
+                    }
+                    pa := TouchArea { mouse-cursor: pointer; clicked => { root.play-all(); } }
+                }
+                Rectangle {
+                    width: sl.preferred-width + 54px;
+                    height: 38px;
+                    border-radius: min(Theme.chip-radius, 19px);
+                    background: sa.has-hover ? Theme.fill-hover : Theme.fill;
+                    border-color: Theme.panel-border;
+                    border-width: 1px;
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 18px;
+                        spacing: 6px;
+                        Middle { Icon { icon: Icons.shuffle; size: 16px; color: Theme.text; } }
+                        sl := Text { text: "Перемешать"; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.text; vertical-alignment: center; }
+                    }
+                    sa := TouchArea { mouse-cursor: pointer; clicked => { root.shuffle-all(); } }
+                }
+            }
         }
     }
     // Artist releases: one row of covers that scrolls sideways.
@@ -874,7 +1025,11 @@ component PlayerBar inherits HorizontalLayout {
     callback seek(float);
     callback volume-changed(float);
     in property <bool> day;
+    in property <bool> shuffle;
+    in property <int> repeat;
     callback set-day(bool);
+    callback toggle-shuffle();
+    callback cycle-repeat();
     height: Grid.bar-height;
     HorizontalLayout {
         width: Grid.lib-width + 1px;
@@ -900,7 +1055,7 @@ component PlayerBar inherits HorizontalLayout {
         HorizontalLayout {
             alignment: center;
             spacing: Grid.gap;
-            Middle { IconButton { icon: Icons.shuffle; } }
+            Middle { IconButton { icon: Icons.shuffle; active: root.shuffle; active-color: Theme.accent; clicked => { root.toggle-shuffle(); } } }
             Middle { IconButton { icon: Icons.prev; clicked => { root.prev(); } } }
             Middle {
                 Rectangle {
@@ -913,7 +1068,7 @@ component PlayerBar inherits HorizontalLayout {
                 }
             }
             Middle { IconButton { icon: Icons.next; clicked => { root.next(); } } }
-            Middle { IconButton { icon: Icons.repeat; } }
+            Middle { IconButton { icon: root.repeat == 1 ? Icons.repeat-once : Icons.repeat; active: root.repeat != 0; active-color: Theme.accent; clicked => { root.cycle-repeat(); } } }
         }
         HorizontalLayout {
             spacing: 8px;
@@ -953,6 +1108,13 @@ export component MainWindow inherits Window {
     default-font-family: Theme.body-font;
 
     in property <[LibItem]> library;
+    in property <string> lib-filter;
+    in property <string> lib-sort: "added";
+    in property <bool> lib-descending: true;
+    callback lib-set-filter(string);
+    callback lib-set-sort(string);
+    callback lib-set-descending(bool);
+    callback lib-query(string);
     in-out property <string> selected-id: "liked";
     in property <string> view-title: "Любимые треки";
     in property <string> view-subtitle;
@@ -973,6 +1135,15 @@ export component MainWindow inherits Window {
     in property <bool> has-view-cover;
     in property <[ReleaseItem]> view-releases;
     in property <bool> view-home;
+    in property <string> view-kind;
+    in property <bool> view-liked-cover;
+    in property <bool> view-can-play;
+    in property <bool> now-shuffle;
+    in property <int> now-repeat; // 0 off, 1 one, 2 all
+    callback play-all();
+    callback shuffle-all();
+    callback toggle-shuffle();
+    callback cycle-repeat();
     in property <bool> view-settings;
     in property <[AccountRow]> settings-accounts;
     in property <[ThemeChip]> settings-themes;
@@ -1051,6 +1222,13 @@ export component MainWindow inherits Window {
                         width: Grid.lib-width;
                         items: root.library;
                         selected-id: root.selected-id;
+                        filter: root.lib-filter;
+                        sort: root.lib-sort;
+                        descending: root.lib-descending;
+                        set-filter(f) => { root.lib-set-filter(f); }
+                        set-sort(s) => { root.lib-set-sort(s); }
+                        set-descending(d) => { root.lib-set-descending(d); }
+                        query-changed(q) => { root.lib-query(q); }
                         open(item) => { root.selected-id = item.id; root.open-library(item); }
                     }
                     VLine { }
@@ -1062,6 +1240,11 @@ export component MainWindow inherits Window {
                         now-id: root.now-id;
                         empty-library: root.empty-library;
                         is-page: root.view-is-page;
+                        kind-label: root.view-kind;
+                        liked-cover: root.view-liked-cover;
+                        can-play: root.view-can-play && !root.view-home && !root.view-settings;
+                        play-all => { root.play-all(); }
+                        shuffle-all => { root.shuffle-all(); }
                         cover: root.view-cover;
                         has-cover: root.has-view-cover;
                         releases: root.view-releases;
@@ -1114,6 +1297,10 @@ export component MainWindow inherits Window {
                     playing: root.playing;
                     day: root.day-theme;
                     set-day(v) => { root.set-day(v); }
+                    shuffle: root.now-shuffle;
+                    repeat: root.now-repeat;
+                    toggle-shuffle => { root.toggle-shuffle(); }
+                    cycle-repeat => { root.cycle-repeat(); }
                     progress: root.progress;
                     position: root.position;
                     duration: root.duration;

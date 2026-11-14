@@ -240,6 +240,17 @@ pub(crate) fn count(c: &mut Connection, spec: &ListSpec) -> drx_core::Result<usi
     Ok(n as usize)
 }
 
+pub(crate) fn total_seconds(c: &mut Connection, spec: &ListSpec) -> drx_core::Result<i64> {
+    let (from, params) = base(spec);
+    // ORDER BY inside `from` is harmless for a sum.
+    let sql = format!("SELECT coalesce(sum(max(s.duration, 0)), 0) {from}");
+    Ok(
+        c.query_row(&sql, rusqlite::params_from_iter(params.iter()), |r| {
+            r.get(0)
+        })?,
+    )
+}
+
 pub(crate) fn rows(
     c: &mut Connection,
     spec: &ListSpec,

@@ -16,7 +16,7 @@ use drx_transfer::backup::{self, Accounts, ImportOptions};
 pub use edition::{Edition, EditionProfile};
 pub use home::{HomeAlbum, HomeFeed, HomeRow, HomeRowKind};
 pub use lists::{ListHandle, ListHeader, ListSpec, SongRow};
-pub use playback::{NowPlaying, Playable};
+pub use playback::{NowPlaying, Playable, Repeat};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
@@ -69,6 +69,41 @@ pub struct LibraryEntry {
     pub subtitle: String,
     pub thumbnail: Option<String>,
     pub pinned: bool,
+    /// What the row is to the filter chips (a remote VK album is an album, a Spotify playlist a playlist).
+    pub group: LibraryGroup,
+    /// When it came into the library / was last changed (Unix ms; 0 = unknown, e.g. account playlists).
+    pub added_ms: i64,
+    pub updated_ms: i64,
+}
+
+/// Library filter groups (Android LibraryFilter: the chips).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryGroup {
+    Liked,
+    Playlists,
+    Albums,
+    Artists,
+}
+
+/// Library order (Android MixSortType).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MixSort {
+    /// «Недавно добавленные»
+    #[default]
+    Added,
+    /// «Название»
+    Name,
+    /// «Дата обновления»
+    Updated,
+}
+
+/// How the library panel is shown: chip filter, order, a search in the panel.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LibraryView {
+    pub filter: Option<LibraryGroup>,
+    pub sort: MixSort,
+    pub descending: bool,
+    pub query: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,6 +215,7 @@ impl App {
         };
         app.watch_tables();
         app.install_providers();
+        app.restore_shuffle_repeat();
         let a = app.clone();
         app.runtime.spawn(async move {
             let _ = a.refresh_state().await;
@@ -378,6 +414,91 @@ impl App {
         Ok(entries)
     }
 
+    /// The library panel as the view asks: chip filter, order, search (LibraryMixScreen). The liked lists stay on top
+    /// (Android pins «Любимые»); under a search they are filtered like everything else.
+    pub async fn library_view(&self, view: &LibraryView) -> AppResult<Vec<LibraryEntry>> {
+        let mut all = self.library_entries().await?;
+        if let Some(f) = view.filter {
+            // The playlists chip keeps the liked lists: they are playlists to the listener (auto playlists).
+            all.retain(|e| {
+                e.group == f || (f == LibraryGroup::Playlists && e.group == LibraryGroup::Liked)
+            });
+        }
+        let q = view.query.trim().to_lowercase();
+        if !q.is_empty() {
+            all.retain(|e| {
+                e.title.to_lowercase().contains(&q) || e.subtitle.to_lowercase().contains(&q)
+            });
+        }
+        let (mut pinned, mut rest): (Vec<_>, Vec<_>) = all.into_iter().partition(|e| e.pinned);
+        match view.sort {
+            MixSort::Added => rest.sort_by_key(|e| e.added_ms),
+            MixSort::Updated => rest.sort_by_key(|e| e.updated_ms),
+            MixSort::Name => rest.sort_by_key(|e| e.title.to_lowercase()),
+        }
+        // Newest/«Я…» first when descending; rows without a date (account playlists) keep their order at the end.
+        if view.descending {
+            rest.reverse();
+            if view.sort != MixSort::Name {
+                let (dated, undated): (Vec<_>, Vec<_>) = rest.into_iter().partition(|e| {
+                    (if view.sort == MixSort::Added {
+                        e.added_ms
+                    } else {
+                        e.updated_ms
+                    }) > 0
+                });
+                rest = dated;
+                let mut undated = undated;
+                undated.reverse();
+                rest.extend(undated);
+            }
+        }
+        pinned.extend(rest);
+        Ok(pinned)
+    }
+
+    /// The saved library view (phone keys: `chipSortType`, `mixSortType`, `albumSortDescending`).
+    pub fn library_view_saved(&self) -> LibraryView {
+        let prefs = std::fs::read(self.inner.profile.prefs_pb())
+            .ok()
+            .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
+            .unwrap_or_default();
+        LibraryView {
+            filter: match prefs.get_str("chipSortType") {
+                Some("PLAYLISTS") => Some(LibraryGroup::Playlists),
+                Some("ALBUMS") => Some(LibraryGroup::Albums),
+                Some("ARTISTS") => Some(LibraryGroup::Artists),
+                _ => None,
+            },
+            sort: match prefs.get_str("mixSortType") {
+                Some("NAME") => MixSort::Name,
+                Some("LAST_UPDATED") => MixSort::Updated,
+                _ => MixSort::Added,
+            },
+            descending: prefs.get_bool("albumSortDescending").unwrap_or(true),
+            query: String::new(),
+        }
+    }
+
+    /// Saves the chip, order and direction (the search is not kept).
+    pub fn save_library_view(&self, v: &LibraryView) -> AppResult<()> {
+        use drx_core::prefs::PrefValue;
+        let chip = match v.filter {
+            Some(LibraryGroup::Playlists) => "PLAYLISTS",
+            Some(LibraryGroup::Albums) => "ALBUMS",
+            Some(LibraryGroup::Artists) => "ARTISTS",
+            _ => "LIBRARY",
+        };
+        let sort = match v.sort {
+            MixSort::Added => "CREATE_DATE",
+            MixSort::Name => "NAME",
+            MixSort::Updated => "LAST_UPDATED",
+        };
+        self.set_pref("chipSortType", PrefValue::String(chip.into()))?;
+        self.set_pref("mixSortType", PrefValue::String(sort.into()))?;
+        self.set_pref("albumSortDescending", PrefValue::Bool(v.descending))
+    }
+
     async fn db_library_entries(&self) -> AppResult<Vec<LibraryEntry>> {
         Ok(self
             .store()
@@ -390,9 +511,13 @@ impl App {
                     subtitle: format!("{liked} треков"),
                     thumbnail: None,
                     pinned: true,
+                    group: LibraryGroup::Liked,
+                    added_ms: 0,
+                    updated_ms: 0,
                 }];
                 let mut st = c.prepare(
-                    "SELECT p.id, p.name, p.thumbnailUrl, (SELECT count(*) FROM playlist_song_map m WHERE m.playlistId = p.id)
+                    "SELECT p.id, p.name, p.thumbnailUrl, (SELECT count(*) FROM playlist_song_map m WHERE m.playlistId = p.id),
+                     p.createdAt, coalesce(p.lastUpdateTime, p.createdAt)
                      FROM playlist p ORDER BY coalesce(p.lastUpdateTime, p.createdAt) DESC",
                 )?;
                 let rows = st.query_map([], |r| {
@@ -403,13 +528,17 @@ impl App {
                         subtitle: format!("Плейлист · {}", r.get::<_, i64>(3)?),
                         thumbnail: r.get(2)?,
                         pinned: false,
+                        group: LibraryGroup::Playlists,
+                        added_ms: r.get::<_, Option<i64>>(4)?.unwrap_or(0),
+                        updated_ms: r.get::<_, Option<i64>>(5)?.unwrap_or(0),
                     })
                 })?;
                 for r in rows {
                     out.push(r?);
                 }
                 let mut st = c.prepare(
-                    "SELECT a.id, a.title, a.thumbnailUrl, (SELECT group_concat(ar.name, ', ') FROM album_artist_map m JOIN artist ar ON ar.id = m.artistId WHERE m.albumId = a.id)
+                    "SELECT a.id, a.title, a.thumbnailUrl, (SELECT group_concat(ar.name, ', ') FROM album_artist_map m JOIN artist ar ON ar.id = m.artistId WHERE m.albumId = a.id),
+                     a.bookmarkedAt, a.lastUpdateTime
                      FROM album a WHERE a.bookmarkedAt IS NOT NULL ORDER BY a.bookmarkedAt DESC",
                 )?;
                 let rows = st.query_map([], |r| {
@@ -420,13 +549,16 @@ impl App {
                         subtitle: format!("Альбом · {}", r.get::<_, Option<String>>(3)?.unwrap_or_default()),
                         thumbnail: r.get(2)?,
                         pinned: false,
+                        group: LibraryGroup::Albums,
+                        added_ms: r.get::<_, Option<i64>>(4)?.unwrap_or(0),
+                        updated_ms: r.get::<_, Option<i64>>(5)?.unwrap_or(0),
                     })
                 })?;
                 for r in rows {
                     out.push(r?);
                 }
                 let mut st = c.prepare(
-                    "SELECT id, name, thumbnailUrl FROM artist WHERE bookmarkedAt IS NOT NULL ORDER BY bookmarkedAt DESC",
+                    "SELECT id, name, thumbnailUrl, bookmarkedAt, lastUpdateTime FROM artist WHERE bookmarkedAt IS NOT NULL ORDER BY bookmarkedAt DESC",
                 )?;
                 let rows = st.query_map([], |r| {
                     Ok(LibraryEntry {
@@ -436,6 +568,9 @@ impl App {
                         subtitle: "Исполнитель".into(),
                         thumbnail: r.get(2)?,
                         pinned: false,
+                        group: LibraryGroup::Artists,
+                        added_ms: r.get::<_, Option<i64>>(3)?.unwrap_or(0),
+                        updated_ms: r.get::<_, Option<i64>>(4)?.unwrap_or(0),
                     })
                 })?;
                 for r in rows {
@@ -632,6 +767,36 @@ impl App {
 
     /// Plays a list from `index`; the list becomes the queue.
     pub async fn play_list(&self, handle: ListHandle, index: usize) -> AppResult<()> {
+        let items = self.list_items(handle).await?;
+        self.inner.playback.play_list(items, index);
+        Ok(())
+    }
+
+    /// Total length of a list in seconds (for «12 треков · 47 мин» under a page title).
+    pub async fn list_seconds(&self, handle: ListHandle) -> AppResult<i64> {
+        let spec = self
+            .inner
+            .lists
+            .spec(handle)
+            .ok_or_else(|| AppError::Other("list is closed".into()))?;
+        if spec.is_remote() {
+            return Ok(self
+                .inner
+                .remote
+                .lock()
+                .expect("remote")
+                .get(&handle)
+                .map(|r| r.iter().map(|p| (p.track.duration_ms / 1000) as i64).sum())
+                .unwrap_or(0));
+        }
+        Ok(self
+            .store()
+            .call(move |c| lists::total_seconds(c, &spec))
+            .await?)
+    }
+
+    /// Every row of a list as playable tracks.
+    async fn list_items(&self, handle: ListHandle) -> AppResult<Vec<Playable>> {
         let spec = self
             .inner
             .lists
@@ -653,8 +818,7 @@ impl App {
                 .map(playable_of)
                 .collect()
         };
-        self.inner.playback.play_list(items, index);
-        Ok(())
+        Ok(items)
     }
 
     /// A decoded cover if it is already cached at this size (cheap; call from the UI thread).
@@ -678,6 +842,48 @@ impl App {
 
     pub fn toggle_play(&self) {
         self.inner.playback.toggle();
+    }
+
+    /// «Перемешать» on a page: the list in random order (shuffle turns on).
+    pub async fn play_list_shuffled(&self, handle: ListHandle) -> AppResult<()> {
+        let items = self.list_items(handle).await?;
+        self.inner.playback.play_shuffled(items);
+        self.save_shuffle_repeat();
+        Ok(())
+    }
+
+    pub fn set_shuffle(&self, on: bool) {
+        self.inner.playback.set_shuffle(on);
+        self.save_shuffle_repeat();
+    }
+
+    pub fn set_repeat(&self, r: Repeat) {
+        self.inner.playback.set_repeat(r);
+        self.save_shuffle_repeat();
+    }
+
+    /// Shuffle and repeat are remembered like on the phone (`shuffleMode`, `repeatMode`; `rememberShuffleAndRepeat`).
+    fn save_shuffle_repeat(&self) {
+        let now = self.inner.playback.now.borrow().clone();
+        let _ = self.set_pref(
+            "repeatMode",
+            drx_core::prefs::PrefValue::Int(now.repeat as i32),
+        );
+        let _ = self.set_pref("shuffleMode", drx_core::prefs::PrefValue::Bool(now.shuffle));
+    }
+
+    pub(crate) fn restore_shuffle_repeat(&self) {
+        let prefs = std::fs::read(self.inner.profile.prefs_pb())
+            .ok()
+            .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
+            .unwrap_or_default();
+        let repeat = Repeat::from_i32(prefs.get_i64("repeatMode").unwrap_or(0) as i32);
+        let remember = prefs.get_bool("rememberShuffleAndRepeat").unwrap_or(true);
+        let shuffle = remember && prefs.get_bool("shuffleMode").unwrap_or(false);
+        self.inner.playback.now.send_modify(|n| {
+            n.repeat = repeat;
+            n.shuffle = shuffle;
+        });
     }
     pub fn next_track(&self) {
         self.inner.playback.next();
@@ -810,6 +1016,53 @@ mod tests {
             eprintln!("album {:?}: {n} tracks", album.title);
             assert!(n > 0);
         }
+        // Library view: chips, orders, search (LibraryMixScreen).
+        let v = |filter, sort, descending, query: &str| LibraryView {
+            filter,
+            sort,
+            descending,
+            query: query.into(),
+        };
+        let albums = rt
+            .block_on(app.library_view(&v(Some(LibraryGroup::Albums), MixSort::Added, true, "")))
+            .unwrap();
+        assert!(!albums.is_empty() && albums.iter().all(|e| e.group == LibraryGroup::Albums));
+        let added: Vec<i64> = albums.iter().map(|e| e.added_ms).collect();
+        assert!(added.windows(2).all(|w| w[0] >= w[1]), "newest first");
+        let by_name = rt
+            .block_on(app.library_view(&v(None, MixSort::Name, false, "")))
+            .unwrap();
+        let names: Vec<String> = by_name
+            .iter()
+            .filter(|e| !e.pinned)
+            .map(|e| e.title.to_lowercase())
+            .collect();
+        assert!(names.windows(2).all(|w| w[0] <= w[1]), "А→Я");
+        assert!(by_name[0].pinned, "liked stays on top");
+        let playlists = rt
+            .block_on(app.library_view(&v(
+                Some(LibraryGroup::Playlists),
+                MixSort::Updated,
+                true,
+                "",
+            )))
+            .unwrap();
+        assert!(
+            playlists
+                .iter()
+                .all(|e| matches!(e.group, LibraryGroup::Playlists | LibraryGroup::Liked))
+        );
+        let q = albums[0].title.chars().take(4).collect::<String>();
+        let found = rt
+            .block_on(app.library_view(&v(None, MixSort::Added, true, &q)))
+            .unwrap();
+        assert!(found.iter().any(|e| e.id == albums[0].id));
+        eprintln!(
+            "library view: albums={} playlists={} search={}",
+            albums.len(),
+            playlists.len(),
+            found.len()
+        );
         if let Some(artist) = entries.iter().find(|e| e.kind == LibraryKind::Artist) {
             let h = app.open_list(ListSpec::Artist {
                 id: artist.id.clone(),

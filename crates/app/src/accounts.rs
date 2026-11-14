@@ -3,7 +3,9 @@
 
 use crate::lists::{ListHeader, ListSpec};
 use crate::playback::Playable;
-use crate::{App, AppError, AppEvent, AppResult, LibraryEntry, LibraryKind, ListHandle};
+use crate::{
+    App, AppError, AppEvent, AppResult, LibraryEntry, LibraryGroup, LibraryKind, ListHandle,
+};
 use drx_catalog::model::{Source, Track};
 use drx_core::keys;
 use std::sync::Arc;
@@ -222,6 +224,9 @@ impl App {
                     },
                     thumbnail: None,
                     pinned: true,
+                    group: LibraryGroup::Liked,
+                    added_ms: 0,
+                    updated_ms: 0,
                 }
             })
             .collect()
@@ -248,6 +253,9 @@ impl App {
                                 thumbnail: drx_catalog::model::best_image(&p.images, 120)
                                     .map(|i| i.url.clone()),
                                 pinned: false,
+                                group: LibraryGroup::Playlists,
+                                added_ms: 0,
+                                updated_ms: 0,
                             }
                         }));
                     }
@@ -267,6 +275,9 @@ impl App {
                                 thumbnail: drx_catalog::model::best_image(&p.images, 120)
                                     .map(|i| i.url.clone()),
                                 pinned: false,
+                                group: LibraryGroup::Playlists,
+                                added_ms: 0,
+                                updated_ms: 0,
                             }
                         }));
                     }
@@ -292,6 +303,13 @@ impl App {
                                 thumbnail: drx_catalog::model::best_image(&p.playlist.images, 120)
                                     .map(|i| i.url.clone()),
                                 pinned: false,
+                                group: if p.is_album {
+                                    LibraryGroup::Albums
+                                } else {
+                                    LibraryGroup::Playlists
+                                },
+                                added_ms: 0,
+                                updated_ms: 0,
                             }
                         }));
                     }

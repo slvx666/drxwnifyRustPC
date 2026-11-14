@@ -52,6 +52,7 @@ impl Model for LazyLibrary {
             title: e.title.into(),
             subtitle: e.subtitle.into(),
             kind: SharedString::from(kind_name(e.kind)),
+            thumb: e.thumbnail.clone().unwrap_or_default().into(),
             id: e.id.into(),
             has_cover: cover.is_some(),
             cover: cover.unwrap_or_default(),

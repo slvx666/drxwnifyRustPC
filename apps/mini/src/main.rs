@@ -108,6 +108,7 @@ fn main() {
                 selected: item.id.to_string(),
                 home: false,
                 settings: false,
+                image: Some(item.thumb.to_string()).filter(|t| !t.is_empty()),
             };
             nav::go(&ui, &app2, &songs2, page);
         });
@@ -129,6 +130,7 @@ fn main() {
                 selected: String::new(),
                 home: false,
                 settings: false,
+                image: None,
             };
             nav::go(&ui, &app2, &songs2, page);
         });
@@ -146,6 +148,7 @@ fn main() {
                 selected: String::new(),
                 home: false,
                 settings: false,
+                image: None,
             };
             nav::go(&ui, &app2, &songs2, page);
         });
@@ -227,6 +230,78 @@ fn main() {
             if ui.get_view_settings() {
                 settings_view::fill(&ui, &app2);
             }
+        });
+    }
+    // Page heading buttons and the player's shuffle / repeat.
+    {
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_play_all(move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            if let Some(r) = songs2.row(0) {
+                ui.set_now_id(r.id.into());
+            }
+            let (app3, h) = (app2.clone(), songs2.handle());
+            app2.runtime().spawn(async move {
+                let _ = app3.play_list(h, 0).await;
+            });
+        });
+        let (app2, songs2) = (app.clone(), songs.clone());
+        ui.on_shuffle_all(move || {
+            let (app3, h) = (app2.clone(), songs2.handle());
+            app2.runtime().spawn(async move {
+                let _ = app3.play_list_shuffled(h).await;
+            });
+        });
+        let app2 = app.clone();
+        ui.on_toggle_shuffle(move || {
+            let on = app2.now_playing().borrow().shuffle;
+            app2.set_shuffle(!on);
+        });
+        let app2 = app.clone();
+        ui.on_cycle_repeat(move || {
+            let r = app2.now_playing().borrow().repeat;
+            app2.set_repeat(r.next());
+        });
+        ui.set_now_shuffle(app.now_playing().borrow().shuffle);
+        ui.set_now_repeat(app.now_playing().borrow().repeat as i32);
+    }
+    // Library panel: chips, order, search (LibraryMixScreen).
+    {
+        use drx_app::{LibraryGroup, MixSort};
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_lib_set_filter(move |f| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            change_library_view(&ui, &app2, &songs2, |v| {
+                v.filter = match f.as_str() {
+                    "playlists" => Some(LibraryGroup::Playlists),
+                    "albums" => Some(LibraryGroup::Albums),
+                    "artists" => Some(LibraryGroup::Artists),
+                    _ => None,
+                }
+            });
+        });
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_lib_set_sort(move |s| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            change_library_view(&ui, &app2, &songs2, |v| {
+                v.sort = match s.as_str() {
+                    "name" => MixSort::Name,
+                    "updated" => MixSort::Updated,
+                    _ => MixSort::Added,
+                };
+                // Names read А→Я by default, dates newest first.
+                v.descending = v.sort != MixSort::Name;
+            });
+        });
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_lib_set_descending(move |d| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            change_library_view(&ui, &app2, &songs2, |v| v.descending = d);
+        });
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_lib_query(move |q| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            change_library_view(&ui, &app2, &songs2, |v| v.query = q.to_string());
         });
     }
     {
@@ -317,6 +392,7 @@ fn main() {
                 selected: String::new(),
                 home: false,
                 settings: false,
+                image: None,
             };
             nav::go(&ui, &app2, &songs2, page);
         });
@@ -416,6 +492,8 @@ fn main() {
                         None => ui.set_has_lyrics(false),
                     }
                     ui.set_playing(now.playing);
+                    ui.set_now_shuffle(now.shuffle);
+                    ui.set_now_repeat(now.repeat as i32);
                     if let Some(e) = &now.error {
                         ui.set_toast(format!("Не удалось включить: {e}").into());
                     }
@@ -568,6 +646,7 @@ fn main() {
                 id: e.id.clone().into(),
                 cover: Default::default(),
                 has_cover: false,
+                thumb: e.thumbnail.clone().unwrap_or_default().into(),
             },
             None => LibItem {
                 title: demo.clone().into(),
@@ -576,6 +655,7 @@ fn main() {
                 id: demo.into(),
                 cover: Default::default(),
                 has_cover: false,
+                thumb: Default::default(),
             },
         };
         ui.set_selected_id(item.id.clone());
@@ -650,6 +730,7 @@ fn main() {
 thread_local! {
     static LYRICS: std::cell::RefCell<Option<std::sync::Arc<drx_lyrics::Lyrics>>> = const { std::cell::RefCell::new(None) };
     static LIBRARY: std::cell::RefCell<Option<Rc<lazy_library::LazyLibrary>>> = const { std::cell::RefCell::new(None) };
+    static LIB_VIEW: std::cell::RefCell<Option<drx_app::LibraryView>> = const { std::cell::RefCell::new(None) };
 }
 
 fn library_model(ui: &MainWindow, app: &App) -> Rc<lazy_library::LazyLibrary> {
@@ -665,13 +746,60 @@ fn library_model(ui: &MainWindow, app: &App) -> Rc<lazy_library::LazyLibrary> {
 }
 
 fn refresh_library(ui: &MainWindow, app: &App, songs: &LazySongs) {
+    let view = LIB_VIEW.with(|v| {
+        v.borrow_mut()
+            .get_or_insert_with(|| app.library_view_saved())
+            .clone()
+    });
     let entries = app
         .runtime()
-        .block_on(app.library_entries())
+        .block_on(app.library_view(&view))
         .unwrap_or_default();
     let lib = library_model(ui, app);
     lib.set(entries);
-    ui.set_empty_library(songs.len() == 0 && lib.len() <= 1);
+    sync_library_view(ui, &view);
+    // «Empty library» means nothing at all, not an empty filter or search.
+    let filtered = view.filter.is_some() || !view.query.is_empty();
+    ui.set_empty_library(!filtered && songs.len() == 0 && lib.len() <= 1);
+}
+
+fn sync_library_view(ui: &MainWindow, v: &drx_app::LibraryView) {
+    use drx_app::{LibraryGroup, MixSort};
+    ui.set_lib_filter(
+        match v.filter {
+            Some(LibraryGroup::Playlists) => "playlists",
+            Some(LibraryGroup::Albums) => "albums",
+            Some(LibraryGroup::Artists) => "artists",
+            _ => "",
+        }
+        .into(),
+    );
+    ui.set_lib_sort(
+        match v.sort {
+            MixSort::Added => "added",
+            MixSort::Name => "name",
+            MixSort::Updated => "updated",
+        }
+        .into(),
+    );
+    ui.set_lib_descending(v.descending);
+}
+
+/// Changes the library view, saves it (except the search) and redraws the panel.
+fn change_library_view(
+    ui: &MainWindow,
+    app: &App,
+    songs: &LazySongs,
+    f: impl FnOnce(&mut drx_app::LibraryView),
+) {
+    let view = LIB_VIEW.with(|v| {
+        let mut v = v.borrow_mut();
+        let view = v.get_or_insert_with(|| app.library_view_saved());
+        f(view);
+        view.clone()
+    });
+    let _ = app.save_library_view(&view);
+    refresh_library(ui, app, songs);
 }
 
 /// Cover size in list rows (px; decoded once at this size).
