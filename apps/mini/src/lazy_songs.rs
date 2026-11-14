@@ -59,6 +59,11 @@ impl LazySongs {
         self.notify.reset();
     }
 
+    /// Covers arrived: redraw the visible rows (cached pages are kept).
+    pub fn refresh_covers(&self) {
+        self.notify.reset();
+    }
+
     pub fn row(&self, i: usize) -> Option<SongRow> {
         if i >= self.len.get() {
             return None;
@@ -96,12 +101,20 @@ impl Model for LazySongs {
     }
 
     fn row_data(&self, row: usize) -> Option<SongItem> {
-        self.row(row).map(|r| SongItem {
-            title: r.title.into(),
-            artists: r.artists.into(),
-            duration: crate::fmt_time(r.duration_s as f64).into(),
-            liked: r.liked,
-            index: row as i32 + 1,
+        self.row(row).map(|r| {
+            let cover = r
+                .thumbnail
+                .as_deref()
+                .and_then(|u| crate::cover(&self.app, u, crate::ROW_COVER));
+            SongItem {
+                title: r.title.into(),
+                artists: r.artists.into(),
+                duration: crate::fmt_time(r.duration_s as f64).into(),
+                liked: r.liked,
+                index: row as i32 + 1,
+                has_cover: cover.is_some(),
+                cover: cover.unwrap_or_default(),
+            }
         })
     }
 

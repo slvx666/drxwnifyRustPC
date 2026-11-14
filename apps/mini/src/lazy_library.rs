@@ -1,0 +1,70 @@
+//! The library panel as a lazy model: covers are requested only for rows the view actually shows
+//! (a VK account alone brings hundreds of playlists).
+
+use crate::LibItem;
+use drx_app::{App, LibraryEntry, LibraryKind};
+use slint::{Model, ModelNotify, ModelTracker, SharedString};
+use std::cell::RefCell;
+
+pub struct LazyLibrary {
+    app: App,
+    entries: RefCell<Vec<LibraryEntry>>,
+    notify: ModelNotify,
+}
+
+impl LazyLibrary {
+    pub fn new(app: App) -> Self {
+        Self {
+            app,
+            entries: RefCell::default(),
+            notify: ModelNotify::default(),
+        }
+    }
+
+    pub fn set(&self, entries: Vec<LibraryEntry>) {
+        *self.entries.borrow_mut() = entries;
+        self.notify.reset();
+    }
+
+    pub fn refresh_covers(&self) {
+        self.notify.reset();
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.borrow().len()
+    }
+}
+
+impl Model for LazyLibrary {
+    type Data = LibItem;
+
+    fn row_count(&self) -> usize {
+        self.entries.borrow().len()
+    }
+
+    fn row_data(&self, row: usize) -> Option<LibItem> {
+        let e = self.entries.borrow().get(row).cloned()?;
+        let cover = e
+            .thumbnail
+            .as_deref()
+            .and_then(|u| crate::cover(&self.app, u, crate::ROW_COVER));
+        Some(LibItem {
+            title: e.title.into(),
+            subtitle: e.subtitle.into(),
+            kind: SharedString::from(match e.kind {
+                LibraryKind::Liked => "liked",
+                LibraryKind::Playlist => "playlist",
+                LibraryKind::Album => "album",
+                LibraryKind::Artist => "artist",
+                LibraryKind::Remote => "remote",
+            }),
+            id: e.id.into(),
+            has_cover: cover.is_some(),
+            cover: cover.unwrap_or_default(),
+        })
+    }
+
+    fn model_tracker(&self) -> &dyn ModelTracker {
+        &self.notify
+    }
+}

@@ -2,13 +2,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 //! Drxwnify Mini: the native, light edition. All logic lives in `drx-app`; this file only binds the UI to it.
 
+mod lazy_library;
 mod lazy_songs;
 mod themes;
 
-use drx_app::{App, AppEvent, Command, CommandOutcome, EditionProfile, LibraryKind, ListSpec};
+use drx_app::{App, AppEvent, Command, CommandOutcome, EditionProfile, ListSpec};
 use drx_core::paths::Profile;
 use lazy_songs::LazySongs;
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, ModelRc};
 use std::rc::Rc;
 
 slint::include_modules!();
@@ -190,6 +191,13 @@ fn main() {
                                 .into(),
                         );
                         ui.set_duration(fmt_time(t.duration_ms as f64 / 1000.0).into());
+                        let url = t
+                            .album
+                            .as_ref()
+                            .and_then(|a| drx_catalog::model::best_image(&a.images, 600))
+                            .map(|i| i.url.clone());
+                        ui.set_now_cover_url(url.unwrap_or_default().into());
+                        ui.invoke_images_changed();
                     }
                     if let Some(i) = now.index {
                         ui.set_current_index(i as i32);
@@ -250,6 +258,35 @@ fn main() {
             }
         });
     }
+    {
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        let pending = Rc::new(std::cell::Cell::new(false));
+        ui.on_images_changed(move || {
+            // Many covers arrive together: redraw once per 150 ms.
+            if pending.replace(true) {
+                return;
+            }
+            let (app3, ui_w2, songs3, pending2) =
+                (app2.clone(), ui_w.clone(), songs2.clone(), pending.clone());
+            slint::Timer::single_shot(std::time::Duration::from_millis(150), move || {
+                pending2.set(false);
+                let Some(ui) = ui_w2.upgrade() else { return };
+                songs3.refresh_covers();
+                library_model(&ui, &app3).refresh_covers();
+                let url = ui.get_now_cover_url().to_string();
+                match (!url.is_empty())
+                    .then(|| cover(&app3, &url, NOW_COVER))
+                    .flatten()
+                {
+                    Some(c) => {
+                        ui.set_now_cover(c);
+                        ui.set_has_now_cover(true);
+                    }
+                    None => ui.set_has_now_cover(false),
+                }
+            });
+        });
+    }
     // The accounts' playlists load in the background and appear in the library panel when ready.
     {
         let a = app.clone();
@@ -272,6 +309,7 @@ fn main() {
                             ui.invoke_list_changed()
                         }
                         AppEvent::LibraryChanged => ui.invoke_library_panel_changed(),
+                        AppEvent::ImageReady { .. } => ui.invoke_images_changed(),
                     }
                 });
             }
@@ -292,6 +330,8 @@ fn main() {
             subtitle: "".into(),
             kind: "remote".into(),
             id: id.into(),
+            cover: Default::default(),
+            has_cover: false,
         };
         ui.set_selected_id(item.id.clone());
         ui.invoke_open_library(item);
@@ -316,29 +356,50 @@ fn main() {
     ui.run().expect("run UI");
 }
 
+thread_local! {
+    static LIBRARY: std::cell::RefCell<Option<Rc<lazy_library::LazyLibrary>>> = const { std::cell::RefCell::new(None) };
+}
+
+fn library_model(ui: &MainWindow, app: &App) -> Rc<lazy_library::LazyLibrary> {
+    LIBRARY.with(|l| {
+        l.borrow_mut()
+            .get_or_insert_with(|| {
+                let m = Rc::new(lazy_library::LazyLibrary::new(app.clone()));
+                ui.set_library(ModelRc::from(m.clone()));
+                m
+            })
+            .clone()
+    })
+}
+
 fn refresh_library(ui: &MainWindow, app: &App, songs: &LazySongs) {
     let entries = app
         .runtime()
         .block_on(app.library_entries())
         .unwrap_or_default();
-    let items: Vec<LibItem> = entries
-        .iter()
-        .map(|e| LibItem {
-            title: e.title.clone().into(),
-            subtitle: e.subtitle.clone().into(),
-            kind: SharedString::from(match e.kind {
-                LibraryKind::Liked => "liked",
-                LibraryKind::Playlist => "playlist",
-                LibraryKind::Album => "album",
-                LibraryKind::Artist => "artist",
-                LibraryKind::Remote => "remote",
-            }),
-            id: e.id.clone().into(),
-        })
-        .collect();
-    ui.set_library(ModelRc::new(VecModel::from(items)));
-    let n = songs.len();
-    ui.set_empty_library(n == 0 && entries.len() <= 1);
+    let lib = library_model(ui, app);
+    lib.set(entries);
+    ui.set_empty_library(songs.len() == 0 && lib.len() <= 1);
+}
+
+/// Cover size in list rows (px; decoded once at this size).
+pub const ROW_COVER: u32 = 84;
+pub const NOW_COVER: u32 = 560;
+
+/// A cover as a Slint image when it is cached; otherwise asks the core to load it (ImageReady follows).
+pub fn cover(app: &App, url: &str, size: u32) -> Option<slint::Image> {
+    match app.image(url, size) {
+        Some(p) => {
+            let buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                &p.rgba, p.size, p.size,
+            );
+            Some(slint::Image::from_rgba8(buf))
+        }
+        None => {
+            app.request_image(url, size);
+            None
+        }
+    }
 }
 
 pub fn fmt_time(secs: f64) -> String {

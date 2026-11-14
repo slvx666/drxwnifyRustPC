@@ -104,6 +104,8 @@ pub enum AppEvent {
     LibraryReplaced,
     /// Library panel rows changed (account playlists arrived): ask for [`App::library_entries`] again.
     LibraryChanged,
+    /// An image requested with [`App::request_image`] is decoded and in the cache.
+    ImageReady { url: String, size: u32 },
 }
 
 struct Inner {
@@ -118,6 +120,7 @@ struct Inner {
     /// Rows of remote lists (VK), filled when the list is opened.
     remote: Mutex<HashMap<ListHandle, Vec<Playable>>>,
     clients: accounts::Clients,
+    images: drx_core::images::Images,
 }
 
 /// The running core. Cheap to clone; UIs call the async methods through [`App::runtime`].
@@ -145,11 +148,17 @@ impl App {
         let http = Http::new()?;
         let playback =
             playback::Playback::new(http.clone(), runtime.handle().clone(), profile.cache_dir());
+        let images = drx_core::images::Images::new(
+            http.clone(),
+            profile.cache_dir(),
+            edition.image_cache_bytes,
+        );
         let inner = Arc::new(Inner {
             http,
             playback,
             remote: Mutex::default(),
             clients: accounts::Clients::default(),
+            images,
             lists: lists::Lists::default(),
             profile,
             edition,
@@ -515,6 +524,25 @@ impl App {
         };
         self.inner.playback.play_list(items, index);
         Ok(())
+    }
+
+    /// A decoded cover if it is already cached at this size (cheap; call from the UI thread).
+    pub fn image(&self, url: &str, size: u32) -> Option<Arc<drx_core::images::Pixels>> {
+        self.inner.images.cached(url, size)
+    }
+
+    /// Starts loading a cover; [`AppEvent::ImageReady`] follows when it is decoded.
+    pub fn request_image(&self, url: &str, size: u32) {
+        let (images, events, url) = (
+            self.inner.images.clone(),
+            self.inner.events.clone(),
+            url.to_string(),
+        );
+        self.runtime.spawn(async move {
+            if images.load(&url, size).await.is_some() {
+                let _ = events.send(AppEvent::ImageReady { url, size });
+            }
+        });
     }
 
     pub fn toggle_play(&self) {

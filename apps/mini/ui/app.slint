@@ -12,13 +12,17 @@ export struct SongItem {
     duration: string,
     liked: bool,
     index: int,
+    cover: image,
+    has-cover: bool,
 }
 
 export struct LibItem {
     title: string,
     subtitle: string,
-    kind: string, // liked | playlist | album | artist
+    kind: string, // liked | playlist | album | artist | remote
     id: string,
+    cover: image,
+    has-cover: bool,
 }
 
 component Icon inherits Text {
@@ -208,12 +212,14 @@ component LibraryPanel inherits Panel {
                         width: 52px;
                         height: 52px;
                         border-radius: Theme.cover-radius;
+                        clip: true;
                         background: item.kind == "liked" ? Theme.accent : Theme.fill-hover;
-                        Icon {
+                        if !item.has-cover: Icon {
                             text: item.kind == "liked" ? Icons.heart-filled : Icons.music;
                             color: item.kind == "liked" ? Theme.on-accent : Theme.mute;
                             font-size: 20px;
                         }
+                        if item.has-cover: Image { source: item.cover; width: 52px; height: 52px; image-fit: ImageFit.cover; }
                     }
                     VerticalLayout {
                         alignment: center;
@@ -239,6 +245,15 @@ component SongRow inherits Rectangle {
         padding-right: 16px;
         spacing: 12px;
         Text { width: 28px; text: song.index; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
+        Rectangle {
+            width: 42px;
+            height: 42px;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.cover-radius > 8px ? 8px : Theme.cover-radius;
+            clip: true;
+            background: Theme.fill;
+            if song.has-cover: Image { source: song.cover; width: 42px; height: 42px; image-fit: ImageFit.cover; }
+        }
         VerticalLayout {
             alignment: center;
             Text { text: song.title; font-family: Theme.body-font; font-size: 15px; color: current ? Theme.accent : Theme.text; overflow: elide; }
@@ -296,6 +311,8 @@ component RightPanel inherits Panel {
     in property <string> title;
     in property <string> artists;
     in property <string> info;
+    in property <image> cover;
+    in property <bool> has-cover;
     VerticalLayout {
         padding: 16px;
         spacing: 12px;
@@ -303,8 +320,10 @@ component RightPanel inherits Panel {
         Rectangle {
             height: self.width;
             border-radius: Theme.cover-radius;
+            clip: true;
             background: @linear-gradient(135deg, Theme.accent.with-alpha(0.35) 0%, Theme.fill 100%);
-            Icon { text: Icons.music; font-size: 64px; color: Theme.mute; }
+            if !root.has-cover: Icon { text: Icons.music; font-size: 64px; color: Theme.mute; }
+            if root.has-cover: Image { source: root.cover; width: parent.width; height: parent.height; image-fit: ImageFit.cover; }
         }
         Text { text: title == "" ? "Ничего не играет" : title; font-family: Theme.heading-font; font-weight: 700; font-size: 20px; color: Theme.text; overflow: elide; }
         Text { text: artists; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
@@ -316,6 +335,8 @@ component RightPanel inherits Panel {
 }
 
 component PlayerBar inherits Panel {
+    in property <image> cover;
+    in property <bool> has-cover;
     in property <string> title;
     in property <string> artists;
     in property <bool> playing;
@@ -335,8 +356,9 @@ component PlayerBar inherits Panel {
         HorizontalLayout {
             width: 300px;
             spacing: 12px;
-            Rectangle { width: 56px; height: 56px; y: (parent.height - self.height) / 2; border-radius: Theme.cover-radius; background: Theme.fill-hover;
-                Icon { text: Icons.music; color: Theme.mute; } }
+            Rectangle { width: 56px; height: 56px; y: (parent.height - self.height) / 2; border-radius: Theme.cover-radius; background: Theme.fill-hover; clip: true;
+                if !root.has-cover: Icon { text: Icons.music; color: Theme.mute; }
+                if root.has-cover: Image { source: root.cover; width: 56px; height: 56px; image-fit: ImageFit.cover; } }
             VerticalLayout {
                 alignment: center;
                 Text { text: title; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.text; overflow: elide; }
@@ -412,6 +434,9 @@ export component MainWindow inherits Window {
     in property <string> now-title;
     in property <string> now-artists;
     in property <string> now-info;
+    in property <image> now-cover;
+    in-out property <string> now-cover-url;
+    in-out property <bool> has-now-cover;
     in-out property <bool> playing;
     in property <float> progress;
     in property <string> position: "0:00";
@@ -431,6 +456,7 @@ export component MainWindow inherits Window {
     callback library-changed();
     callback playing-changed();
     callback library-panel-changed();
+    callback images-changed();
 
     Backdrop { }
     VerticalLayout {
@@ -462,6 +488,8 @@ export component MainWindow inherits Window {
                 title: root.now-title;
                 artists: root.now-artists;
                 info: root.now-info;
+                cover: root.now-cover;
+                has-cover: root.has-now-cover;
             }
         }
         HorizontalLayout {
@@ -471,6 +499,8 @@ export component MainWindow inherits Window {
                 height: 88px;
                 title: root.now-title;
                 artists: root.now-artists;
+                cover: root.now-cover;
+                has-cover: root.has-now-cover;
                 playing: root.playing;
                 progress: root.progress;
                 position: root.position;

@@ -1553,6 +1553,7 @@ dependencies = [
 name = "drx-core"
 version = "0.1.0"
 dependencies = [
+ "image",
  "reqwest",
  "rusqlite",
  "rustls",
@@ -1637,6 +1638,7 @@ name = "drxwnify-mini"
 version = "0.1.0"
 dependencies = [
  "drx-app",
+ "drx-catalog",
  "drx-core",
  "rfd",
  "serde_json",
@@ -3271,6 +3273,7 @@ checksum = "e6506c6c10786659413faa717ceebcb8f70731c0a60cbae39795fdf114519c1a"
 dependencies = [
  "bytemuck",
  "byteorder-lite",
+ "image-webp",
  "moxcms",
  "num-traits",
  "png 0.18.1",
