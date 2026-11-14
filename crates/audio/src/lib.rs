@@ -4,5 +4,7 @@
 pub mod decode;
 pub mod mixer;
 pub mod oggopus;
+pub mod output;
+pub mod player;
 pub mod resample;
 pub mod source;

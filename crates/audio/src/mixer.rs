@@ -36,11 +36,17 @@ pub enum MixCmd {
     /// Queue a voice to start when the active one ends.
     Queue(VoiceIn),
     /// Crossfade from the active voice to this one over `frames`.
-    Crossfade { voice: VoiceIn, frames: u32 },
+    Crossfade {
+        voice: VoiceIn,
+        frames: u32,
+    },
     /// Drop a voice (skip, seek replaces it with a new one).
     Remove(u64),
     SetMaster(f32),
-    SetGain { id: u64, gain: f32 },
+    SetGain {
+        id: u64,
+        gain: f32,
+    },
     Pause(bool),
 }
 
@@ -119,19 +125,38 @@ impl Mixer {
         while let Ok(cmd) = self.cmds.pop() {
             match cmd {
                 MixCmd::Play(v) => {
-                    let ended: Vec<u64> = self.voices.iter().filter(|v| v.role != Role::Queued).map(|v| v.id).collect();
+                    let ended: Vec<u64> = self
+                        .voices
+                        .iter()
+                        .filter(|v| v.role != Role::Queued)
+                        .map(|v| v.id)
+                        .collect();
                     self.voices.retain(|v| v.role == Role::Queued);
                     for id in ended {
                         self.emit(MixEvent::Ended(id));
                     }
                     let id = v.id;
-                    self.voices.push(Voice { id, ring: v.ring, shared: v.shared, gain: v.gain, role: Role::Active, fade: None });
+                    self.voices.push(Voice {
+                        id,
+                        ring: v.ring,
+                        shared: v.shared,
+                        gain: v.gain,
+                        role: Role::Active,
+                        fade: None,
+                    });
                     self.emit(MixEvent::Started(id));
                     self.idle_sent = false;
                 }
                 MixCmd::Queue(v) => {
                     self.voices.retain(|x| x.role != Role::Queued);
-                    self.voices.push(Voice { id: v.id, ring: v.ring, shared: v.shared, gain: v.gain, role: Role::Queued, fade: None });
+                    self.voices.push(Voice {
+                        id: v.id,
+                        ring: v.ring,
+                        shared: v.shared,
+                        gain: v.gain,
+                        role: Role::Queued,
+                        fade: None,
+                    });
                     self.idle_sent = false;
                 }
                 MixCmd::Crossfade { voice, frames } => {
@@ -141,7 +166,8 @@ impl Mixer {
                             x.fade = Some((0, frames));
                         }
                     }
-                    self.voices.retain(|x| x.role != Role::Queued || x.id == voice.id);
+                    self.voices
+                        .retain(|x| x.role != Role::Queued || x.id == voice.id);
                     let id = voice.id;
                     self.voices.push(Voice {
                         id,
@@ -260,7 +286,15 @@ mod tests {
         }
         let shared = Arc::new(VoiceShared::default());
         shared.input_done.store(true, Ordering::Release);
-        (VoiceIn { id, ring: c, shared: shared.clone(), gain: 1.0 }, shared)
+        (
+            VoiceIn {
+                id,
+                ring: c,
+                shared: shared.clone(),
+                gain: 1.0,
+            },
+            shared,
+        )
     }
 
     fn mixer() -> (Mixer, rtrb::Producer<MixCmd>, rtrb::Consumer<MixEvent>) {
@@ -287,9 +321,21 @@ mod tests {
         let mut out = vec![0.0; 300 * 2];
         m.render(&mut out);
         assert!(out[..200].iter().all(|&s| s == 0.25));
-        assert!(out[200..400].iter().all(|&s| s == 0.5), "no gap between tracks");
+        assert!(
+            out[200..400].iter().all(|&s| s == 0.5),
+            "no gap between tracks"
+        );
         assert!(out[400..].iter().all(|&s| s == 0.0));
-        assert_eq!(drain(&mut ev), vec![MixEvent::Started(1), MixEvent::Ended(1), MixEvent::Started(2), MixEvent::Ended(2), MixEvent::Idle]);
+        assert_eq!(
+            drain(&mut ev),
+            vec![
+                MixEvent::Started(1),
+                MixEvent::Ended(1),
+                MixEvent::Started(2),
+                MixEvent::Ended(2),
+                MixEvent::Idle
+            ]
+        );
     }
 
     #[test]
@@ -300,7 +346,11 @@ mod tests {
         cmd.push(MixCmd::Play(a)).ok();
         let mut out = vec![0.0; 2];
         m.render(&mut out);
-        cmd.push(MixCmd::Crossfade { voice: b, frames: 1000 }).ok();
+        cmd.push(MixCmd::Crossfade {
+            voice: b,
+            frames: 1000,
+        })
+        .ok();
         let mut out = vec![0.0; 1000 * 2];
         m.render(&mut out);
         // At p = 0.5: out (1-p)² = 0.25 plus in 1-(1-p)² = 0.75 → 1.0 total.
@@ -321,10 +371,17 @@ mod tests {
         m.render(&mut out);
         cmd.push(MixCmd::Pause(true)).ok();
         m.render(&mut out);
-        assert!(out[0] > 0.9 && out[out.len() - 1] < 0.6, "fades out over 10 ms");
+        assert!(
+            out[0] > 0.9 && out[out.len() - 1] < 0.6,
+            "fades out over 10 ms"
+        );
         let played = shared.played.load(Ordering::Relaxed);
         m.render(&mut out);
         assert!(out.iter().all(|&s| s == 0.0));
-        assert_eq!(shared.played.load(Ordering::Relaxed), played, "paused: nothing consumed");
+        assert_eq!(
+            shared.played.load(Ordering::Relaxed),
+            played,
+            "paused: nothing consumed"
+        );
     }
 }

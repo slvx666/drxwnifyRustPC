@@ -20,7 +20,8 @@ pub struct Resampler {
 
 impl Resampler {
     pub fn new(from: u32, to: u32) -> Self {
-        let fft = Fft::<f32>::new(from as usize, to as usize, CHUNK, 2, FixedSync::Input).expect("valid resampler");
+        let fft = Fft::<f32>::new(from as usize, to as usize, CHUNK, 2, FixedSync::Input)
+            .expect("valid resampler");
         let skip = fft.output_delay();
         let max = fft.output_frames_max();
         Self {
@@ -36,9 +37,14 @@ impl Resampler {
 
     fn run_chunk(&mut self, out: &mut Vec<f32>) {
         let cap = self.out_buf.len() / 2;
-        let input = InterleavedSlice::new(&self.pending[..CHUNK * 2], 2, CHUNK).expect("input shape");
-        let mut output = InterleavedSlice::new_mut(&mut self.out_buf, 2, cap).expect("output shape");
-        let (_, written) = self.fft.process_into_buffer(&input, &mut output, None).expect("resample");
+        let input =
+            InterleavedSlice::new(&self.pending[..CHUNK * 2], 2, CHUNK).expect("input shape");
+        let mut output =
+            InterleavedSlice::new_mut(&mut self.out_buf, 2, cap).expect("output shape");
+        let (_, written) = self
+            .fft
+            .process_into_buffer(&input, &mut output, None)
+            .expect("resample");
         self.pending.drain(..CHUNK * 2);
         let mut frames = &self.out_buf[..written * 2];
         if self.skip > 0 {
@@ -83,7 +89,9 @@ mod tests {
     fn converts_length_exactly() {
         let mut r = Resampler::new(44_100, 48_000);
         let mut out = Vec::new();
-        let input: Vec<f32> = (0..44_100 * 2).map(|i| ((i / 2) as f32 * 0.05).sin() * 0.5).collect();
+        let input: Vec<f32> = (0..44_100 * 2)
+            .map(|i| ((i / 2) as f32 * 0.05).sin() * 0.5)
+            .collect();
         for c in input.chunks(3000) {
             r.push(c, &mut out);
         }
@@ -96,12 +104,19 @@ mod tests {
         // 1 kHz at 44.1k → 1 kHz at 48k: zero crossings per second stay ~2000.
         let mut r = Resampler::new(44_100, 48_000);
         let mut out = Vec::new();
-        let input: Vec<f32> =
-            (0..44_100).flat_map(|i| { let s = (i as f32 / 44_100.0 * 1000.0 * std::f32::consts::TAU).sin(); [s, s] }).collect();
+        let input: Vec<f32> = (0..44_100)
+            .flat_map(|i| {
+                let s = (i as f32 / 44_100.0 * 1000.0 * std::f32::consts::TAU).sin();
+                [s, s]
+            })
+            .collect();
         r.push(&input, &mut out);
         r.finish(&mut out);
         let left: Vec<f32> = out.iter().step_by(2).copied().collect();
-        let crossings = left.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count();
+        let crossings = left
+            .windows(2)
+            .filter(|w| w[0] <= 0.0 && w[1] > 0.0)
+            .count();
         assert!((990..=1010).contains(&crossings), "{crossings}");
     }
 }

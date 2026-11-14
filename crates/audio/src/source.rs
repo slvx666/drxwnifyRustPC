@@ -51,7 +51,11 @@ impl State {
     }
     /// Bytes available at `pos` (0 if `pos` is not downloaded yet).
     fn available(&self, pos: u64) -> u64 {
-        self.ranges.iter().find(|&&(s, e)| s <= pos && pos < e).map(|&(_, e)| e - pos).unwrap_or(0)
+        self.ranges
+            .iter()
+            .find(|&&(s, e)| s <= pos && pos < e)
+            .map(|&(_, e)| e - pos)
+            .unwrap_or(0)
     }
     fn complete(&self) -> bool {
         matches!((self.total, self.ranges.first()), (Some(t), Some(&(0, e))) if e >= t)
@@ -88,21 +92,34 @@ impl CachedSource {
         if let Some(dir) = cache_file.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let writer = OpenOptions::new().create(true).truncate(true).read(true).write(true).open(cache_file)?;
+        let writer = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .read(true)
+            .write(true)
+            .open(cache_file)?;
         let reader = File::open(cache_file)?;
         let (total, first) = opener.open(0)?;
         if let Some(t) = total {
             writer.set_len(t)?;
         }
         let shared = Arc::new(Shared {
-            state: Mutex::new(State { total, ..Default::default() }),
+            state: Mutex::new(State {
+                total,
+                ..Default::default()
+            }),
             cv: Condvar::new(),
         });
         let s2 = shared.clone();
         std::thread::Builder::new()
             .name("audio-download".into())
             .spawn(move || download(opener, writer, first, s2))?;
-        Ok(Self { file: reader, pos: 0, shared, path: cache_file.to_path_buf() })
+        Ok(Self {
+            file: reader,
+            pos: 0,
+            shared,
+            path: cache_file.to_path_buf(),
+        })
     }
 
     /// True when the whole stream is in the cache file.
@@ -122,7 +139,12 @@ impl Drop for CachedSource {
     }
 }
 
-fn download(opener: Arc<dyn RangeOpener>, mut file: File, first: Box<dyn Read + Send>, shared: Arc<Shared>) {
+fn download(
+    opener: Arc<dyn RangeOpener>,
+    mut file: File,
+    first: Box<dyn Read + Send>,
+    shared: Arc<Shared>,
+) {
     let mut reader = first;
     let mut offset = 0u64;
     let mut buf = vec![0u8; CHUNK];
@@ -152,7 +174,11 @@ fn download(opener: Arc<dyn RangeOpener>, mut file: File, first: Box<dyn Read + 
                     return;
                 }
             };
-            if file.seek(SeekFrom::Start(offset)).and_then(|_| file.write_all(&buf[..n])).is_err() {
+            if file
+                .seek(SeekFrom::Start(offset))
+                .and_then(|_| file.write_all(&buf[..n]))
+                .is_err()
+            {
                 let mut st = shared.state.lock().expect("source lock");
                 st.error = Some("cache write failed".into());
                 shared.cv.notify_all();
@@ -216,11 +242,16 @@ impl Read for CachedSource {
                 if let Some(e) = &st.error {
                     return Err(std::io::Error::other(e.clone()));
                 }
-                let far = self.pos > st.head + RESTART_DISTANCE || self.pos < st.head.saturating_sub(CHUNK as u64) && !st.complete();
+                let far = self.pos > st.head + RESTART_DISTANCE
+                    || self.pos < st.head.saturating_sub(CHUNK as u64) && !st.complete();
                 if far && st.restart_at.is_none() {
                     st.restart_at = Some(self.pos - self.pos % CHUNK as u64);
                 }
-                let (g, _) = self.shared.cv.wait_timeout(st, Duration::from_millis(500)).expect("source lock");
+                let (g, _) = self
+                    .shared
+                    .cv
+                    .wait_timeout(st, Duration::from_millis(500))
+                    .expect("source lock");
                 st = g;
             }
         };
@@ -240,11 +271,19 @@ impl Seek for CachedSource {
             SeekFrom::Current(d) => self.pos as i64 + d,
             SeekFrom::End(d) => match total {
                 Some(t) => t as i64 + d,
-                None => return Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "length unknown")),
+                None => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Unsupported,
+                        "length unknown",
+                    ));
+                }
             },
         };
         if new < 0 {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "seek before start"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "seek before start",
+            ));
         }
         self.pos = new as u64;
         Ok(self.pos)
@@ -283,7 +322,13 @@ mod tests {
     impl RangeOpener for Slow {
         fn open(&self, offset: u64) -> std::io::Result<(Option<u64>, Box<dyn Read + Send>)> {
             self.opens.fetch_add(1, Ordering::SeqCst);
-            Ok((Some(self.data.len() as u64), Box::new(SlowReader { data: self.data.clone(), pos: offset as usize })))
+            Ok((
+                Some(self.data.len() as u64),
+                Box::new(SlowReader {
+                    data: self.data.clone(),
+                    pos: offset as usize,
+                }),
+            ))
         }
     }
 
@@ -296,7 +341,14 @@ mod tests {
         let d = data(1_000_000);
         let dir = tempfile::tempdir().unwrap();
         let opens = Arc::new(AtomicUsize::new(0));
-        let mut s = CachedSource::start(Arc::new(Slow { data: d.clone(), opens: opens.clone() }), &dir.path().join("a")).unwrap();
+        let mut s = CachedSource::start(
+            Arc::new(Slow {
+                data: d.clone(),
+                opens: opens.clone(),
+            }),
+            &dir.path().join("a"),
+        )
+        .unwrap();
         let mut out = Vec::new();
         s.read_to_end(&mut out).unwrap();
         assert_eq!(out, *d);
@@ -308,13 +360,24 @@ mod tests {
         let d = data(20_000_000);
         let dir = tempfile::tempdir().unwrap();
         let opens = Arc::new(AtomicUsize::new(0));
-        let mut s = CachedSource::start(Arc::new(Slow { data: d.clone(), opens: opens.clone() }), &dir.path().join("b")).unwrap();
+        let mut s = CachedSource::start(
+            Arc::new(Slow {
+                data: d.clone(),
+                opens: opens.clone(),
+            }),
+            &dir.path().join("b"),
+        )
+        .unwrap();
         s.seek(SeekFrom::Start(15_000_000)).unwrap();
         let mut buf = vec![0u8; 100_000];
         let t = std::time::Instant::now();
         s.read_exact(&mut buf).unwrap();
         assert_eq!(&buf[..], &d[15_000_000..15_100_000]);
-        assert!(t.elapsed() < Duration::from_secs(3), "did not wait for the whole prefix: {:?}", t.elapsed());
+        assert!(
+            t.elapsed() < Duration::from_secs(3),
+            "did not wait for the whole prefix: {:?}",
+            t.elapsed()
+        );
         assert!(opens.load(Ordering::SeqCst) >= 2);
         // Going back to the start still works (the gap gets filled).
         s.seek(SeekFrom::Start(0)).unwrap();
