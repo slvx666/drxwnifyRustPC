@@ -258,6 +258,7 @@ impl App {
     async fn search_library(&self, q: &str) -> AppResult<SearchOutcome> {
         let needle = fold(q);
         let n2 = needle.clone();
+        let covers = self.profile().covers_dir();
         let (songs, artists, albums, playlists) = self
             .store()
             .call(move |c| {
@@ -318,14 +319,15 @@ impl App {
                     }
                 }
                 let mut playlists = Vec::new();
-                let mut st = c.prepare(
-                    "SELECT p.id, p.name, p.thumbnailUrl, (SELECT count(*) FROM playlist_song_map m WHERE m.playlistId = p.id) FROM playlist p",
-                )?;
+                let mut st = c.prepare(&format!(
+                    "SELECT p.id, p.name, p.thumbnailUrl, (SELECT count(*) FROM playlist_song_map m WHERE m.playlistId = p.id), {} FROM playlist p",
+                    crate::PLAYLIST_FIRST_COVER
+                ))?;
                 for row in st.query_map([], |r| {
                     Ok((
                         r.get::<_, String>(0)?,
                         r.get::<_, String>(1)?,
-                        r.get::<_, Option<String>>(2)?,
+                        crate::playlist_cover(&covers, r.get(2)?, r.get(4)?),
                         r.get::<_, i64>(3)?,
                     ))
                 })? {

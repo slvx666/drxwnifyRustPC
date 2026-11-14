@@ -504,9 +504,10 @@ impl App {
     }
 
     async fn db_library_entries(&self) -> AppResult<Vec<LibraryEntry>> {
+        let covers = self.profile().covers_dir();
         Ok(self
             .store()
-            .call(|c| {
+            .call(move |c| {
                 let liked: i64 = c.query_row("SELECT count(*) FROM song WHERE liked = 1", [], |r| r.get(0))?;
                 let mut out = vec![LibraryEntry {
                     kind: LibraryKind::Liked,
@@ -519,18 +520,18 @@ impl App {
                     added_ms: 0,
                     updated_ms: 0,
                 }];
-                let mut st = c.prepare(
+                let mut st = c.prepare(&format!(
                     "SELECT p.id, p.name, p.thumbnailUrl, (SELECT count(*) FROM playlist_song_map m WHERE m.playlistId = p.id),
-                     p.createdAt, coalesce(p.lastUpdateTime, p.createdAt)
-                     FROM playlist p ORDER BY coalesce(p.lastUpdateTime, p.createdAt) DESC",
-                )?;
+                     p.createdAt, coalesce(p.lastUpdateTime, p.createdAt), {PLAYLIST_FIRST_COVER}
+                     FROM playlist p ORDER BY coalesce(p.lastUpdateTime, p.createdAt) DESC"
+                ))?;
                 let rows = st.query_map([], |r| {
                     Ok(LibraryEntry {
                         kind: LibraryKind::Playlist,
                         id: r.get(0)?,
                         title: r.get(1)?,
                         subtitle: format!("Плейлист · {}", r.get::<_, i64>(3)?),
-                        thumbnail: r.get(2)?,
+                        thumbnail: playlist_cover(&covers, r.get(2)?, r.get(6)?),
                         pinned: false,
                         group: LibraryGroup::Playlists,
                         added_ms: r.get::<_, Option<i64>>(4)?.unwrap_or(0),
@@ -656,12 +657,29 @@ impl App {
         }
     }
 
-    /// Heading of a database album or artist page (catalog pages get theirs from `list_header` after loading).
+    /// Heading of a database playlist, album or artist page (catalog pages get theirs from `list_header` after loading).
     pub async fn local_header(&self, spec: &ListSpec) -> Option<ListHeader> {
         let spec = spec.clone();
+        let covers = self.profile().covers_dir();
         self.store()
             .call(move |c| {
                 Ok(match &spec {
+                    ListSpec::Playlist { id } => c
+                        .query_row(
+                            &format!("SELECT p.name, p.thumbnailUrl, {PLAYLIST_FIRST_COVER} FROM playlist p WHERE p.id = ?1"),
+                            [id],
+                            |r| {
+                                Ok(ListHeader {
+                                    title: r.get(0)?,
+                                    subtitle: String::new(),
+                                    image: playlist_cover(&covers, r.get(1)?, r.get(2)?),
+                                    releases: Vec::new(),
+                                    appears_on: Vec::new(),
+                                    related: Vec::new(),
+                                })
+                            },
+                        )
+                        .ok(),
                     ListSpec::Album { id } => c
                         .query_row(
                             "SELECT a.title, a.year, a.thumbnailUrl, (SELECT group_concat(ar.name, ', ') FROM album_artist_map m JOIN artist ar ON ar.id = m.artistId WHERE m.albumId = a.id) FROM album a WHERE a.id = ?1",
@@ -1436,6 +1454,29 @@ mod live_home {
     }
 }
 
+/// SQL column: the artwork of a playlist's first track that has one (by position).
+pub(crate) const PLAYLIST_FIRST_COVER: &str = "(SELECT s.thumbnailUrl FROM playlist_song_map m JOIN song s ON s.id = m.songId      WHERE m.playlistId = p.id AND s.thumbnailUrl IS NOT NULL AND s.thumbnailUrl != '' ORDER BY m.position LIMIT 1)";
+
+/// A playlist's cover as Android 2.3.0 shows it (`Playlist.thumbnails`): its own cover, else its first track's
+/// artwork. Own covers chosen on the phone are `content://<app>.FileProvider/covers/<file>`; the backup brings the
+/// file into the profile's `covers/`, so that file is shown.
+pub(crate) fn playlist_cover(
+    covers: &std::path::Path,
+    own: Option<String>,
+    first_track: Option<String>,
+) -> Option<String> {
+    let own = own.filter(|u| !u.is_empty()).and_then(|u| {
+        if u.starts_with("http") {
+            return Some(u);
+        }
+        let name = u.rsplit('/').next()?;
+        let path = covers.join(name);
+        path.is_file()
+            .then(|| format!("{}{}", drx_core::images::LOCAL_PREFIX, path.display()))
+    });
+    own.or(first_track.filter(|u| !u.is_empty()))
+}
+
 #[cfg(test)]
 mod live_search_page {
     use super::*;
@@ -1496,5 +1537,35 @@ mod live_search_page {
             .unwrap();
         rt.block_on(app.forget_search("https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"))
             .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod playlist_cover_tests {
+    use super::playlist_cover;
+
+    #[test]
+    fn own_cover_then_first_track() {
+        let dir = std::env::temp_dir().join(format!("drx-covers-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("playlist_cover_crop_1.jpg"), b"x").unwrap();
+        let own = "content://com.drxwnify.app.FileProvider/covers/playlist_cover_crop_1.jpg";
+        let got = playlist_cover(&dir, Some(own.into()), Some("https://t/1".into())).unwrap();
+        assert!(
+            got.starts_with(drx_core::images::LOCAL_PREFIX)
+                && got.ends_with("playlist_cover_crop_1.jpg")
+        );
+        // The phone's file did not come with the backup: the first track's artwork.
+        let missing = "content://com.drxwnify.app.FileProvider/covers/gone.jpg";
+        assert_eq!(
+            playlist_cover(&dir, Some(missing.into()), Some("https://t/1".into())).as_deref(),
+            Some("https://t/1")
+        );
+        assert_eq!(
+            playlist_cover(&dir, Some("https://own".into()), None).as_deref(),
+            Some("https://own")
+        );
+        assert_eq!(playlist_cover(&dir, None, None), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

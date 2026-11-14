@@ -59,6 +59,9 @@ pub struct Images {
     gate: Arc<tokio::sync::Semaphore>,
 }
 
+/// Prefix of a local picture's address: `file:` + absolute path.
+pub const LOCAL_PREFIX: &str = "file:";
+
 fn file_name(url: &str) -> String {
     // FNV-1a: stable, no extra dependency.
     let mut h: u64 = 0xcbf29ce484222325;
@@ -130,6 +133,13 @@ impl Images {
     }
 
     async fn load_inner(&self, url: &str, size: u32) -> Option<Pixels> {
+        // A picture of the profile itself (custom playlist covers): read in place, not copied to the cache.
+        if let Some(path) = url.strip_prefix(LOCAL_PREFIX) {
+            let bytes = tokio::fs::read(path).await.ok()?;
+            return tokio::task::spawn_blocking(move || decode_square(&bytes, size))
+                .await
+                .ok()?;
+        }
         let real = normalize_url(url, size);
         let path = self.dir.join(file_name(&real));
         let bytes = match tokio::fs::read(&path).await {
