@@ -30,7 +30,14 @@ pub mod youtube {
     pub const ACCOUNT_HANDLE: &str = "accountChannelHandle";
     /// Keys dropped when a backup is imported on the PC (decision D-012): Google rotates these cookies and one
     /// cookie used on two devices can sign both out.
-    pub const SESSION_KEYS: [&str; 6] = [COOKIE, VISITOR_DATA, DATA_SYNC_ID, ACCOUNT_NAME, ACCOUNT_EMAIL, ACCOUNT_HANDLE];
+    pub const SESSION_KEYS: [&str; 6] = [
+        COOKIE,
+        VISITOR_DATA,
+        DATA_SYNC_ID,
+        ACCOUNT_NAME,
+        ACCOUNT_EMAIL,
+        ACCOUNT_HANDLE,
+    ];
 }
 
 /// SharedPreferences file names and keys.

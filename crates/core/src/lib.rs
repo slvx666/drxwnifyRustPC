@@ -6,6 +6,7 @@ pub mod error;
 pub mod keys;
 pub mod paths;
 pub mod prefs;
+pub mod secrets;
 pub mod shared_prefs;
 
 pub use error::{CoreError, Result};

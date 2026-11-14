@@ -31,7 +31,9 @@ impl Profile {
         {
             let base = std::env::var_os("XDG_DATA_HOME")
                 .map(PathBuf::from)
-                .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))?;
+                .or_else(|| {
+                    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share"))
+                })?;
             Some(Self::at(base.join("drxwnify")))
         }
     }
@@ -62,7 +64,13 @@ impl Profile {
     }
 
     pub fn ensure_dirs(&self) -> std::io::Result<()> {
-        for d in [self.root.clone(), self.shared_prefs_dir(), self.covers_dir(), self.snapshots_dir(), self.cache_dir()] {
+        for d in [
+            self.root.clone(),
+            self.shared_prefs_dir(),
+            self.covers_dir(),
+            self.snapshots_dir(),
+            self.cache_dir(),
+        ] {
             std::fs::create_dir_all(d)?;
         }
         Ok(())

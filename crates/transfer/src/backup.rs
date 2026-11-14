@@ -16,6 +16,7 @@ use drx_core::db::{self, SchemaState};
 use drx_core::keys;
 use drx_core::paths::{Profile, write_atomic};
 use drx_core::prefs::Prefs;
+use drx_core::secrets::{self, Vault};
 use drx_core::shared_prefs::SharedPrefs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -25,7 +26,9 @@ use std::path::{Path, PathBuf};
 pub enum BackupError {
     #[error("not a Drxwnify backup: {0}")]
     NotABackup(String),
-    #[error("the backup is from an older app version (database {0}); importing old backups is not supported yet")]
+    #[error(
+        "the backup is from an older app version (database {0}); importing old backups is not supported yet"
+    )]
     TooOld(i64),
     #[error("the backup is from a newer app version (database {0}); update Drxwnify for PC")]
     TooNew(i64),
@@ -71,7 +74,9 @@ pub struct ImportReport {
 
 /// SharedPreferences files Android never puts in a backup, and WebView files that mean nothing on the PC.
 fn skip_shared_prefs(name: &str) -> bool {
-    name.starts_with("WebView") || name.starts_with("com.google") || name.starts_with("AwOriginVisitLogger")
+    name.starts_with("WebView")
+        || name.starts_with("com.google")
+        || name.starts_with("AwOriginVisitLogger")
 }
 
 /// A safe relative path inside the archive, or None for anything with `..`, roots or drive letters.
@@ -90,13 +95,35 @@ fn non_empty(p: &Prefs, key: &str) -> bool {
 
 fn accounts_from(prefs: &Prefs, friends: Option<&SharedPrefs>) -> Accounts {
     let name = |present: bool, name_key: &str, fallback: &str| -> Option<String> {
-        present.then(|| prefs.get_str(name_key).filter(|s| !s.is_empty()).unwrap_or(fallback).to_string())
+        present.then(|| {
+            prefs
+                .get_str(name_key)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(fallback)
+                .to_string()
+        })
     };
     Accounts {
-        spotify: name(non_empty(prefs, keys::spotify::SP_DC), keys::spotify::USERNAME, "Spotify"),
-        yandex: name(non_empty(prefs, keys::yandex::ACCESS_TOKEN), keys::yandex::USERNAME, "Yandex"),
-        vk: name(non_empty(prefs, keys::vk::ACCESS_TOKEN), keys::vk::USER_ID, "VK"),
-        youtube: name(non_empty(prefs, keys::youtube::COOKIE), keys::youtube::ACCOUNT_NAME, "YouTube"),
+        spotify: name(
+            non_empty(prefs, keys::spotify::SP_DC),
+            keys::spotify::USERNAME,
+            "Spotify",
+        ),
+        yandex: name(
+            non_empty(prefs, keys::yandex::ACCESS_TOKEN),
+            keys::yandex::USERNAME,
+            "Yandex",
+        ),
+        vk: name(
+            non_empty(prefs, keys::vk::ACCESS_TOKEN),
+            keys::vk::USER_ID,
+            "VK",
+        ),
+        youtube: name(
+            non_empty(prefs, keys::youtube::COOKIE),
+            keys::youtube::ACCOUNT_NAME,
+            "YouTube",
+        ),
         friends_key: friends
             .and_then(|f| f.get_str(keys::sp::FRIENDS_SECRET_KEY))
             .is_some_and(|k| !k.is_empty()),
@@ -109,11 +136,15 @@ struct Archive {
 
 impl Archive {
     fn open(path: &Path) -> Result<Self> {
-        let zip = zip::ZipArchive::new(File::open(path)?).map_err(|e| BackupError::NotABackup(e.to_string()))?;
+        let zip = zip::ZipArchive::new(File::open(path)?)
+            .map_err(|e| BackupError::NotABackup(e.to_string()))?;
         Ok(Self { zip })
     }
     fn names(&self) -> Vec<String> {
-        self.zip.file_names().filter_map(|n| n.ok().map(|n| n.into_owned())).collect()
+        self.zip
+            .file_names()
+            .filter_map(|n| n.ok().map(|n| n.into_owned()))
+            .collect()
     }
     fn read(&mut self, name: &str) -> Result<Option<Vec<u8>>> {
         let mut f = match self.zip.by_name(name) {
@@ -147,10 +178,16 @@ fn check_db(path: &Path) -> Result<(i64, i64, i64)> {
         SchemaState::Older(v) => return Err(BackupError::TooOld(v)),
         SchemaState::Newer(v) => return Err(BackupError::TooNew(v)),
         SchemaState::Created | SchemaState::Foreign => {
-            return Err(BackupError::NotABackup("song.db is not a Drxwnify database".into()));
+            return Err(BackupError::NotABackup(
+                "song.db is not a Drxwnify database".into(),
+            ));
         }
     }
-    let count = |t: &str| conn.query_row(&format!("SELECT count(*) FROM {t}"), [], |r| r.get::<_, i64>(0));
+    let count = |t: &str| {
+        conn.query_row(&format!("SELECT count(*) FROM {t}"), [], |r| {
+            r.get::<_, i64>(0)
+        })
+    };
     Ok((count("song")?, count("playlist")?, count("event")?))
 }
 
@@ -172,7 +209,12 @@ pub fn preview(backup: &Path, scratch: &Path) -> Result<BackupPreview> {
         Some(b) => Some(SharedPrefs::parse(&String::from_utf8_lossy(&b))?),
         None => None,
     };
-    Ok(BackupPreview { songs, playlists, history_events, accounts: accounts_from(&prefs, friends.as_ref()) })
+    Ok(BackupPreview {
+        songs,
+        playlists,
+        history_events,
+        accounts: accounts_from(&prefs, friends.as_ref()),
+    })
 }
 
 /// Options for [`import_android_backup`].
@@ -183,7 +225,11 @@ pub struct ImportOptions {
 }
 
 /// Replaces the profile with the backup's contents. Takes a snapshot of the current profile first.
-pub fn import_android_backup(backup: &Path, profile: &Profile, opts: &ImportOptions) -> Result<ImportReport> {
+pub fn import_android_backup(
+    backup: &Path,
+    profile: &Profile,
+    opts: &ImportOptions,
+) -> Result<ImportReport> {
     profile.ensure_dirs()?;
     let mut a = Archive::open(backup)?;
     let names = a.names();
@@ -206,8 +252,16 @@ pub fn import_android_backup(backup: &Path, profile: &Profile, opts: &ImportOpti
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or_default();
-        let snap = profile.snapshots_dir().join(format!("before-import-{stamp}.backup"));
-        create_backup(profile, &snap)?;
+        // The snapshot holds secrets, so it is stored encrypted for the current user.
+        let plain = profile
+            .snapshots_dir()
+            .join(format!(".before-import-{stamp}.tmp"));
+        create_backup(profile, &plain)?;
+        let snap = profile
+            .snapshots_dir()
+            .join(format!("before-import-{stamp}.backup.dpapi"));
+        write_atomic(&snap, &secrets::protect_bytes(&std::fs::read(&plain)?)?)?;
+        std::fs::remove_file(&plain)?;
         report.snapshot = Some(snap);
     }
 
@@ -226,8 +280,12 @@ pub fn import_android_backup(backup: &Path, profile: &Profile, opts: &ImportOpti
     let mut sp_files: Vec<(String, SharedPrefs)> = Vec::new();
     for n in &names {
         let Some(rel) = safe_entry(n) else { continue };
-        let Some(file) = rel.strip_prefix("shared_prefs/") else { continue };
-        let Some(name) = file.strip_suffix(".xml") else { continue };
+        let Some(file) = rel.strip_prefix("shared_prefs/") else {
+            continue;
+        };
+        let Some(name) = file.strip_suffix(".xml") else {
+            continue;
+        };
         if name.contains('/') || skip_shared_prefs(name) {
             continue;
         }
@@ -235,13 +293,24 @@ pub fn import_android_backup(backup: &Path, profile: &Profile, opts: &ImportOpti
         let mut sp = SharedPrefs::parse(&String::from_utf8_lossy(&bytes))?;
         if name == keys::sp::CHAT {
             let before = sp.values.len();
-            sp.values.retain(|k, _| !k.starts_with(keys::sp::CHAT_CURSOR_PREFIX));
+            sp.values
+                .retain(|k, _| !k.starts_with(keys::sp::CHAT_CURSOR_PREFIX));
             report.chat_cursors_reset = before - sp.values.len();
         }
         sp_files.push((name.to_string(), sp));
     }
-    let friends = sp_files.iter().find(|(n, _)| n == keys::sp::FRIENDS).map(|(_, s)| s);
+    let friends = sp_files
+        .iter()
+        .find(|(n, _)| n == keys::sp::FRIENDS)
+        .map(|(_, s)| s);
     report.accounts = accounts_from(&prefs, friends);
+
+    // Secrets leave the plain files and go to the encrypted vault (the import replaces the old vault too).
+    let mut vault = Vault::default();
+    vault.take_from_prefs(&mut prefs);
+    for (name, sp) in &mut sp_files {
+        vault.take_from_shared(name, sp);
+    }
 
     // 5. Replace. The database goes last-but-one so a failure before it leaves the old data in place.
     for ext in ["-wal", "-shm"] {
@@ -251,6 +320,7 @@ pub fn import_android_backup(backup: &Path, profile: &Profile, opts: &ImportOpti
         std::fs::remove_file(profile.song_db())?;
     }
     std::fs::rename(&staged_db, profile.song_db())?;
+    vault.save(profile)?;
     write_atomic(&profile.prefs_pb(), &prefs.encode())?;
 
     for e in std::fs::read_dir(profile.shared_prefs_dir())? {
@@ -272,7 +342,9 @@ pub fn import_android_backup(backup: &Path, profile: &Profile, opts: &ImportOpti
     }
     for n in &names {
         let Some(rel) = safe_entry(n) else { continue };
-        let Some(file) = rel.strip_prefix("covers/") else { continue };
+        let Some(file) = rel.strip_prefix("covers/") else {
+            continue;
+        };
         if file.is_empty() || file.contains('/') {
             continue;
         }
@@ -300,39 +372,65 @@ pub fn create_backup(profile: &Profile, out: &Path) -> Result<()> {
         let conn = rusqlite::Connection::open(profile.song_db())?;
         conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
     }
+    let vault = Vault::load(profile)?;
     let tmp = out.with_extension("partial");
     {
         let mut zw = zip::ZipWriter::new(File::create(&tmp)?);
-        let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-        let mut add = |name: &str, path: &Path| -> Result<()> {
-            if path.is_file() {
-                zw.start_file(name, opts)?;
-                let mut f = File::open(path)?;
-                std::io::copy(&mut f, &mut zw)?;
-            }
-            Ok(())
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        // Settings and SharedPreferences get their secrets back, so the phone restores sessions and the friends key.
+        let mut prefs = match std::fs::read(profile.prefs_pb()) {
+            Ok(b) => Prefs::decode(&b)?,
+            Err(_) => Prefs::default(),
         };
-        add("settings.preferences_pb", &profile.prefs_pb())?;
-        add("song.db", &profile.song_db())?;
+        vault.restore_into_prefs(&mut prefs);
+        zw.start_file("settings.preferences_pb", opts)?;
+        zw.write_all(&prefs.encode())?;
+        add_file(&mut zw, opts, "song.db", &profile.song_db())?;
         for dir in ["shared_prefs", "covers"] {
             let d = profile.root().join(dir);
             if !d.is_dir() {
                 continue;
             }
-            let mut files: Vec<_> = std::fs::read_dir(&d)?.filter_map(|e| e.ok().map(|e| e.path())).collect();
+            let mut files: Vec<_> = std::fs::read_dir(&d)?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .collect();
             files.sort();
             for p in files {
                 if let Some(n) = p.file_name().and_then(|n| n.to_str()) {
                     if n.starts_with('.') {
                         continue;
                     }
-                    add(&format!("{dir}/{n}"), &p)?;
+                    if dir == "shared_prefs"
+                        && let Some(name) = n.strip_suffix(".xml")
+                    {
+                        let mut sp = SharedPrefs::parse(&std::fs::read_to_string(&p)?)?;
+                        vault.restore_into_shared(name, &mut sp);
+                        zw.start_file(format!("{dir}/{n}"), opts)?;
+                        zw.write_all(sp.to_xml().as_bytes())?;
+                        continue;
+                    }
+                    add_file(&mut zw, opts, &format!("{dir}/{n}"), &p)?;
                 }
             }
         }
         zw.finish()?.flush()?;
     }
     std::fs::rename(&tmp, out)?;
+    Ok(())
+}
+
+fn add_file(
+    zw: &mut zip::ZipWriter<File>,
+    opts: zip::write::SimpleFileOptions,
+    name: &str,
+    path: &Path,
+) -> Result<()> {
+    if path.is_file() {
+        zw.start_file(name, opts)?;
+        let mut f = File::open(path)?;
+        std::io::copy(&mut f, zw)?;
+    }
     Ok(())
 }
 
@@ -346,7 +444,10 @@ mod tests {
         assert!(safe_entry("shared_prefs/../../x.xml").is_none());
         assert!(safe_entry("/etc/x").is_none());
         assert!(safe_entry("C:/x").is_none());
-        assert_eq!(safe_entry("shared_prefs/chat.xml"), Some("shared_prefs/chat.xml"));
+        assert_eq!(
+            safe_entry("shared_prefs/chat.xml"),
+            Some("shared_prefs/chat.xml")
+        );
     }
 
     fn make_profile(dir: &Path) -> Profile {
@@ -356,13 +457,26 @@ mod tests {
         conn.execute("INSERT INTO playlist (id, name, createdAt, lastUpdateTime, isEditable, bookmarkedAt, isLocal, isAutoSync, browseId) VALUES ('p1','Test',0,0,1,NULL,1,0,NULL)", []).ok();
         drop(conn);
         let mut prefs = Prefs::default();
-        prefs.set(keys::spotify::SP_DC, drx_core::prefs::PrefValue::String("secret".into()));
-        prefs.set(keys::spotify::USERNAME, drx_core::prefs::PrefValue::String("me".into()));
-        prefs.set(keys::youtube::COOKIE, drx_core::prefs::PrefValue::String("yt".into()));
+        prefs.set(
+            keys::spotify::SP_DC,
+            drx_core::prefs::PrefValue::String("secret".into()),
+        );
+        prefs.set(
+            keys::spotify::USERNAME,
+            drx_core::prefs::PrefValue::String("me".into()),
+        );
+        prefs.set(
+            keys::youtube::COOKIE,
+            drx_core::prefs::PrefValue::String("yt".into()),
+        );
         write_atomic(&p.prefs_pb(), &prefs.encode()).unwrap();
         let chat = "<map>\n<long name=\"cursor_abc\" value=\"5\" />\n<string name=\"other\">x</string>\n</map>";
         write_atomic(&p.shared_prefs("chat"), chat.as_bytes()).unwrap();
-        write_atomic(&p.shared_prefs("friends"), b"<map><string name=\"sk\">00</string></map>").unwrap();
+        write_atomic(
+            &p.shared_prefs("friends"),
+            b"<map><string name=\"sk\">00</string></map>",
+        )
+        .unwrap();
         p
     }
 
@@ -387,8 +501,23 @@ mod tests {
         assert_eq!(r.shared_prefs_files, 2);
         let prefs = Prefs::decode(&std::fs::read(target.prefs_pb()).unwrap()).unwrap();
         assert!(prefs.get_str(keys::youtube::COOKIE).is_none());
-        assert_eq!(prefs.get_str(keys::spotify::SP_DC), Some("secret"));
-        let chat = SharedPrefs::parse(&std::fs::read_to_string(target.shared_prefs("chat")).unwrap()).unwrap();
+        // The session is in the vault, not in the plain settings file.
+        assert!(prefs.get_str(keys::spotify::SP_DC).is_none());
+        assert_eq!(
+            Vault::load(&target).unwrap().pref(keys::spotify::SP_DC),
+            Some("secret")
+        );
+        let friends = std::fs::read_to_string(target.shared_prefs("friends")).unwrap();
+        assert!(!friends.contains("\"sk\""));
+        // A backup made on the PC carries the secrets again, for the phone.
+        let again = dst.path().join("again.backup");
+        create_backup(&target, &again).unwrap();
+        let pv2 = preview(&again, scratch.path()).unwrap();
+        assert_eq!(pv2.accounts.spotify.as_deref(), Some("me"));
+        assert!(pv2.accounts.friends_key);
+        let chat =
+            SharedPrefs::parse(&std::fs::read_to_string(target.shared_prefs("chat")).unwrap())
+                .unwrap();
         assert!(chat.values.contains_key("other") && !chat.values.contains_key("cursor_abc"));
 
         // A second import keeps a snapshot of what was there.
@@ -399,20 +528,33 @@ mod tests {
     /// Imports the real backup, when available. Set DRX_TEST_BACKUP. Not run in CI.
     #[test]
     fn real_backup_import() {
-        let Ok(path) = std::env::var("DRX_TEST_BACKUP") else { return };
+        let Ok(path) = std::env::var("DRX_TEST_BACKUP") else {
+            return;
+        };
         let dst = tempfile::tempdir().unwrap();
         let pv = preview(Path::new(&path), dst.path()).unwrap();
         assert!(pv.songs > 0);
         let target = Profile::at(dst.path().join("profile"));
-        let r = import_android_backup(Path::new(&path), &target, &ImportOptions::default()).unwrap();
+        let r =
+            import_android_backup(Path::new(&path), &target, &ImportOptions::default()).unwrap();
         assert!(r.shared_prefs_files > 10);
         let out = dst.path().join("again.backup");
         create_backup(&target, &out).unwrap();
         let pv2 = preview(&out, dst.path()).unwrap();
         assert_eq!(pv2.songs, pv.songs);
         assert_eq!(pv2.history_events, pv.history_events);
-        eprintln!("songs={} playlists={} events={} covers={} cursors_reset={} accounts: spotify={} yandex={} vk={} youtube_dropped={} friends_key={}",
-            pv.songs, pv.playlists, pv.history_events, r.covers, r.chat_cursors_reset,
-            r.accounts.spotify.is_some(), r.accounts.yandex.is_some(), r.accounts.vk.is_some(), r.youtube_session_dropped, r.accounts.friends_key);
+        eprintln!(
+            "songs={} playlists={} events={} covers={} cursors_reset={} accounts: spotify={} yandex={} vk={} youtube_dropped={} friends_key={}",
+            pv.songs,
+            pv.playlists,
+            pv.history_events,
+            r.covers,
+            r.chat_cursors_reset,
+            r.accounts.spotify.is_some(),
+            r.accounts.yandex.is_some(),
+            r.accounts.vk.is_some(),
+            r.youtube_session_dropped,
+            r.accounts.friends_key
+        );
     }
 }
