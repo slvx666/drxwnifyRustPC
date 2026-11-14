@@ -208,9 +208,21 @@ const ARTISTS: &str = "(SELECT group_concat(a.name, ', ') FROM (SELECT ar.name F
 const FIRST_ARTIST: &str =
     "(SELECT m.artistId FROM song_artist_map m WHERE m.songId = s.id ORDER BY m.position LIMIT 1)";
 
+/// The liked songs, one row per song. The phone often keeps one song twice: as the YouTube video it played
+/// through and as its catalog row (`mfb:<Spotify id>`, older `spotify:<id>`). Rows are grouped by the Spotify track
+/// behind them (the id itself, or the video's `spotify_match`); the most recently liked row stays. Videos without a
+/// Spotify track and source tracks (VK, SoundCloud…) are their own songs.
+pub(crate) const LIKED_UNIQUE: &str = "(SELECT * FROM (SELECT s0.*, ROW_NUMBER() OVER (PARTITION BY
+     CASE WHEN s0.id LIKE 'mfb:%' AND length(s0.id) = 26
+               AND instr(substr(s0.id, 5), ':') = 0 AND instr(substr(s0.id, 5), '_') = 0 THEN substr(s0.id, 5)
+          WHEN s0.id LIKE 'spotify:%' AND length(s0.id) = 30 THEN substr(s0.id, 9)
+          ELSE coalesce((SELECT m.spotifyId FROM spotify_match m WHERE m.youtubeId = s0.id
+               ORDER BY m.isManualOverride DESC, m.matchScore DESC LIMIT 1), s0.id) END
+     ORDER BY s0.likedDate DESC, s0.thumbnailUrl IS NULL) AS dup FROM song s0 WHERE s0.liked = 1) WHERE dup = 1)";
+
 fn base(spec: &ListSpec) -> (String, Vec<String>) {
     match spec {
-        ListSpec::LikedSongs => ("FROM song s WHERE s.liked = 1 ORDER BY s.likedDate DESC".into(), vec![]),
+        ListSpec::LikedSongs => (format!("FROM {LIKED_UNIQUE} s ORDER BY s.likedDate DESC"), vec![]),
         ListSpec::LibrarySongs => ("FROM song s WHERE s.inLibrary IS NOT NULL ORDER BY s.title COLLATE NOCASE".into(), vec![]),
         ListSpec::Playlist { id } => (
             "FROM playlist_song_map p JOIN song s ON s.id = p.songId WHERE p.playlistId = ?1 ORDER BY p.position".into(),

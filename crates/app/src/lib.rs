@@ -292,7 +292,7 @@ impl App {
                 let n = |sql: &str| c.query_row(sql, [], |r| r.get::<_, i64>(0));
                 Ok(LibraryCounts {
                     songs: n("SELECT count(*) FROM song WHERE inLibrary IS NOT NULL")?,
-                    liked: n("SELECT count(*) FROM song WHERE liked = 1")?,
+                    liked: n(&format!("SELECT count(*) FROM {}", lists::LIKED_UNIQUE))?,
                     playlists: n("SELECT count(*) FROM playlist")?,
                     artists: n("SELECT count(*) FROM artist WHERE bookmarkedAt IS NOT NULL")?,
                     history_events: n("SELECT count(*) FROM event")?,
@@ -508,7 +508,7 @@ impl App {
         Ok(self
             .store()
             .call(move |c| {
-                let liked: i64 = c.query_row("SELECT count(*) FROM song WHERE liked = 1", [], |r| r.get(0))?;
+                let liked: i64 = c.query_row(&format!("SELECT count(*) FROM {}", lists::LIKED_UNIQUE), [], |r| r.get(0))?;
                 let mut out = vec![LibraryEntry {
                     kind: LibraryKind::Liked,
                     id: "liked".into(),
