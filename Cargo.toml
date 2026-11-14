@@ -16,6 +16,7 @@ members = [
     "crates/jobs",
     "crates/platform",
     "apps/mini",
+    "apps/full/src-tauri",
 ]
 
 [workspace.package]

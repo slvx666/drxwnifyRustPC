@@ -1,0 +1,26 @@
+[package]
+name = "drxwnify-full"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Drxwnify Full: desktop player with every theme and animation"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+drx-app.workspace = true
+drx-core.workspace = true
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+
+[lints]
+workspace = true
+
+[features]
+# Serve the built UI from ui/dist (what `tauri build` does). `tauri dev` uses the Vite dev server instead.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

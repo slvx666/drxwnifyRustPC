@@ -22,7 +22,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Linux packages
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config cmake libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libdbus-1-dev
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config cmake libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libdbus-1-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full UI (Svelte) build
+        run: npm --prefix apps/full/ui ci && npm --prefix apps/full/ui run build
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
