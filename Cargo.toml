@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-exclude = ["spikes"]
+exclude = ["spikes", "vendor"]
 members = [
     "crates/core",
     "crates/app",
@@ -64,3 +64,10 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Slint's winit backend with a fix for Windows: the software renderer presented only what changed in its scene, so
+# a window whose pixels the system dropped (Alt+Tab from a fullscreen game, restore, display change) stayed
+# transparent. Changes are marked «Drxwnify patch» in vendor/i-slint-backend-winit/renderer/sw.rs and
+# winitwindowadapter.rs; drop this when upstream fixes it.
+[patch.crates-io]
+i-slint-backend-winit = { path = "vendor/i-slint-backend-winit" }
