@@ -1,6 +1,7 @@
 //! Facade for both UIs: commands, queries, list handles, state snapshots and the edition profile.
 //! The UIs depend on this crate only (see docs/ARCHITECTURE.md). No business logic lives in the UIs.
 
+mod accounts;
 pub mod edition;
 pub mod lists;
 pub mod playback;
@@ -73,8 +74,8 @@ pub enum LibraryKind {
     Playlist,
     Album,
     Artist,
-    /// VK «Моя музыка» (loaded from VK).
-    VkMyMusic,
+    /// A list of a linked account (liked, playlist, album), loaded from its catalog. `id` is the list's entry id.
+    Remote,
 }
 
 /// Library numbers shown on the home page and in settings.
@@ -101,6 +102,8 @@ pub enum AppEvent {
     ListChanged { handle: ListHandle, version: u64 },
     /// The whole library was replaced (backup import): reopen lists.
     LibraryReplaced,
+    /// Library panel rows changed (account playlists arrived): ask for [`App::library_entries`] again.
+    LibraryChanged,
 }
 
 struct Inner {
@@ -114,7 +117,7 @@ struct Inner {
     playback: Arc<playback::Playback>,
     /// Rows of remote lists (VK), filled when the list is opened.
     remote: Mutex<HashMap<ListHandle, Vec<Playable>>>,
-    vk: std::sync::OnceLock<Option<Arc<drx_catalog::vk::Vk>>>,
+    clients: accounts::Clients,
 }
 
 /// The running core. Cheap to clone; UIs call the async methods through [`App::runtime`].
@@ -146,7 +149,7 @@ impl App {
             http,
             playback,
             remote: Mutex::default(),
-            vk: std::sync::OnceLock::new(),
+            clients: accounts::Clients::default(),
             lists: lists::Lists::default(),
             profile,
             edition,
@@ -335,22 +338,14 @@ impl App {
         }
     }
 
-    /// Rows of the library panel: liked songs, local playlists, saved albums and artists (newest first).
+    /// Rows of the library panel: local liked songs, the accounts' liked lists, local playlists, saved albums and
+    /// artists, then the accounts' playlists (after [`App::refresh_remote_library`]).
     pub async fn library_entries(&self) -> AppResult<Vec<LibraryEntry>> {
         let mut entries = self.db_library_entries().await?;
-        if self.has_vk() {
-            entries.insert(
-                1,
-                LibraryEntry {
-                    kind: LibraryKind::VkMyMusic,
-                    id: drx_catalog::vk::LIKED_ID.into(),
-                    title: "ВК · Моя музыка".into(),
-                    subtitle: "ВКонтакте".into(),
-                    thumbnail: None,
-                    pinned: true,
-                },
-            );
-        }
+        let accounts = self.account_entries();
+        let at = 1.min(entries.len());
+        entries.splice(at..at, accounts);
+        entries.extend(self.remote_entries());
         Ok(entries)
     }
 
@@ -475,29 +470,6 @@ impl App {
             .await?)
     }
 
-    /// The VK client, when the profile has a VK session.
-    fn vk(&self) -> Option<Arc<drx_catalog::vk::Vk>> {
-        self.inner
-            .vk
-            .get_or_init(|| {
-                let vault = drx_core::secrets::Vault::load(&self.inner.profile).ok()?;
-                let token = vault.pref(drx_core::keys::vk::ACCESS_TOKEN)?.to_string();
-                let prefs = std::fs::read(self.inner.profile.prefs_pb())
-                    .ok()
-                    .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok());
-                let uid = prefs.and_then(|p| {
-                    p.get_str(drx_core::keys::vk::USER_ID)
-                        .and_then(|u| u.parse().ok())
-                });
-                Some(Arc::new(drx_catalog::vk::Vk::new(
-                    self.inner.http.clone(),
-                    Some(token),
-                    uid,
-                )))
-            })
-            .clone()
-    }
-
     /// Audio sources available with this profile's sessions.
     fn install_providers(&self) {
         *self.inner.playback.store.lock().expect("store") = Some(self.store());
@@ -513,46 +485,6 @@ impl App {
 
     pub fn has_vk(&self) -> bool {
         self.vk().is_some()
-    }
-
-    /// Loads a remote list from its catalog; the UI gets [`AppEvent::ListChanged`] when rows arrive.
-    pub async fn load_remote(&self, handle: ListHandle) -> AppResult<usize> {
-        let spec = self
-            .inner
-            .lists
-            .spec(handle)
-            .ok_or_else(|| AppError::Other("list is closed".into()))?;
-        let vk = self
-            .vk()
-            .ok_or_else(|| AppError::Other("нет входа во ВКонтакте".into()))?;
-        let found = match spec {
-            ListSpec::VkMyMusic => vk.my_tracks().await,
-            ListSpec::VkPlaylist { ref id } => {
-                let (o, p, k) = drx_catalog::vk::parse_playlist_id(id)
-                    .ok_or_else(|| AppError::Other("bad VK id".into()))?;
-                vk.playlist_tracks(o, p, k).await
-            }
-            _ => return Ok(0),
-        }
-        .map_err(|e| AppError::Other(e.to_string()))?;
-        let rows: Vec<Playable> = found
-            .into_iter()
-            .map(|a| Playable {
-                track: a.track,
-                url: a.url,
-            })
-            .collect();
-        let n = rows.len();
-        self.inner
-            .remote
-            .lock()
-            .expect("remote")
-            .insert(handle, rows);
-        let _ = self
-            .inner
-            .events
-            .send(AppEvent::ListChanged { handle, version: 1 });
-        Ok(n)
     }
 
     /// Plays a list from `index`; the list becomes the queue.

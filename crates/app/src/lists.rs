@@ -16,19 +16,66 @@ pub enum ListSpec {
     /// Songs in the library, by title.
     LibrarySongs,
     /// Songs of a local playlist, in playlist order.
-    Playlist { id: String },
+    Playlist {
+        id: String,
+    },
     /// Listening history, newest first.
     History,
     /// VK «Моя музыка», loaded from VK (not stored in the database).
     VkMyMusic,
     /// A VK album or playlist (`vk_<owner>_<id>[_<key>]`), loaded from VK.
-    VkPlaylist { id: String },
+    VkPlaylist {
+        id: String,
+    },
+    /// Spotify liked songs, loaded from Spotify.
+    SpotifyLiked,
+    SpotifyPlaylist {
+        id: String,
+    },
+    /// Yandex liked tracks, loaded from Yandex.
+    YandexLiked,
+    YandexPlaylist {
+        id: String,
+    },
 }
 
 impl ListSpec {
     /// Lists that live in memory, filled from a catalog over the network.
     pub fn is_remote(&self) -> bool {
-        matches!(self, ListSpec::VkMyMusic | ListSpec::VkPlaylist { .. })
+        !matches!(
+            self,
+            ListSpec::LikedSongs
+                | ListSpec::LibrarySongs
+                | ListSpec::Playlist { .. }
+                | ListSpec::History
+        )
+    }
+
+    /// Library panel id of a remote list: `sp:liked`, `sp:pl:<id>`, `ym:…`, `vk:…`.
+    pub fn entry_id(&self) -> Option<String> {
+        Some(match self {
+            ListSpec::SpotifyLiked => "sp:liked".into(),
+            ListSpec::SpotifyPlaylist { id } => format!("sp:pl:{id}"),
+            ListSpec::YandexLiked => "ym:liked".into(),
+            ListSpec::YandexPlaylist { id } => format!("ym:pl:{id}"),
+            ListSpec::VkMyMusic => "vk:liked".into(),
+            ListSpec::VkPlaylist { id } => format!("vk:pl:{id}"),
+            _ => return None,
+        })
+    }
+
+    pub fn from_entry_id(s: &str) -> Option<ListSpec> {
+        let (src, rest) = s.split_once(':')?;
+        let pl = rest.strip_prefix("pl:").map(str::to_string);
+        Some(match (src, rest, pl) {
+            ("sp", "liked", _) => ListSpec::SpotifyLiked,
+            ("ym", "liked", _) => ListSpec::YandexLiked,
+            ("vk", "liked", _) => ListSpec::VkMyMusic,
+            ("sp", _, Some(id)) => ListSpec::SpotifyPlaylist { id },
+            ("ym", _, Some(id)) => ListSpec::YandexPlaylist { id },
+            ("vk", _, Some(id)) => ListSpec::VkPlaylist { id },
+            _ => return None,
+        })
     }
 }
 
@@ -41,7 +88,7 @@ impl ListSpec {
                 &["playlist_song_map", "song", "song_artist_map", "artist"]
             }
             ListSpec::History => &["event", "song", "song_artist_map", "artist"],
-            ListSpec::VkMyMusic | ListSpec::VkPlaylist { .. } => &[],
+            _ => &[],
         }
     }
 }
@@ -120,7 +167,7 @@ fn base(spec: &ListSpec) -> (String, Vec<String>) {
         ),
         ListSpec::History => ("FROM event e JOIN song s ON s.id = e.songId ORDER BY e.timestamp DESC".into(), vec![]),
         // Remote lists never reach SQL; an empty query keeps the match total.
-        ListSpec::VkMyMusic | ListSpec::VkPlaylist { .. } => ("FROM song s WHERE 0".into(), vec![]),
+        _ => ("FROM song s WHERE 0".into(), vec![]),
     }
 }
 

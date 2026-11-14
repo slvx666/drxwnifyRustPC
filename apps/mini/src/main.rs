@@ -39,6 +39,7 @@ fn main() {
     let songs = Rc::new(LazySongs::new(app.clone(), ListSpec::LikedSongs));
     ui.set_songs(ModelRc::from(songs.clone()));
     refresh_library(&ui, &app, &songs);
+    ui.set_view_subtitle(format!("{} треков", songs.len()).into());
 
     {
         let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
@@ -49,7 +50,10 @@ fn main() {
                     id: item.id.to_string(),
                 },
                 "liked" => ListSpec::LikedSongs,
-                "vkliked" => ListSpec::VkMyMusic,
+                "remote" => match ListSpec::from_entry_id(item.id.as_str()) {
+                    Some(spec) => spec,
+                    None => return,
+                },
                 _ => {
                     ui.set_toast(
                         "Страницы альбомов и исполнителей появятся вместе с каталогами".into(),
@@ -234,6 +238,23 @@ fn main() {
             ui.set_view_title("Любимые треки".into());
             ui.set_selected_id("liked".into());
             refresh_library(&ui, &app2, &songs2);
+            ui.set_view_subtitle(format!("{} треков", songs2.len()).into());
+        });
+    }
+
+    {
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_library_panel_changed(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                refresh_library(&ui, &app2, &songs2);
+            }
+        });
+    }
+    // The accounts' playlists load in the background and appear in the library panel when ready.
+    {
+        let a = app.clone();
+        app.runtime().spawn(async move {
+            let _ = a.refresh_remote_library().await;
         });
     }
 
@@ -250,6 +271,7 @@ fn main() {
                         AppEvent::ListChanged { .. } | AppEvent::LibraryReplaced => {
                             ui.invoke_list_changed()
                         }
+                        AppEvent::LibraryChanged => ui.invoke_library_panel_changed(),
                     }
                 });
             }
@@ -258,13 +280,18 @@ fn main() {
 
     // Developer check without clicking (no automation needed): DRX_DEMO=vk opens VK «Моя музыка» and plays
     // the first track at volume 0. Not a user feature.
-    if std::env::var("DRX_DEMO").as_deref() == Ok("vk") && app.has_vk() {
+    if let Ok(demo) = std::env::var("DRX_DEMO") {
+        let id = if demo == "vk" {
+            "vk:liked".to_string()
+        } else {
+            demo
+        };
         app.set_volume(0.0);
         let item = LibItem {
-            title: "ВК · Моя музыка".into(),
+            title: id.clone().into(),
             subtitle: "".into(),
-            kind: "vkliked".into(),
-            id: "vk_liked".into(),
+            kind: "remote".into(),
+            id: id.into(),
         };
         ui.set_selected_id(item.id.clone());
         ui.invoke_open_library(item);
@@ -304,7 +331,7 @@ fn refresh_library(ui: &MainWindow, app: &App, songs: &LazySongs) {
                 LibraryKind::Playlist => "playlist",
                 LibraryKind::Album => "album",
                 LibraryKind::Artist => "artist",
-                LibraryKind::VkMyMusic => "vkliked",
+                LibraryKind::Remote => "remote",
             }),
             id: e.id.clone().into(),
         })
@@ -312,7 +339,6 @@ fn refresh_library(ui: &MainWindow, app: &App, songs: &LazySongs) {
     ui.set_library(ModelRc::new(VecModel::from(items)));
     let n = songs.len();
     ui.set_empty_library(n == 0 && entries.len() <= 1);
-    ui.set_view_subtitle(format!("{n} треков").into());
 }
 
 pub fn fmt_time(secs: f64) -> String {
