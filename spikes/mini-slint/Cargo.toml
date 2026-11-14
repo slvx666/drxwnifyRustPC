@@ -1,0 +1,16 @@
+[package]
+name = "spike-slint"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+heavy = { path = "../heavy" }
+slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software"] }
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

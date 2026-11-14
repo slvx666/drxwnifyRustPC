@@ -24,6 +24,14 @@ $ErrorActionPreference = 'Stop'
 $env:CARGO_HOME = 'D:\dev\cargo-home'
 $env:npm_config_cache = 'D:\dev\npm-cache'
 
+# CMake (needed to build libopus): use the copy bundled with Visual Studio when none is on PATH.
+if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+    $vsCmake = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($vsCmake) { $env:PATH = "$($vsCmake.FullName);$env:PATH" }
+}
+# Portable tools (NSIS etc.) live here.
+if (Test-Path 'D:\dev\tools\bin') { $env:PATH = "D:\dev\tools\bin;$env:PATH" }
+
 function Get-Mode {
     $apex = Get-Process -Name 'r5apex*' -ErrorAction SilentlyContinue
     $vm = Get-Process -Name 'vmmemWSL', 'vmmem' -ErrorAction SilentlyContinue |
