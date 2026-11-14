@@ -3,6 +3,7 @@
 
 pub mod decode;
 pub mod dsp;
+pub mod hls;
 pub mod mixer;
 pub mod oggopus;
 pub mod output;

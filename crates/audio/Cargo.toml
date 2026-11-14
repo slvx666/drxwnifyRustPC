@@ -13,6 +13,8 @@ opus = "0.4"
 ogg = "0.9"
 rubato = "5"
 rtrb = "0.4"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
 cpal = "0.18"
 thiserror = "2"
 tracing = "0.1"
