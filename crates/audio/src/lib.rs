@@ -3,3 +3,4 @@
 
 pub mod decode;
 pub mod oggopus;
+pub mod source;
