@@ -6,7 +6,10 @@
 //! Ids: track `src:VK:<owner>_<audio>[_<key>]` (same id as a VK track found by the resolver), playlist/album
 //! `vk_<owner>_<id>[_<key>]`, artist `vkar_<id>`, «Моя музыка» `vk_liked`.
 
-use crate::model::{AlbumRef, ArtistPage, ArtistRef, Image, Playlist, Release, Track, User};
+use crate::model::{
+    AlbumRef, AlbumSummary, ArtistPage, ArtistRef, ArtistSummary, Image, Playlist, Release,
+    SearchResults, Track, User,
+};
 use drx_core::http::{Http, HttpError, Method};
 use serde_json::Value;
 use std::time::{Duration, Instant};
@@ -645,6 +648,66 @@ impl Vk {
             related: Vec::new(),
         };
         Ok((page, audios))
+    }
+
+    /// Everything at once: tracks (`audio.search`), artists, albums and playlists (`audio.searchArtists`,
+    /// `searchAlbums`, `searchPlaylists`). Tracks come back with their URLs; a failing section is just empty.
+    pub async fn search_all(&self, text: &str) -> Result<(SearchResults, Vec<VkAudio>)> {
+        let audios = self.search(text, 40).await?;
+        let q = || vec![("q", text.to_string()), ("count", "20".to_string())];
+        let artists = self
+            .call("audio.searchArtists", &q())
+            .await
+            .map(|v| {
+                items(&v)
+                    .into_iter()
+                    .filter_map(|a| {
+                        let id = nonempty(a, "id")?;
+                        Some(ArtistSummary {
+                            id: format!("vkar_{id}"),
+                            name: nonempty(a, "name")?,
+                            images: artist_photo(a),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let playlists_of = |v: Value| -> Vec<VkPlaylist> {
+            items(&v).into_iter().filter_map(parse_playlist).collect()
+        };
+        let albums = self
+            .call("audio.searchAlbums", &q())
+            .await
+            .map(playlists_of)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| AlbumSummary {
+                id: p.playlist.id,
+                name: p.playlist.name,
+                artists: vec![ArtistRef {
+                    id: String::new(),
+                    name: p.artist,
+                }],
+                images: p.playlist.images,
+                date: p.year.map(|y| y.to_string()),
+                kind: "album".into(),
+            })
+            .collect();
+        let playlists = self
+            .call("audio.searchPlaylists", &q())
+            .await
+            .map(playlists_of)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.playlist)
+            .collect();
+        let results = SearchResults {
+            tracks: audios.iter().map(|a| a.track.clone()).collect(),
+            artists,
+            albums,
+            playlists,
+        };
+        Ok((results, audios))
     }
 
     pub async fn search(&self, text: &str, count: u32) -> Result<Vec<VkAudio>> {

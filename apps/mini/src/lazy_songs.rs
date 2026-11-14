@@ -102,10 +102,14 @@ impl Model for LazySongs {
 
     fn row_data(&self, row: usize) -> Option<SongItem> {
         self.row(row).map(|r| {
-            let cover = r
-                .thumbnail
-                .as_deref()
-                .and_then(|u| crate::cover(&self.app, u, crate::ROW_COVER));
+            let cover = r.thumbnail.as_deref().and_then(|u| {
+                crate::cover_r(
+                    &self.app,
+                    u,
+                    crate::ROW_COVER,
+                    crate::theme_r(8.0, crate::ROW_COVER, 44.0),
+                )
+            });
             SongItem {
                 id: r.id.into(),
                 title: r.title.into(),

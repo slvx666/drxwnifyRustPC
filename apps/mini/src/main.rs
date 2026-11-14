@@ -7,6 +7,7 @@ mod lazy_library;
 mod lazy_songs;
 mod nav;
 mod os;
+mod search_view;
 mod settings_view;
 mod themes;
 
@@ -109,6 +110,7 @@ fn main() {
                 home: false,
                 settings: false,
                 image: Some(item.thumb.to_string()).filter(|t| !t.is_empty()),
+                search: None,
             };
             nav::go(&ui, &app2, &songs2, page);
         });
@@ -131,6 +133,7 @@ fn main() {
                 home: false,
                 settings: false,
                 image: None,
+                search: None,
             };
             nav::go(&ui, &app2, &songs2, page);
         });
@@ -149,6 +152,7 @@ fn main() {
                 home: false,
                 settings: false,
                 image: None,
+                search: None,
             };
             nav::go(&ui, &app2, &songs2, page);
         });
@@ -230,6 +234,108 @@ fn main() {
             if ui.get_view_settings() {
                 settings_view::fill(&ui, &app2);
             }
+        });
+    }
+    // Search: suggestions, history, results.
+    {
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_search_typing(move |t| {
+            if let Some(ui) = ui_w.upgrade() {
+                search_view::typing(&ui, &app2, t.to_string());
+            }
+        });
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_forget_search(move |q| {
+            let (app3, ui_w2, q) = (app2.clone(), ui_w.clone(), q.to_string());
+            app2.runtime().spawn(async move {
+                let _ = app3.forget_search(&q).await;
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_w2.upgrade() {
+                        let text = ui.get_search_text().to_string();
+                        search_view::typing(&ui, &app3, text);
+                    }
+                });
+            });
+        });
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_clear_search_history(move || {
+            let app3 = app2.clone();
+            app2.runtime().spawn(async move {
+                let _ = app3.clear_search_history().await;
+            });
+            if let Some(ui) = ui_w.upgrade() {
+                search_view::close_suggestions(&ui);
+            }
+        });
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_search_source(move |i| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            if let (Some(src), Some((q, _))) = (
+                search_view::source_at(i.max(0) as usize),
+                search_view::current(),
+            ) {
+                nav::go(&ui, &app2, &songs2, nav::Page::search(&q, src));
+            }
+        });
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_search_play(move |i| {
+            if let Some(id) = search_view::play(&app2, i.max(0) as usize)
+                && let Some(ui) = ui_w.upgrade()
+            {
+                ui.set_now_id(id.into());
+            }
+        });
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_search_top(move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            match search_view::top(&ui) {
+                Some(search_view::Top::Artist(id)) => ui.invoke_open_artist(id.into()),
+                Some(search_view::Top::Track) => {
+                    if let Some(id) = search_view::play(&app2, 0) {
+                        ui.set_now_id(id.into());
+                    }
+                }
+                None => {}
+            }
+        });
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_search_more(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                search_view::toggle_expanded(&ui, &app2);
+            }
+        });
+        let ui_w = ui.as_weak();
+        ui.on_search_artist(move |i| {
+            if let (Some(ui), Some(id)) =
+                (ui_w.upgrade(), search_view::artist_id(i.max(0) as usize))
+            {
+                ui.invoke_open_artist(id.into());
+            }
+        });
+        let ui_w = ui.as_weak();
+        ui.on_search_album(move |i| {
+            if let (Some(ui), Some(id)) = (ui_w.upgrade(), search_view::album_id(i.max(0) as usize))
+            {
+                ui.invoke_open_album(id.into());
+            }
+        });
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_search_playlist(move |i| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            let Some((id, title, image, library)) = search_view::playlist(i.max(0) as usize) else {
+                return;
+            };
+            let page = nav::Page {
+                spec: app2.playlist_page(&id, library),
+                title,
+                subtitle: String::new(),
+                selected: String::new(),
+                home: false,
+                settings: false,
+                image,
+                search: None,
+            };
+            nav::go(&ui, &app2, &songs2, page);
         });
     }
     // Page heading buttons and the player's shuffle / repeat.
@@ -385,16 +491,11 @@ fn main() {
             if q.is_empty() {
                 return;
             }
-            let page = nav::Page {
-                spec: ListSpec::Search { query: q.clone() },
-                title: format!("Поиск: {q}"),
-                subtitle: String::new(),
-                selected: String::new(),
-                home: false,
-                settings: false,
-                image: None,
-            };
-            nav::go(&ui, &app2, &songs2, page);
+            // The place chosen last stays (the main catalog at first).
+            let source = search_view::current()
+                .map(|(_, s)| s)
+                .unwrap_or(drx_app::SearchSource::Main);
+            nav::go(&ui, &app2, &songs2, nav::Page::search(&q, source));
         });
     }
     {
@@ -566,20 +667,29 @@ fn main() {
                 library_model(&ui, &app3).refresh_covers();
                 let url = ui.get_now_cover_url().to_string();
                 match (!url.is_empty())
-                    .then(|| cover(&app3, &url, NOW_COVER))
+                    .then(|| cover_r(&app3, &url, NOW_COVER, theme_r(100.0, NOW_COVER, 288.0)))
                     .flatten()
                 {
                     Some(c) => {
                         ui.set_now_cover(c);
                         ui.set_has_now_cover(true);
+                        if let Some(small) = cover_r(&app3, &url, 104, theme_r(10.0, 104, 52.0)) {
+                            ui.set_now_cover_small(small);
+                        }
                     }
                     None => ui.set_has_now_cover(false),
                 }
                 nav::refresh_releases(&ui, &app3);
                 home_view::refresh(&ui, &app3);
+                search_view::refresh_covers(&ui, &app3);
                 let url = ui.get_view_cover_url().to_string();
                 if !url.is_empty()
-                    && let Some(c) = cover(&app3, &url, HEADER_COVER)
+                    && let Some(c) = cover_r(
+                        &app3,
+                        &url,
+                        HEADER_COVER,
+                        theme_r(100.0, HEADER_COVER, 132.0),
+                    )
                 {
                     ui.set_view_cover(c);
                     ui.set_has_view_cover(true);
@@ -625,7 +735,17 @@ fn main() {
     if std::env::var("DRX_DEMO").is_err() {
         nav::go(&ui, &app, &songs, nav::Page::home());
     }
-    if let Ok(demo) = std::env::var("DRX_DEMO") {
+    if let Some(q) = std::env::var("DRX_DEMO")
+        .ok()
+        .and_then(|d| d.strip_prefix("search:").map(str::to_string))
+    {
+        nav::go(
+            &ui,
+            &app,
+            &songs,
+            nav::Page::search(&q, drx_app::SearchSource::Main),
+        );
+    } else if let Ok(demo) = std::env::var("DRX_DEMO") {
         app.set_volume(0.0);
         let entries = app
             .runtime()
@@ -812,16 +932,69 @@ pub const RELEASE_COVER: u32 = 256;
 
 /// A cover as a Slint image when it is cached; otherwise asks the core to load it (ImageReady follows).
 pub fn cover(app: &App, url: &str, size: u32) -> Option<slint::Image> {
+    cover_r(app, url, size, 0.0)
+}
+
+/// The theme's cover radius (logical px), set when a theme is applied: covers get their corners from it.
+static COVER_RADIUS: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(12f32.to_bits());
+
+pub fn set_cover_radius(r: f32) {
+    COVER_RADIUS.store(r.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Corner radius in decoded pixels for a cover decoded at `decoded` px and drawn at `shown` logical px:
+/// the theme's radius, capped at `max` (small covers get smaller corners), 0 for square themes.
+pub fn theme_r(max: f32, decoded: u32, shown: f32) -> f32 {
+    let r = f32::from_bits(COVER_RADIUS.load(std::sync::atomic::Ordering::Relaxed)).min(max);
+    r * decoded as f32 / shown
+}
+
+/// A cover with rounded corners baked into its pixels (`radius` in decoded px; size/2 = a circle). The software
+/// renderer does not clip images to rounded rectangles, so the corners are made transparent here, antialiased.
+pub fn cover_r(app: &App, url: &str, size: u32, radius: f32) -> Option<slint::Image> {
     match app.image(url, size) {
         Some(p) => {
-            let buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+            let mut buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
                 &p.rgba, p.size, p.size,
             );
+            if radius >= 0.5 {
+                round_corners(
+                    buf.make_mut_slice(),
+                    p.size as usize,
+                    radius.min(p.size as f32 / 2.0),
+                );
+            }
             Some(slint::Image::from_rgba8(buf))
         }
         None => {
             app.request_image(url, size);
             None
+        }
+    }
+}
+
+fn round_corners(px: &mut [slint::Rgba8Pixel], n: usize, r: f32) {
+    let span = r.ceil() as usize;
+    for y in 0..span.min(n) {
+        for x in 0..span.min(n) {
+            // Distance from the pixel centre to the corner circle's centre.
+            let dx = r - (x as f32 + 0.5);
+            let dy = r - (y as f32 + 0.5);
+            let d = (dx * dx + dy * dy).sqrt();
+            let a = (r - d + 0.5).clamp(0.0, 1.0);
+            if a >= 1.0 {
+                continue;
+            }
+            for (cx, cy) in [
+                (x, y),
+                (n - 1 - x, y),
+                (x, n - 1 - y),
+                (n - 1 - x, n - 1 - y),
+            ] {
+                let p = &mut px[cy * n + cx];
+                p.a = (p.a as f32 * a) as u8;
+            }
         }
     }
 }

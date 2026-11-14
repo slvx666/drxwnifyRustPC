@@ -25,7 +25,7 @@ pub fn source_name(s: Source) -> &'static str {
     }
 }
 
-fn source_label(s: Source) -> &'static str {
+pub(crate) fn source_label(s: Source) -> &'static str {
     match s {
         Source::Spotify => "Spotify",
         Source::Yandex => "Яндекс",

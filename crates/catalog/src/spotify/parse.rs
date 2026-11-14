@@ -3,8 +3,8 @@
 
 use crate::js::{arr, i, obj, path, s};
 use crate::model::{
-    Album, AlbumRef, ArtistPage, ArtistRef, ArtistSummary, Image, Page, Playlist, Release, Track,
-    User,
+    Album, AlbumRef, AlbumSummary, ArtistPage, ArtistRef, ArtistSummary, Image, Page, Playlist,
+    Release, SearchResults, Track, User,
 };
 use serde_json::Value;
 
@@ -406,4 +406,94 @@ mod tests {
             "https://i/64"
         );
     }
+}
+
+/// Every section of a searchDesktop answer: tracks, artists, albums, playlists.
+pub fn search_all(v: &Value) -> SearchResults {
+    let Some(sv) = path(v, &["data", "searchV2"]) else {
+        return SearchResults::default();
+    };
+    let items = |key: &str, wrapper: &str, kind: &str| -> Vec<&Value> {
+        obj(sv, key)
+            .map(|g| {
+                arr(g, "items")
+                    .iter()
+                    .filter(|e| s(e, "__typename") == Some(wrapper))
+                    .filter_map(|e| obj(e, "data"))
+                    .filter(|d| s(d, "__typename") == Some(kind))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let albums = items("albumsV2", "AlbumResponseWrapper", "Album")
+        .into_iter()
+        .filter_map(|d| {
+            Some(AlbumSummary {
+                id: id_of(s(d, "uri")?),
+                name: s(d, "name")?.to_string(),
+                artists: obj(d, "artists")
+                    .map(|a| arr(a, "items").iter().filter_map(artist).collect())
+                    .unwrap_or_default(),
+                images: obj(d, "coverArt")
+                    .map(|c| images(arr(c, "sources")))
+                    .unwrap_or_default(),
+                date: obj(d, "date").and_then(release_date),
+                kind: s(d, "type")
+                    .map(str::to_lowercase)
+                    .unwrap_or_else(|| "album".into()),
+            })
+        })
+        .collect();
+    let playlists = items("playlists", "PlaylistResponseWrapper", "Playlist")
+        .into_iter()
+        .filter_map(|d| {
+            Some(Playlist {
+                id: id_of(s(d, "uri")?),
+                name: s(d, "name")?.to_string(),
+                description: s(d, "description").map(str::to_string),
+                owner: path(d, &["ownerV2", "data", "name"])
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                images: obj(d, "images")
+                    .map(|im| {
+                        arr(im, "items")
+                            .iter()
+                            .flat_map(|g| images(arr(g, "sources")))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                total: 0,
+            })
+        })
+        .collect();
+    SearchResults {
+        tracks: search_tracks(v),
+        artists: search_artists(v),
+        albums,
+        playlists,
+    }
+}
+
+/// The playlist itself from a fetchPlaylist answer: name, description, owner, cover, track count.
+pub fn playlist_info(v: &Value, playlist_id: &str) -> Option<Playlist> {
+    let p = path(v, &["data", "playlistV2"])?;
+    Some(Playlist {
+        id: playlist_id.to_string(),
+        name: s(p, "name")?.to_string(),
+        description: s(p, "description").map(str::to_string),
+        owner: path(p, &["ownerV2", "data", "name"])
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        images: obj(p, "images")
+            .map(|im| {
+                arr(im, "items")
+                    .iter()
+                    .flat_map(|g| images(arr(g, "sources")))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        total: path(p, &["content", "totalCount"])
+            .and_then(Value::as_i64)
+            .unwrap_or(0) as u32,
+    })
 }

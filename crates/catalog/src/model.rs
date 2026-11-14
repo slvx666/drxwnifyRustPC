@@ -155,3 +155,24 @@ mod tests {
         assert_eq!(Source::of_id("4uLU6hMCjMI75M1A2tKUQC"), Source::Spotify);
     }
 }
+
+/// An album in a list (search results, an artist's «Участие»).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AlbumSummary {
+    pub id: String,
+    pub name: String,
+    pub artists: Vec<ArtistRef>,
+    pub images: Vec<Image>,
+    pub date: Option<String>,
+    /// album | single | ep | compilation
+    pub kind: String,
+}
+
+/// A catalog search: every kind of result at once (Android search page sections).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SearchResults {
+    pub tracks: Vec<Track>,
+    pub artists: Vec<ArtistSummary>,
+    pub albums: Vec<AlbumSummary>,
+    pub playlists: Vec<Playlist>,
+}

@@ -307,3 +307,27 @@ pub(crate) fn forgotten(c: &mut Connection, cut: i64) -> drx_core::Result<Vec<So
         .collect::<Result<Vec<_>, _>>()?;
     Ok(out)
 }
+
+/// Every song of the library (liked or added), liked first (the library search walks them).
+pub(crate) fn all_library_rows(c: &mut Connection) -> drx_core::Result<Vec<SongRow>> {
+    let sql = format!(
+        "SELECT s.id, s.title, {ARTISTS}, s.albumName, s.duration, s.thumbnailUrl, s.liked, {FIRST_ARTIST}, s.albumId          FROM song s WHERE s.liked = 1 OR s.inLibrary IS NOT NULL ORDER BY s.liked DESC, s.totalPlayTime DESC"
+    );
+    let mut st = c.prepare_cached(&sql)?;
+    let out = st
+        .query_map([], |r| {
+            Ok(SongRow {
+                id: r.get(0)?,
+                title: r.get(1)?,
+                artists: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                album: r.get(3)?,
+                duration_s: r.get(4)?,
+                thumbnail: r.get(5)?,
+                liked: r.get(6)?,
+                artist_id: r.get(7)?,
+                album_id: r.get(8)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(out)
+}

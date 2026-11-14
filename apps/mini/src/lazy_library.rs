@@ -44,10 +44,14 @@ impl Model for LazyLibrary {
 
     fn row_data(&self, row: usize) -> Option<LibItem> {
         let e = self.entries.borrow().get(row).cloned()?;
-        let cover = e
-            .thumbnail
-            .as_deref()
-            .and_then(|u| crate::cover(&self.app, u, crate::ROW_COVER));
+        let cover = e.thumbnail.as_deref().and_then(|u| {
+            crate::cover_r(
+                &self.app,
+                u,
+                crate::ROW_COVER,
+                crate::theme_r(10.0, crate::ROW_COVER, 44.0),
+            )
+        });
         Some(LibItem {
             title: e.title.into(),
             subtitle: e.subtitle.into(),

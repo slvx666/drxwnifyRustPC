@@ -8,7 +8,7 @@
 pub mod auth;
 mod parse;
 
-use crate::model::{Album, ArtistPage, ArtistSummary, Page, Playlist, Track, User};
+use crate::model::{Album, ArtistPage, ArtistSummary, Page, Playlist, SearchResults, Track, User};
 use drx_core::http::{Http, HttpError, Method, StatusCode};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -294,6 +294,13 @@ impl Spotify {
     }
 
     /// An album with all its tracks (getAlbum gives 50 per page; long albums and compilations are paged).
+    /// A playlist's name, owner, cover and size (a pasted link, a page heading).
+    pub async fn playlist_info(&self, playlist_id: &str) -> Result<Playlist> {
+        let vars = json!({ "uri": format!("spotify:playlist:{playlist_id}"), "offset": 0, "limit": 1, "enableWatchFeedEntrypoint": false });
+        let v = self.graphql("fetchPlaylist", vars).await?;
+        parse::playlist_info(&v, playlist_id).ok_or(SpotifyError::Shape("fetchPlaylist"))
+    }
+
     pub async fn album(&self, album_id: &str) -> Result<Album> {
         let page = |offset: u32| json!({ "uri": format!("spotify:album:{album_id}"), "locale": "", "offset": offset, "limit": 50 });
         let v = self.graphql("getAlbum", page(0)).await?;
@@ -331,6 +338,17 @@ impl Spotify {
         });
         let v = self.graphql("searchDesktop", vars).await?;
         Ok(parse::search_tracks(&v))
+    }
+
+    /// Everything at once: tracks, artists, albums, playlists (`searchDesktop`, the search page).
+    pub async fn search_all(&self, query: &str, limit: u32) -> Result<SearchResults> {
+        let vars = json!({
+            "searchTerm": query, "offset": 0, "limit": limit, "numberOfTopResults": 5,
+            "includeAudiobooks": false, "includeArtistHasConcertsField": false, "includePreReleases": false,
+            "includeLocalConcertsField": false, "includeAuthors": false
+        });
+        let v = self.graphql("searchDesktop", vars).await?;
+        Ok(parse::search_all(&v))
     }
 
     /// Artist search (the same `searchDesktop` query, artists part).

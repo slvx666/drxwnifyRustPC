@@ -22,6 +22,8 @@ pub struct Page {
     pub settings: bool,
     /// The library row's cover (playlists of the accounts have no other heading).
     pub image: Option<String>,
+    /// The search page for this query and place; `spec` is then unused.
+    pub search: Option<(String, drx_app::SearchSource)>,
 }
 
 impl Page {
@@ -34,6 +36,20 @@ impl Page {
             home: true,
             settings: false,
             image: None,
+            search: None,
+        }
+    }
+
+    pub fn search(query: &str, source: drx_app::SearchSource) -> Self {
+        Page {
+            spec: ListSpec::LikedSongs,
+            title: "Поиск".into(),
+            subtitle: String::new(),
+            selected: String::new(),
+            home: false,
+            settings: false,
+            image: None,
+            search: Some((query.to_string(), source)),
         }
     }
 
@@ -46,6 +62,7 @@ impl Page {
             home: false,
             settings: true,
             image: None,
+            search: None,
         }
     }
 }
@@ -71,7 +88,14 @@ fn release_items(app: &App) -> Vec<crate::ReleaseItem> {
             .iter()
             .map(|rel| {
                 let url = drx_catalog::model::best_image(&rel.images, 300).map(|i| i.url.clone());
-                let cover = url.and_then(|u| crate::cover(app, &u, crate::RELEASE_COVER));
+                let cover = url.and_then(|u| {
+                    crate::cover_r(
+                        app,
+                        &u,
+                        crate::RELEASE_COVER,
+                        crate::theme_r(100.0, crate::RELEASE_COVER, 128.0),
+                    )
+                });
                 let kind = match rel.kind.as_str() {
                     "single" => "Сингл",
                     "ep" => "EP",
@@ -228,7 +252,14 @@ fn set_header_image(ui: &MainWindow, app: &App, url: Option<String>) {
     let url = url.unwrap_or_default();
     ui.set_view_cover_url(url.clone().into());
     match (!url.is_empty())
-        .then(|| crate::cover(app, &url, crate::HEADER_COVER))
+        .then(|| {
+            crate::cover_r(
+                app,
+                &url,
+                crate::HEADER_COVER,
+                crate::theme_r(100.0, crate::HEADER_COVER, 132.0),
+            )
+        })
         .flatten()
     {
         Some(c) => {
@@ -266,6 +297,16 @@ fn apply_header(ui: &MainWindow, app: &App, h: &ListHeader, n: usize, secs: i64)
 fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     ui.set_view_home(page.home);
     ui.set_view_settings(page.settings);
+    ui.set_view_search(page.search.is_some());
+    if let Some((q, source)) = &page.search {
+        ui.set_selected_id("".into());
+        ui.set_view_is_page(false);
+        ui.set_view_kind("".into());
+        set_header_image(ui, app, None);
+        set_releases(ui, app, Vec::new());
+        crate::search_view::show(ui, app, q, *source);
+        return;
+    }
     if page.settings {
         ui.set_selected_id("".into());
         ui.set_view_title(page.title.clone().into());

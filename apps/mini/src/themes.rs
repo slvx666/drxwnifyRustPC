@@ -124,6 +124,7 @@ pub fn apply(ui: &MainWindow, id: &str, day: bool) {
     let px = |k: &str| t[k].as_f64().unwrap_or(0.0) as f32;
     g.set_panel_radius(px("panelRadius"));
     g.set_cover_radius(px("coverRadius"));
+    crate::set_cover_radius(px("coverRadius"));
     g.set_chip_radius(px("chipRadius"));
     g.set_body_font(family(t["body"].as_str().unwrap_or("manrope")).into());
     g.set_heading_font(family(t["heading"].as_str().unwrap_or("manrope")).into());

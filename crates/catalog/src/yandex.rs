@@ -3,7 +3,8 @@
 
 use crate::js::arr;
 use crate::model::{
-    Album, AlbumRef, ArtistPage, ArtistRef, Image, Page, Playlist, Release, Track, User,
+    Album, AlbumRef, AlbumSummary, ArtistPage, ArtistRef, ArtistSummary, Image, Page, Playlist,
+    Release, SearchResults, Track, User,
 };
 use drx_core::http::{Http, HttpError, Method, RequestBuilder};
 use serde_json::Value;
@@ -352,6 +353,16 @@ impl Yandex {
             .collect())
     }
 
+    /// A playlist's name, owner, cover and size.
+    pub async fn playlist_info(&self, playlist_id: &str) -> Result<Playlist> {
+        let (owner, kind) = parse_playlist_id(playlist_id)
+            .ok_or_else(|| YandexError::Api("bad playlist id".into()))?;
+        let v = self
+            .get(&format!("users/{owner}/playlists/{kind}"), &[], true)
+            .await?;
+        playlist(&v).ok_or_else(|| YandexError::Api("bad playlist".into()))
+    }
+
     pub async fn playlist_tracks(
         &self,
         playlist_id: &str,
@@ -473,6 +484,52 @@ impl Yandex {
                 r
             },
             related: Vec::new(),
+        })
+    }
+
+    /// Everything at once (`search?type=all`): tracks, artists, albums, playlists.
+    pub async fn search_all(&self, query: &str) -> Result<SearchResults> {
+        let v = self
+            .get(
+                "search",
+                &[("text", query), ("type", "all"), ("page", "0")],
+                true,
+            )
+            .await?;
+        let results = |k: &str| v.get(k).map(|t| arr(t, "results")).unwrap_or(&[]);
+        Ok(SearchResults {
+            tracks: results("tracks")
+                .iter()
+                .filter_map(|t| track(t, None))
+                .collect(),
+            artists: results("artists")
+                .iter()
+                .filter_map(|a| {
+                    let r = artist(a)?;
+                    Some(ArtistSummary {
+                        id: r.id,
+                        name: r.name,
+                        images: cover_images(
+                            a.get("cover")
+                                .and_then(|c| st(c, "uri"))
+                                .or_else(|| st(a, "ogImage")),
+                        ),
+                    })
+                })
+                .collect(),
+            albums: results("albums")
+                .iter()
+                .filter_map(simple_album)
+                .map(|(a, artists, date, kind, _)| AlbumSummary {
+                    id: a.id,
+                    name: a.name,
+                    artists,
+                    images: a.images,
+                    date,
+                    kind,
+                })
+                .collect(),
+            playlists: results("playlists").iter().filter_map(playlist).collect(),
         })
     }
 

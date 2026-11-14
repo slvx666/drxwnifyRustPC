@@ -295,6 +295,77 @@ impl YouTube {
         resp.json().await.map_err(|e| ProviderError(e.to_string()))
     }
 
+    /// Search suggestions as YouTube Music shows them while typing (`music/get_search_suggestions`, WEB_REMIX),
+    /// the source Android uses for its search box.
+    pub async fn suggestions(&self, query: &str) -> Vec<String> {
+        let Ok(v) = self
+            .post(
+                "music/get_search_suggestions",
+                &WEB_REMIX,
+                json!({ "input": query }),
+            )
+            .await
+        else {
+            return Vec::new();
+        };
+        v.pointer("/contents/0/searchSuggestionsSectionRenderer/contents")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|c| {
+                        let runs = c
+                            .pointer("/searchSuggestionRenderer/suggestion/runs")?
+                            .as_array()?;
+                        let text: String = runs
+                            .iter()
+                            .filter_map(|r| r.get("text").and_then(Value::as_str))
+                            .collect();
+                        (!text.trim().is_empty()).then_some(text)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Title, channel, length and thumbnail of a video (a pasted YouTube link): from the player answer.
+    pub async fn video_info(&self, video: &str) -> Option<(String, String, u64, Option<String>)> {
+        for c in STREAM_CLIENTS {
+            let Ok(v) = self
+                .post(
+                    "player",
+                    c,
+                    json!({ "videoId": video, "contentCheckOk": true, "racyCheckOk": true }),
+                )
+                .await
+            else {
+                continue;
+            };
+            let d = v.get("videoDetails")?;
+            let title = d.get("title").and_then(Value::as_str)?.to_string();
+            let author = d
+                .get("author")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim_end_matches(" - Topic")
+                .to_string();
+            let secs = d
+                .get("lengthSeconds")
+                .and_then(Value::as_str)
+                .and_then(|x| x.parse().ok())
+                .unwrap_or(0);
+            let thumb = d
+                .pointer("/thumbnail/thumbnails")
+                .and_then(Value::as_array)
+                .and_then(|t| t.last())
+                .and_then(|t| t.get("url"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            return Some((title, author, secs, thumb));
+        }
+        None
+    }
+
     async fn player(&self, video: &str) -> Option<(AudioStream, u32)> {
         for c in STREAM_CLIENTS {
             let Ok(v) = self

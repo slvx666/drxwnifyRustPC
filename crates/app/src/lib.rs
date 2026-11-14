@@ -6,6 +6,7 @@ pub mod edition;
 mod home;
 pub mod lists;
 pub mod playback;
+mod search;
 
 pub use accounts::AccountState;
 pub use drx_audio::player::PlaybackClock;
@@ -17,6 +18,7 @@ pub use edition::{Edition, EditionProfile};
 pub use home::{HomeAlbum, HomeFeed, HomeRow, HomeRowKind};
 pub use lists::{ListHandle, ListHeader, ListSpec, SongRow};
 pub use playback::{NowPlaying, Playable, Repeat};
+pub use search::{SearchOutcome, SearchSource, fold};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
@@ -1406,5 +1408,68 @@ mod live_home {
         eprintln!("built in {:.1}s", t.elapsed().as_secs_f32());
         assert!(feed.rows.len() >= 3);
         assert!(app.home_cached().is_some());
+    }
+}
+
+#[cfg(test)]
+mod live_search_page {
+    use super::*;
+
+    /// Search page in every source, a pasted link, suggestions and history. Counts only. DRX_TEST_PROFILE.
+    #[test]
+    fn search_everywhere() {
+        let Ok(dir) = std::env::var("DRX_TEST_PROFILE") else {
+            return;
+        };
+        let app = App::start(Profile::at(dir), EditionProfile::mini()).unwrap();
+        let rt = app.runtime();
+        for (src, label) in app.search_sources() {
+            let r = rt.block_on(app.search_page("Sleep Token", src)).unwrap();
+            eprintln!(
+                "{label}: tracks={} artists={} albums={} playlists={} playable={} library={}",
+                r.results.tracks.len(),
+                r.results.artists.len(),
+                r.results.albums.len(),
+                r.results.playlists.len(),
+                r.playable.len(),
+                r.library
+            );
+        }
+        let link = rt
+            .block_on(app.search_page(
+                "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT",
+                SearchSource::Main,
+            ))
+            .unwrap();
+        eprintln!(
+            "spotify track link: tracks={} album_known={}",
+            link.results.tracks.len(),
+            link.results
+                .tracks
+                .first()
+                .and_then(|t| t.album.as_ref())
+                .is_some_and(|a| !a.id.is_empty())
+        );
+        assert!(link.from_link && link.results.tracks.len() == 1);
+        let yt = rt
+            .block_on(app.search_page("https://youtu.be/dQw4w9WgXcQ", SearchSource::Main))
+            .unwrap();
+        assert_eq!(yt.results.tracks.len(), 1);
+        let (hist, online) = rt.block_on(app.search_suggestions("sleep tok"));
+        eprintln!(
+            "suggestions: history={} online={}",
+            hist.len(),
+            online.len()
+        );
+        assert!(!online.is_empty());
+        let h = rt.block_on(app.search_history("", 5));
+        assert_eq!(
+            h.first().map(String::as_str),
+            Some("https://youtu.be/dQw4w9WgXcQ")
+        );
+        rt.block_on(app.forget_search("https://youtu.be/dQw4w9WgXcQ"))
+            .unwrap();
+        rt.block_on(app.forget_search("https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"))
+            .unwrap();
     }
 }

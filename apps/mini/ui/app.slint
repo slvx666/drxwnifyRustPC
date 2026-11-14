@@ -63,6 +63,16 @@ export struct ThemeChip {
     selected: bool,
 }
 
+export struct Suggestion {
+    text: string,
+    history: bool, // a past search (clock, can be removed) or a suggestion (magnifier)
+}
+
+export struct SourceChip {
+    label: string,
+    selected: bool,
+}
+
 export struct QueueItem {
     title: string,
     artists: string,
@@ -260,6 +270,7 @@ component TopBar inherits Rectangle {
     callback forward();
     callback import-backup();
     callback open-settings();
+    callback typing(string);
     height: Grid.top-height;
     HorizontalLayout {
         padding-left: Grid.pad;
@@ -328,6 +339,8 @@ component TopBar inherits Rectangle {
                             color: Theme.text;
                             vertical-alignment: center;
                             accepted => { root.search(self.text); }
+                            edited => { root.typing(self.text); }
+                            changed has-focus => { if self.has-focus { root.typing(self.text); } }
                         }
                         Text {
                             x: 0;
@@ -695,6 +708,140 @@ component SettingsPage inherits Flickable {
     }
 }
 
+// A row of cards that scrolls sideways (search sections). Round covers for artists.
+component CardStrip inherits Flickable {
+    in property <[HomeCard]> cards;
+    in property <bool> round;
+    callback clicked(int);
+    height: 188px;
+    content-height: self.height;
+    content-width: Grid.pad + 4px + root.cards.length * 156px;
+    for card[ci] in root.cards: Rectangle {
+        x: Grid.pad + 4px + ci * 156px;
+        y: 0;
+        width: 144px;
+        height: 188px;
+        VerticalLayout {
+            spacing: 4px;
+            alignment: start;
+            Cover { size: 144px; source: card.cover; has-source: card.has-cover; radius: root.round ? 72px : Theme.cover-radius; }
+            Text { text: card.title; font-family: Theme.body-font; font-size: 13px; color: cta.has-hover ? Theme.accent : Theme.text; overflow: elide; horizontal-alignment: root.round ? center : left; }
+            Text { text: card.subtitle; font-family: Theme.body-font; font-size: 11px; color: Theme.mute; overflow: elide; horizontal-alignment: root.round ? center : left; }
+        }
+        cta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(ci); } }
+    }
+}
+
+component SectionHead inherits HorizontalLayout {
+    in property <string> text;
+    padding-left: Grid.pad + 4px;
+    height: 28px;
+    Text { text: root.text; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; vertical-alignment: center; }
+}
+
+// The search page: source chips, best result beside the first tracks, then artists, albums, playlists.
+component SearchPage inherits Flickable {
+    in property <[SourceChip]> chips;
+    in property <string> state; // loading | empty | error text | ""
+    in property <string> top-kind; // artist | track | album | ""
+    in property <string> top-title;
+    in property <string> top-sub;
+    in property <image> top-cover;
+    in property <bool> top-has-cover;
+    in property <[SongItem]> tracks;
+    in property <int> tracks-total;
+    in property <bool> expanded;
+    in property <[HomeCard]> artists;
+    in property <[HomeCard]> albums;
+    in property <[HomeCard]> playlists;
+    in property <string> now-id;
+    callback source(int);
+    callback play(int);
+    callback top();
+    callback more();
+    callback open-artist(string);
+    callback artist(int);
+    callback album(int);
+    callback playlist(int);
+    content-height: body.preferred-height + Grid.pad;
+    body := VerticalLayout {
+        width: root.width;
+        spacing: Grid.pad;
+        alignment: start;
+        HorizontalLayout {
+            padding-left: Grid.pad + 4px;
+            spacing: 6px;
+            alignment: start;
+            for c[i] in root.chips: Chip { label: c.label; selected: c.selected; clicked => { root.source(i); } }
+        }
+        if root.state != "": Text {
+            x: Grid.pad + 4px;
+            text: root.state == "loading" ? "Ищу…" : (root.state == "empty" ? "Ничего не нашлось" : root.state);
+            font-family: Theme.body-font; font-size: 14px; color: Theme.dim;
+        }
+        if root.state == "" && root.tracks.length > 0: HorizontalLayout {
+            padding-left: Grid.pad + 4px;
+            padding-right: Grid.pad;
+            spacing: Grid.pad;
+            // Best result: a big card (Spotify's «Лучший результат»).
+            if root.top-kind != "": VerticalLayout {
+                width: 300px;
+                spacing: 8px;
+                Text { text: "Лучший результат"; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; height: 28px; vertical-alignment: center; }
+                Rectangle {
+                    height: 232px;
+                    border-radius: Grid.item-radius;
+                    background: tta.has-hover ? Theme.fill-hover : Theme.fill;
+                    VerticalLayout {
+                        padding: Grid.pad;
+                        spacing: 6px;
+                        alignment: start;
+                        Cover { size: 104px; source: root.top-cover; has-source: root.top-has-cover; radius: root.top-kind == "artist" ? 52px : Theme.cover-radius; }
+                        Rectangle { height: 6px; }
+                        Text { text: root.top-title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 24px; color: Theme.text; overflow: elide; }
+                        Text { text: root.top-sub; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+                    }
+                    tta := TouchArea { mouse-cursor: pointer; clicked => { root.top(); } }
+                }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 8px;
+                HorizontalLayout {
+                    height: 28px;
+                    Text { horizontal-stretch: 1; text: "Треки"; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; vertical-alignment: center; }
+                    if root.tracks-total > 4: Link {
+                        text: root.expanded ? "Свернуть" : "Все треки · " + root.tracks-total;
+                        font-size: 13px;
+                        clicked => { root.more(); }
+                    }
+                }
+                for t[i] in root.tracks: SongRow {
+                    song: t;
+                    current: root.now-id != "" && t.id == root.now-id;
+                    play => { root.play(i); }
+                    open-artist(id) => { root.open-artist(id); }
+                }
+            }
+        }
+        if root.state == "" && root.artists.length > 0: VerticalLayout {
+            spacing: 8px;
+            SectionHead { text: "Исполнители"; }
+            CardStrip { cards: root.artists; round: true; clicked(i) => { root.artist(i); } }
+        }
+        if root.state == "" && root.albums.length > 0: VerticalLayout {
+            spacing: 8px;
+            SectionHead { text: "Альбомы"; }
+            CardStrip { cards: root.albums; clicked(i) => { root.album(i); } }
+        }
+        if root.state == "" && root.playlists.length > 0: VerticalLayout {
+            spacing: 8px;
+            SectionHead { text: "Плейлисты"; }
+            CardStrip { cards: root.playlists; clicked(i) => { root.playlist(i); } }
+        }
+    }
+}
+
 component MainArea inherits VerticalLayout {
     in property <string> title;
     in property <string> subtitle;
@@ -712,6 +859,27 @@ component MainArea inherits VerticalLayout {
     in property <[ReleaseItem]> releases; // artist pages: albums and singles
     in property <bool> home; // the home page: rows of cards instead of a track list
     in property <bool> settings;
+    in property <bool> search; // the search page
+    in property <[SourceChip]> s-chips;
+    in property <string> s-state;
+    in property <string> s-top-kind;
+    in property <string> s-top-title;
+    in property <string> s-top-sub;
+    in property <image> s-top-cover;
+    in property <bool> s-top-has-cover;
+    in property <[SongItem]> s-tracks;
+    in property <int> s-tracks-total;
+    in property <bool> s-expanded;
+    in property <[HomeCard]> s-artists;
+    in property <[HomeCard]> s-albums;
+    in property <[HomeCard]> s-playlists;
+    callback s-source(int);
+    callback s-play(int);
+    callback s-top();
+    callback s-more();
+    callback s-artist(int);
+    callback s-album(int);
+    callback s-playlist(int);
     in property <[AccountRow]> accounts;
     in property <[ThemeChip]> themes;
     in property <bool> day;
@@ -831,6 +999,31 @@ component MainArea inherits VerticalLayout {
             }
         }
     }
+    if root.search: SearchPage {
+        vertical-stretch: 1;
+        chips: root.s-chips;
+        state: root.s-state;
+        top-kind: root.s-top-kind;
+        top-title: root.s-top-title;
+        top-sub: root.s-top-sub;
+        top-cover: root.s-top-cover;
+        top-has-cover: root.s-top-has-cover;
+        tracks: root.s-tracks;
+        tracks-total: root.s-tracks-total;
+        expanded: root.s-expanded;
+        artists: root.s-artists;
+        albums: root.s-albums;
+        playlists: root.s-playlists;
+        now-id: root.now-id;
+        source(i) => { root.s-source(i); }
+        play(i) => { root.s-play(i); }
+        top => { root.s-top(); }
+        more => { root.s-more(); }
+        open-artist(id) => { root.open-artist(id); }
+        artist(i) => { root.s-artist(i); }
+        album(i) => { root.s-album(i); }
+        playlist(i) => { root.s-playlist(i); }
+    }
     if root.settings: SettingsPage {
         vertical-stretch: 1;
         accounts: root.accounts;
@@ -846,7 +1039,7 @@ component MainArea inherits VerticalLayout {
         set-day(v) => { root.set-day(v); }
     }
     // Home: rows of cards, the page scrolls down, each row sideways.
-    if root.home && !root.settings && !root.empty-library: Flickable {
+    if root.home && !root.settings && !root.search && !root.empty-library: Flickable {
         vertical-stretch: 1;
         content-height: root.sections.length * 244px + Grid.pad;
         for sec[si] in root.sections: VerticalLayout {
@@ -910,7 +1103,7 @@ component MainArea inherits VerticalLayout {
             }
         }
     }
-    if !root.home && !root.settings && !root.empty-library: HorizontalLayout {
+    if !root.home && !root.settings && !root.search && !root.empty-library: HorizontalLayout {
         vertical-stretch: 1;
         padding-left: 8px;
         padding-right: 4px;
@@ -1135,6 +1328,28 @@ export component MainWindow inherits Window {
     in property <bool> has-view-cover;
     in property <[ReleaseItem]> view-releases;
     in property <bool> view-home;
+    in property <bool> view-search;
+    in property <[SourceChip]> search-chips;
+    in property <string> search-state;
+    in property <string> search-top-kind;
+    in property <string> search-top-title;
+    in property <string> search-top-sub;
+    in property <image> search-top-cover;
+    in-out property <string> search-top-cover-url;
+    in property <bool> search-top-has-cover;
+    in property <[SongItem]> search-tracks;
+    in property <int> search-tracks-total;
+    in property <bool> search-expanded;
+    in property <[HomeCard]> search-artists;
+    in property <[HomeCard]> search-albums;
+    in property <[HomeCard]> search-playlists;
+    callback search-source(int);
+    callback search-play(int);
+    callback search-top();
+    callback search-more();
+    callback search-artist(int);
+    callback search-album(int);
+    callback search-playlist(int);
     in property <string> view-kind;
     in property <bool> view-liked-cover;
     in property <bool> view-can-play;
@@ -1156,6 +1371,7 @@ export component MainWindow inherits Window {
     in property <string> lyric-next;
     in property <bool> has-lyrics;
     in property <image> now-cover;
+    in property <image> now-cover-small; // the player bar's: smaller corners
     in-out property <string> now-cover-url;
     in-out property <bool> has-now-cover;
     in-out property <bool> playing;
@@ -1163,6 +1379,13 @@ export component MainWindow inherits Window {
     in property <string> position: "0:00";
     in property <string> duration: "0:00";
     in property <string> toast;
+    in-out property <string> search-text;
+    in-out property <bool> suggest-open;
+    in property <[Suggestion]> suggestions;
+    in property <bool> suggest-history-only; // the field is empty: the history alone, with «Очистить»
+    callback search-typing(string);
+    callback forget-search(string);
+    callback clear-search-history();
 
     callback open-library(LibItem);
     callback home-play(int, int);
@@ -1205,7 +1428,9 @@ export component MainWindow inherits Window {
             home => { root.home(); }
             open-settings => { root.open-settings(); }
             import-backup => { root.import-backup(); }
-            search(q) => { root.search(q); }
+            search(q) => { root.suggest-open = false; root.search(q); }
+            typing(t) => { root.search-typing(t); }
+            search-text <=> root.search-text;
         }
         // The single surface: columns on top, the player bar under a hairline.
         Rectangle {
@@ -1242,7 +1467,7 @@ export component MainWindow inherits Window {
                         is-page: root.view-is-page;
                         kind-label: root.view-kind;
                         liked-cover: root.view-liked-cover;
-                        can-play: root.view-can-play && !root.view-home && !root.view-settings;
+                        can-play: root.view-can-play && !root.view-home && !root.view-settings && !root.view-search;
                         play-all => { root.play-all(); }
                         shuffle-all => { root.shuffle-all(); }
                         cover: root.view-cover;
@@ -1250,6 +1475,27 @@ export component MainWindow inherits Window {
                         releases: root.view-releases;
                         home: root.view-home;
                         settings: root.view-settings;
+                        search: root.view-search;
+                        s-chips: root.search-chips;
+                        s-state: root.search-state;
+                        s-top-kind: root.search-top-kind;
+                        s-top-title: root.search-top-title;
+                        s-top-sub: root.search-top-sub;
+                        s-top-cover: root.search-top-cover;
+                        s-top-has-cover: root.search-top-has-cover;
+                        s-tracks: root.search-tracks;
+                        s-tracks-total: root.search-tracks-total;
+                        s-expanded: root.search-expanded;
+                        s-artists: root.search-artists;
+                        s-albums: root.search-albums;
+                        s-playlists: root.search-playlists;
+                        s-source(i) => { root.search-source(i); }
+                        s-play(i) => { root.search-play(i); }
+                        s-top => { root.search-top(); }
+                        s-more => { root.search-more(); }
+                        s-artist(i) => { root.search-artist(i); }
+                        s-album(i) => { root.search-album(i); }
+                        s-playlist(i) => { root.search-playlist(i); }
                         accounts: root.settings-accounts;
                         themes: root.settings-themes;
                         day: root.day-theme;
@@ -1292,7 +1538,7 @@ export component MainWindow inherits Window {
                     artists: root.now-artists;
                     artist-id: root.now-artist-id;
                     open-artist(id) => { root.open-artist(id); }
-                    cover: root.now-cover;
+                    cover: root.now-cover-small;
                     has-cover: root.has-now-cover;
                     playing: root.playing;
                     day: root.day-theme;
@@ -1310,6 +1556,54 @@ export component MainWindow inherits Window {
                     seek(f) => { root.seek(f); }
                     volume-changed(v) => { root.volume-changed(v); }
                 }
+            }
+        }
+    }
+    // Under the search field: the history (field empty) or matching history + YouTube Music suggestions.
+    if root.suggest-open && root.suggestions.length > 0: TouchArea {
+        // A click anywhere else closes it.
+        clicked => { root.suggest-open = false; }
+    }
+    if root.suggest-open && root.suggestions.length > 0: Rectangle {
+        x: Grid.gutter + (root.width - 2 * Grid.gutter - (Grid.control + 8px + 400px)) / 2 + Grid.control + 8px;
+        y: Grid.top-height - 8px;
+        width: 400px;
+        height: list.preferred-height;
+        border-radius: Grid.item-radius;
+        background: Theme.menu;
+        border-color: Theme.panel-border;
+        border-width: 1px;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000070;
+        list := VerticalLayout {
+            padding: 6px;
+            spacing: 0px;
+            if root.suggest-history-only: Caption { text: "НЕДАВНИЕ ПОИСКИ"; x: 10px; height: 26px; vertical-alignment: center; }
+            for sug in root.suggestions: Rectangle {
+                height: 36px;
+                border-radius: Grid.small-radius;
+                background: sta.has-hover ? Theme.fill-hover : transparent;
+                sta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.search-text = sug.text; root.suggest-open = false; root.search(sug.text); }
+                }
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 4px;
+                    spacing: 10px;
+                    Middle { Icon { icon: sug.history ? Icons.clock : Icons.search; size: 16px; color: Theme.mute; } }
+                    Text { horizontal-stretch: 1; text: sug.text; font-family: Theme.body-font; font-size: 13px; color: Theme.text; overflow: elide; vertical-alignment: center; }
+                    if sug.history: Middle {
+                        IconButton { icon: Icons.x; size: 28px; icon-size: 14px; clicked => { root.forget-search(sug.text); } }
+                    }
+                }
+            }
+            if root.suggest-history-only: Rectangle {
+                height: 34px;
+                border-radius: Grid.small-radius;
+                background: cta.has-hover ? Theme.fill-hover : transparent;
+                Text { text: "Очистить историю"; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; }
+                cta := TouchArea { mouse-cursor: pointer; clicked => { root.clear-search-history(); } }
             }
         }
     }

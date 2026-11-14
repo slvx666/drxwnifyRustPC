@@ -16,7 +16,12 @@ thread_local! {
 
 fn card_cover(app: &App, images: &[drx_catalog::model::Image]) -> Option<slint::Image> {
     let url = drx_catalog::model::best_image(images, 300)?.url.clone();
-    crate::cover(app, &url, CARD_COVER)
+    crate::cover_r(
+        app,
+        &url,
+        CARD_COVER,
+        crate::theme_r(100.0, CARD_COVER, 144.0),
+    )
 }
 
 /// The cards of every row: built when the feed changes; covers that arrive later update their card in place,
