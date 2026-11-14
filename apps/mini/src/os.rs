@@ -5,6 +5,7 @@ use drx_app::App;
 use drx_platform::{EventSink, Hotkey, InstanceGuard, MediaInfo, Platform, PlatformEvent};
 use slint::ComponentHandle;
 use slint::winit_030::WinitWindowAccessor;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// Setting: global hotkeys on (default, as in pc/) or off.
@@ -192,4 +193,96 @@ pub fn start(ui: &MainWindow, app: &App, guard: Option<&InstanceGuard>) -> Optio
         }
     });
     Some(platform)
+}
+
+/// The app's own title bar (the window has no system frame): dragging, double press to maximise, the window
+/// buttons, and the maximised state for the restore glyph.
+pub fn wire_title_bar(ui: &MainWindow) {
+    use std::cell::Cell;
+    use std::time::{Duration, Instant};
+    let last_press: Rc<Cell<Option<Instant>>> = Rc::default();
+    let ui_w = ui.as_weak();
+    ui.on_window_press(move || {
+        let Some(ui) = ui_w.upgrade() else { return };
+        let now = Instant::now();
+        // A second press within the system's double-click time: maximise or restore, as a title bar does.
+        let double = last_press
+            .replace(Some(now))
+            .is_some_and(|t| now.duration_since(t) < Duration::from_millis(drx_platform::double_click_ms()));
+        if double {
+            last_press.set(None);
+            toggle_maximized(&ui);
+        }
+    });
+    let ui_w = ui.as_weak();
+    ui.on_window_drag(move || {
+        let Some(ui) = ui_w.upgrade() else { return };
+        ui.window().with_winit_window(|w| {
+            use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            if let Ok(h) = w.window_handle()
+                && let RawWindowHandle::Win32(h) = h.as_raw()
+            {
+                drx_platform::start_window_move(h.hwnd.get());
+            } else {
+                let _ = w.drag_window();
+            }
+        });
+    });
+    let ui_w = ui.as_weak();
+    ui.on_window_minimize(move || {
+        if let Some(ui) = ui_w.upgrade() {
+            ui.window().set_minimized(true);
+        }
+    });
+    let ui_w = ui.as_weak();
+    ui.on_window_maximize(move || {
+        if let Some(ui) = ui_w.upgrade() {
+            toggle_maximized(&ui);
+        }
+    });
+    let ui_w = ui.as_weak();
+    ui.on_window_close(move || {
+        // As the system close button did (pc/Main.kt): the app quits, it does not go to the tray.
+        if let Some(ui) = ui_w.upgrade() {
+            let _ = ui.hide();
+        }
+        let _ = slint::quit_event_loop();
+    });
+    // The restore glyph follows the real state (Win+Up, Aero Snap, double press).
+    let ui_w = ui.as_weak();
+    ui.window().on_winit_window_event(move |_, e| {
+        if let slint::winit_030::winit::event::WindowEvent::Resized(_) = e
+            && let Some(ui) = ui_w.upgrade()
+        {
+            let max = ui.window().is_maximized();
+            if ui.get_window_maximized() != max {
+                ui.set_window_maximized(max);
+            }
+            ui.set_window_inset(maximized_overhang(&ui));
+        }
+        slint::winit_030::EventResult::Propagate
+    });
+}
+
+/// How far a maximised window reaches past its monitor (logical px): Windows keeps the resize border of a
+/// frameless window outside the screen. 0 when not maximised.
+fn maximized_overhang(ui: &MainWindow) -> f32 {
+    if !ui.window().is_maximized() {
+        return 0.0;
+    }
+    ui.window()
+        .with_winit_window(|w| {
+            let m = w.current_monitor()?;
+            let outer = w.outer_position().ok()?;
+            let px = (m.position().x - outer.x).max(m.position().y - outer.y).max(0);
+            Some(px as f32 / w.scale_factor() as f32)
+        })
+        .flatten()
+        .unwrap_or(0.0)
+}
+
+fn toggle_maximized(ui: &MainWindow) {
+    let max = !ui.window().is_maximized();
+    ui.window().set_maximized(max);
+    ui.set_window_maximized(max);
 }

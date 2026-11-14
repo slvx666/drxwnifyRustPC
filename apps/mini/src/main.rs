@@ -22,26 +22,36 @@ use std::rc::Rc;
 
 slint::include_modules!();
 
-/// Developer checks while the owner uses the PC: `DRX_BACKGROUND_AT=x,y` opens the window at that screen position
-/// (e.g. on the second monitor) without taking focus.
-fn background_window() {
-    let Ok(at) = std::env::var("DRX_BACKGROUND_AT") else {
-        return;
-    };
-    let mut it = at.split(',').filter_map(|v| v.trim().parse::<i32>().ok());
-    let (Some(x), Some(y)) = (it.next(), it.next()) else {
-        return;
-    };
+/// The native window: no system frame (the top bar is the title bar), but the Windows shadow and, on Windows 11,
+/// rounded corners. Developer checks while the owner uses the PC: `DRX_BACKGROUND_AT=x,y` opens the window at that
+/// screen position (e.g. on the second monitor) without taking focus.
+fn select_backend() {
+    let at = std::env::var("DRX_BACKGROUND_AT").ok().and_then(|at| {
+        let mut it = at.split(',').filter_map(|v| v.trim().parse::<i32>().ok());
+        Some((it.next()?, it.next()?))
+    });
     let _ = slint::BackendSelector::new()
         .with_winit_window_attributes_hook(move |a| {
-            a.with_active(false)
-                .with_position(slint::winit_030::winit::dpi::PhysicalPosition::new(x, y))
+            #[cfg(windows)]
+            let a = {
+                use slint::winit_030::winit::platform::windows::{
+                    CornerPreference, WindowAttributesExtWindows,
+                };
+                a.with_undecorated_shadow(true)
+                    .with_corner_preference(CornerPreference::Round)
+            };
+            match at {
+                Some((x, y)) => a
+                    .with_active(false)
+                    .with_position(slint::winit_030::winit::dpi::PhysicalPosition::new(x, y)),
+                None => a,
+            }
         })
         .select();
 }
 
 fn main() {
-    background_window();
+    select_backend();
     let profile = match std::env::var_os("DRX_PROFILE") {
         Some(p) => Profile::at(p),
         None => Profile::default_location().expect("no profile folder (APPDATA)"),
@@ -854,6 +864,7 @@ fn main() {
     }
 
     // System media controls (media keys, volume flyout, lock screen) and the tray.
+    os::wire_title_bar(&ui);
     let platform = os::start(&ui, &app, Some(&guard));
     {
         let (app2, ui_w, platform) = (app.clone(), ui.as_weak(), platform.clone());

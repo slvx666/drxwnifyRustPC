@@ -281,6 +281,42 @@ component Backdrop inherits Rectangle {
 // The home button and search field sit exactly in the window's middle (placed by x, not by the layout, so the
 // different widths of the side groups do not move them). Side padding matches the sections below: the logo starts
 // where the library's titles start, the last icon ends where the right column's content ends.
+// Window controls drawn by the app (the system title bar is off): thin glyphs like Windows', shaped and hovered like
+// the other top bar buttons; close turns red on hover.
+component WindowButton inherits Rectangle {
+    in property <string> kind; // "min" | "max" | "restore" | "close"
+    callback clicked();
+    property <color> glyph: ta.has-hover ? (root.kind == "close" ? #FFFFFF : Theme.text) : Theme.dim;
+    width: Grid.button;
+    height: Grid.button;
+    border-radius: min(Theme.chip-radius, self.height / 2);
+    background: ta.has-hover ? (root.kind == "close" ? #E5484D : Theme.fill-hover) : transparent;
+    if root.kind == "min": Rectangle { width: 10px; height: 1px; background: root.glyph; }
+    if root.kind == "max": Rectangle {
+        width: 10px;
+        height: 10px;
+        border-width: 1px;
+        border-radius: 2px;
+        border-color: root.glyph;
+    }
+    if root.kind == "restore": Rectangle {
+        width: 12px;
+        height: 12px;
+        Rectangle { x: 3px; y: 0; width: 9px; height: 9px; border-width: 1px; border-radius: 2px; border-color: root.glyph; }
+        Rectangle { x: 0; y: 3px; width: 9px; height: 9px; border-width: 1px; border-radius: 2px; border-color: root.glyph; background: ta.has-hover ? Theme.menu : Theme.bg; }
+    }
+    if root.kind == "close": Path {
+        width: 10px;
+        height: 10px;
+        viewbox-width: 10;
+        viewbox-height: 10;
+        stroke: root.glyph;
+        stroke-width: 1.1px;
+        commands: "M 0 0 L 10 10 M 10 0 L 0 10";
+    }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
 component TopBar inherits Rectangle {
     in-out property <string> search-text;
     callback search(string);
@@ -295,15 +331,45 @@ component TopBar inherits Rectangle {
     callback open-stats();
     callback typing(string);
     callback dismiss-suggestions();
+    in property <bool> maximized;
+    // Home button + field. Wide window: centred in the window. Narrower: first it slides toward the smaller (left)
+    // group, using the free space there, at full width; only when 16 px are left on both sides does it narrow.
+    property <length> left-end: Grid.pad + left-group.min-width + 16px;
+    property <length> right-room: Grid.pad - 2px + right-group.min-width + 16px;
+    out property <length> search-group-width: min(Grid.control + 8px + 400px, root.width - root.right-room - root.left-end);
+    out property <length> search-group-x: max(root.left-end, min((root.width - root.search-group-width) / 2, root.width - root.right-room - root.search-group-width));
+    callback window-press();
+    callback window-drag();
+    callback window-minimize();
+    callback window-maximize();
+    callback window-close();
     // Closing the suggestions also takes the focus off the field: otherwise a closing menu handed the focus back to
     // it and the suggestions opened again.
     public function blur-search() { input.clear-focus(); }
     public function focus-search() { input.focus(); input.select-all(); }
     height: Grid.top-height;
+    // The bar is the window's title bar: empty space drags the window (double press maximises, in Rust).
+    // A press goes to Rust (a second one soon after maximises); moving 3 px with the button down starts the
+    // system's move loop, so a plain click never starts one.
+    TouchArea {
+        property <bool> moving;
+        pointer-event(e) => {
+            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                self.moving = false;
+                root.window-press();
+            }
+        }
+        moved => {
+            if self.pressed && !self.moving && (abs(self.mouse-x - self.pressed-x) > 3px || abs(self.mouse-y - self.pressed-y) > 3px) {
+                self.moving = true;
+                root.window-drag();
+            }
+        }
+    }
     HorizontalLayout {
         padding-left: Grid.pad;
         padding-right: Grid.pad - 2px;
-        HorizontalLayout {
+        left-group := HorizontalLayout {
             alignment: start;
             spacing: 8px;
             Middle {
@@ -327,7 +393,7 @@ component TopBar inherits Rectangle {
             Middle { IconButton { icon: Icons.chevron-left; filled: true; enabled: root.can-back; clicked => { root.back(); } } }
             Middle { IconButton { icon: Icons.chevron-right; filled: true; enabled: root.can-forward; clicked => { root.forward(); } } }
         }
-        HorizontalLayout {
+        right-group := HorizontalLayout {
             alignment: end;
             spacing: 4px;
             Middle { IconButton { icon: Icons.clock; clicked => { root.open-history(); } } }
@@ -337,17 +403,23 @@ component TopBar inherits Rectangle {
             Middle { IconButton { icon: Icons.download; } }
             Middle { IconButton { icon: Icons.upload; clicked => { root.import-backup(); } } }
             Middle { IconButton { icon: Icons.settings; clicked => { root.open-settings(); } } }
+            Rectangle { width: 9px; }
+            Middle { Rectangle { width: 1px; height: 20px; background: Theme.panel-border; } }
+            Rectangle { width: 9px; }
+            Middle { WindowButton { kind: "min"; clicked => { root.window-minimize(); } } }
+            Middle { WindowButton { kind: root.maximized ? "restore" : "max"; clicked => { root.window-maximize(); } } }
+            Middle { WindowButton { kind: "close"; clicked => { root.window-close(); } } }
         }
     }
     HorizontalLayout {
-        x: (root.width - self.width) / 2;
-        width: Grid.control + 8px + 400px;
+        x: root.search-group-x;
+        width: root.search-group-width;
         height: root.height;
         spacing: 8px;
         Middle { IconButton { icon: Icons.home; size: Grid.control; filled: true; clicked => { root.home(); } } }
         Middle {
+            horizontal-stretch: 1;
             Rectangle {
-                width: 400px;
                 height: Grid.control;
                 border-radius: min(Theme.chip-radius, Grid.control / 2);
                 background: Theme.fill;
@@ -1600,6 +1672,18 @@ export component MainWindow inherits Window {
     preferred-height: 900px;
     background: Theme.bg;
     default-font-family: Theme.body-font;
+    // No system title bar: the top bar is the title bar (drag, double press, window buttons); edges still resize.
+    no-frame: true;
+    resize-border-width: root.window-maximized ? 0 : 6px;
+    in property <bool> window-maximized;
+    // A maximised frameless window reaches past the screen edges by its (invisible) resize border: the content keeps
+    // clear of that part (set from Rust, 0 otherwise).
+    in property <length> window-inset;
+    callback window-press();
+    callback window-drag();
+    callback window-minimize();
+    callback window-maximize();
+    callback window-close();
 
     in property <[LibItem]> library;
     in property <string> lib-filter;
@@ -1759,10 +1843,17 @@ export component MainWindow inherits Window {
     }
     init => { key-scope.focus(); }
     VerticalLayout {
-        padding-left: Grid.gutter;
-        padding-right: Grid.gutter;
-        padding-bottom: Grid.gutter;
+        padding-top: root.window-inset;
+        padding-left: Grid.gutter + root.window-inset;
+        padding-right: Grid.gutter + root.window-inset;
+        padding-bottom: Grid.gutter + root.window-inset;
         top-bar := TopBar {
+            maximized: root.window-maximized;
+            window-press => { root.window-press(); }
+            window-drag => { root.window-drag(); }
+            window-minimize => { root.window-minimize(); }
+            window-maximize => { root.window-maximize(); }
+            window-close => { root.window-close(); }
             dismiss-suggestions => { root.suggest-open = false; key-scope.focus(); }
             can-back: root.can-back;
             can-forward: root.can-forward;
@@ -1935,9 +2026,9 @@ export component MainWindow inherits Window {
         clicked => { root.suggest-open = false; key-scope.focus(); }
     }
     if root.suggest-open && root.suggestions.length > 0: Rectangle {
-        x: Grid.gutter + (root.width - 2 * Grid.gutter - (Grid.control + 8px + 400px)) / 2 + Grid.control + 8px;
-        y: Grid.top-height - 8px;
-        width: 400px;
+        x: Grid.gutter + root.window-inset + top-bar.search-group-x + Grid.control + 8px;
+        y: root.window-inset + Grid.top-height - 8px;
+        width: top-bar.search-group-width - Grid.control - 8px;
         height: list.preferred-height;
         border-radius: Grid.item-radius;
         background: Theme.menu;
@@ -1979,7 +2070,7 @@ export component MainWindow inherits Window {
     }
     if root.toast != "": Rectangle {
         x: (root.width - self.width) / 2;
-        y: root.height - Grid.gutter - Grid.bar-height - self.height - Grid.gap;
+        y: root.height - root.window-inset - Grid.gutter - Grid.bar-height - self.height - Grid.gap;
         width: min(520px, root.width - 2 * Grid.gutter);
         height: 44px;
         border-radius: Grid.item-radius;

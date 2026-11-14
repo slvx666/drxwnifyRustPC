@@ -698,3 +698,29 @@ mod tests {
         assert_eq!(pipe_name(r"a\b c"), r"\\.\pipe\drxwnify-a-b-c");
     }
 }
+
+/// Starts the system's window move loop from the app's own title bar (the left button is down). Like winit's
+/// `drag_window`, without its "dragging" flag: that flag is cleared only when a move loop ends, so a press released
+/// before the loop began (a click on the bar) left it set and every later drag was ignored.
+pub fn start_window_move(hwnd: isize) {
+    use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+    use windows::Win32::UI::WindowsAndMessaging::{HTCAPTION, WM_NCLBUTTONDOWN};
+    let mut p = windows::Win32::Foundation::POINT::default();
+    // SAFETY: plain Win32 calls on a window of this thread; `p` is a valid out pointer.
+    unsafe {
+        let _ = GetCursorPos(&mut p);
+        let _ = ReleaseCapture();
+        let lparam = ((p.y as u16 as u32) << 16 | (p.x as u16 as u32)) as isize;
+        let _ = PostMessageW(
+            Some(HWND(hwnd as _)),
+            WM_NCLBUTTONDOWN,
+            WPARAM(HTCAPTION as usize),
+            LPARAM(lparam),
+        );
+    }
+}
+
+pub fn double_click_ms() -> u64 {
+    // SAFETY: no arguments, no side effects.
+    u64::from(unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime() })
+}

@@ -67,7 +67,8 @@ strip = true
 
 # Slint's winit backend with a fix for Windows: the software renderer presented only what changed in its scene, so
 # a window whose pixels the system dropped (Alt+Tab from a fullscreen game, restore, display change) stayed
-# transparent. Changes are marked «Drxwnify patch» in vendor/i-slint-backend-winit/renderer/sw.rs and
+# transparent; and resizing by the border of a frameless window stopped after a click on it. Changes are marked
+# «Drxwnify patch» in vendor/i-slint-backend-winit/renderer/sw.rs, drag_resize_window.rs and
 # winitwindowadapter.rs; drop this when upstream fixes it.
 [patch.crates-io]
 i-slint-backend-winit = { path = "vendor/i-slint-backend-winit" }

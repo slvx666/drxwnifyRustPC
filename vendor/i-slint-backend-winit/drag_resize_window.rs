@@ -27,8 +27,53 @@ pub fn handle_cursor_move_for_resize(
 
 pub fn handle_resize(window: &winit::window::Window, direction: Option<ResizeDirection>) {
     if let Some(dir) = direction {
+        // Drxwnify patch: winit's drag_resize_window sets a "dragging" flag that only the end of a size loop
+        // clears, so a click on the border released before the loop began disabled resizing (and dragging) for
+        // good. The same system call without that flag.
+        #[cfg(target_os = "windows")]
+        if start_resize_windows(window, dir) {
+            return;
+        }
         let _ = window.drag_resize_window(dir);
     }
+}
+
+#[cfg(target_os = "windows")]
+fn start_resize_windows(window: &winit::window::Window, dir: ResizeDirection) -> bool {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    #[repr(C)]
+    struct Point {
+        x: i32,
+        y: i32,
+    }
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetCursorPos(p: *mut Point) -> i32;
+        fn ReleaseCapture() -> i32;
+        fn PostMessageW(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> i32;
+    }
+    const WM_NCLBUTTONDOWN: u32 = 0x00A1;
+    let ht: usize = match dir {
+        ResizeDirection::West => 10,
+        ResizeDirection::East => 11,
+        ResizeDirection::North => 12,
+        ResizeDirection::NorthWest => 13,
+        ResizeDirection::NorthEast => 14,
+        ResizeDirection::South => 15,
+        ResizeDirection::SouthWest => 16,
+        ResizeDirection::SouthEast => 17,
+    };
+    let Ok(h) = window.window_handle() else { return false };
+    let RawWindowHandle::Win32(h) = h.as_raw() else { return false };
+    let mut p = Point { x: 0, y: 0 };
+    // SAFETY: plain Win32 calls for a window of this thread; `p` is a valid out pointer.
+    unsafe {
+        GetCursorPos(&mut p);
+        ReleaseCapture();
+        let lparam = (((p.y as u16 as u32) << 16) | (p.x as u16 as u32)) as isize;
+        PostMessageW(h.hwnd.get(), WM_NCLBUTTONDOWN, ht, lparam);
+    }
+    true
 }
 
 /// Get the cursor icon that corresponds to the resize direction.

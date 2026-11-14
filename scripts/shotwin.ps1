@@ -7,15 +7,16 @@ Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public static class DrxWin {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string t);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
 }
 "@
-$p = Get-Process -Name $Process -ErrorAction Stop | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-if (-not $p) { Write-Error "no window for $Process"; exit 1 }
-$h = $p.MainWindowHandle
+# By title: Mini also owns winit's invisible helper window, which MainWindowHandle may pick.
+$h = [DrxWin]::FindWindow([NullString]::Value, "Drxwnify Mini")
+if ($h -eq [IntPtr]::Zero) { Write-Error "no Mini window"; exit 1 }
 $r = New-Object DrxWin+RECT
 if ($Client) { [void][DrxWin]::GetClientRect($h, [ref]$r) } else { [void][DrxWin]::GetWindowRect($h, [ref]$r) }
 $w = $r.R - $r.L; $hh = $r.B - $r.T

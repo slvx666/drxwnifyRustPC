@@ -173,3 +173,23 @@ pub fn utc_offset_seconds() -> i64 {
         0
     }
 }
+
+/// Starts moving the window by its own title bar (left button down): the system's move loop with Aero Snap.
+pub fn start_window_move(hwnd: isize) {
+    #[cfg(windows)]
+    windows_impl::start_window_move(hwnd);
+    #[cfg(not(windows))]
+    let _ = hwnd;
+}
+
+/// The system's double-click time in ms (500 by default).
+pub fn double_click_ms() -> u64 {
+    #[cfg(windows)]
+    {
+        windows_impl::double_click_ms()
+    }
+    #[cfg(not(windows))]
+    {
+        500
+    }
+}

@@ -1,10 +1,11 @@
 # Developer checks with real input: mouse into the Mini window at client coordinates (the window may sit on the
 # second monitor; the cursor moves there). Pair with shotwin.ps1 -Client. Run Mini with DRX_MUTE=1 so clicks stay silent.
-param([string]$Do = "wheel", [int]$X, [int]$Y, [int]$Amount = -3, [string]$Text = "", [int]$Key = 0, [switch]$Ctrl)
+param([string]$Do = "wheel", [int]$X, [int]$Y, [int]$Amount = -3, [string]$Text = "", [int]$Key = 0, [switch]$Ctrl, [int]$Dx = 0, [int]$Dy = 0)
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public static class DrxIn {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string t);
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
@@ -33,12 +34,14 @@ public static class DrxIn {
     public static void Up(ushort vk) { One(vk, 2); }
 }
 "@
-$p = Get-Process drxwnify-mini | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+# By title: the process also owns winit's invisible helper window, which MainWindowHandle may pick.
+$h = [DrxIn]::FindWindow([NullString]::Value, "Drxwnify Mini")
+if ($h -eq [IntPtr]::Zero) { Write-Error "no Mini window"; exit 1 }
 $pt = New-Object DrxIn+POINT; $pt.X = $X; $pt.Y = $Y
-[void][DrxIn]::ClientToScreen($p.MainWindowHandle, [ref]$pt)
+[void][DrxIn]::ClientToScreen($h, [ref]$pt)
 # Never send input into the owner's windows: if anything covers Mini at that point, do nothing.
 $top = [DrxIn]::GetAncestor([DrxIn]::WindowFromPoint($pt), 2)
-if ($top -ne $p.MainWindowHandle) { Write-Error "Mini is covered at ($X,$Y) by another window: no input sent"; exit 2 }
+if ($top -ne $h) { Write-Error "Mini is covered at ($X,$Y) by another window: no input sent"; exit 2 }
 [void][DrxIn]::SetCursorPos($pt.X, $pt.Y)
 Start-Sleep -Milliseconds 150
 switch ($Do) {
@@ -47,10 +50,22 @@ switch ($Do) {
   "shiftwheel" { Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait("+"); for ($i = 0; $i -lt [Math]::Abs($Amount); $i++) { [DrxIn]::mouse_event(0x0800, 0, 0, 120 * [Math]::Sign($Amount), [UIntPtr]::Zero) } }
   "click"  { [DrxIn]::mouse_event(0x02, 0, 0, 0, [UIntPtr]::Zero); [DrxIn]::mouse_event(0x04, 0, 0, 0, [UIntPtr]::Zero) }
   "move"   { }
+  # Press at (X,Y), move by (Dx,Dy) in steps, release (window drags from the top bar).
+  "drag"   { Add-Type -AssemblyName System.Windows.Forms
+             $vs = [System.Windows.Forms.SystemInformation]::VirtualScreen
+             [DrxIn]::mouse_event(0x02, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 250
+             # Real (absolute, virtual desktop) moves: the system's window move loop follows input, not SetCursorPos.
+             for ($k = 1; $k -le 15; $k++) {
+               $ax = [int](($pt.X + $Dx * $k / 15 - $vs.Left) * 65535 / ($vs.Width - 1))
+               $ay = [int](($pt.Y + $Dy * $k / 15 - $vs.Top) * 65535 / ($vs.Height - 1))
+               [DrxIn]::mouse_event(0x0001 -bor 0x8000 -bor 0x4000, $ax, $ay, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 30 }
+             Start-Sleep -Milliseconds 100
+             [DrxIn]::mouse_event(0x04, 0, 0, 0, [UIntPtr]::Zero) }
+  "dblclick" { 1..2 | ForEach-Object { [DrxIn]::mouse_event(0x02, 0, 0, 0, [UIntPtr]::Zero); [DrxIn]::mouse_event(0x04, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 90 } }
   # Keyboard only into Mini when it is the active window (after a click into it): never into the owner's apps.
-  "type"   { if ([DrxIn]::GetForegroundWindow() -ne $p.MainWindowHandle) { Write-Error "Mini is not active: no keys sent"; exit 3 }
+  "type"   { if ([DrxIn]::GetForegroundWindow() -ne $h) { Write-Error "Mini is not active: no keys sent"; exit 3 }
              foreach ($c in $Text.ToCharArray()) { [DrxIn]::Key(0, [uint16]$c); Start-Sleep -Milliseconds 40 } }
-  "key"    { if ([DrxIn]::GetForegroundWindow() -ne $p.MainWindowHandle) { Write-Error "Mini is not active: no keys sent"; exit 3 }
+  "key"    { if ([DrxIn]::GetForegroundWindow() -ne $h) { Write-Error "Mini is not active: no keys sent"; exit 3 }
              if ($Ctrl) { [DrxIn]::Down(0x11) }; [DrxIn]::Key([uint16]$Key, 0); if ($Ctrl) { [DrxIn]::Up(0x11) } }
 }
 Start-Sleep -Milliseconds 400
