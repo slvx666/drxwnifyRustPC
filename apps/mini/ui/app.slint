@@ -74,6 +74,18 @@ export struct SourceChip {
     selected: bool,
 }
 
+export struct HistoryItem {
+    header: string, // a day group («Сегодня», «Вчера», «Октябрь»…); empty for a song row
+    song: SongItem,
+    event: int,     // the listening's id (to remove it)
+    index: int,     // the song's place in the history list (to play from it)
+}
+
+export struct StatTile {
+    value: string,
+    label: string,
+}
+
 export struct QueueItem {
     title: string,
     artists: string,
@@ -271,6 +283,8 @@ component TopBar inherits Rectangle {
     callback forward();
     callback import-backup();
     callback open-settings();
+    callback open-history();
+    callback open-stats();
     callback typing(string);
     height: Grid.top-height;
     HorizontalLayout {
@@ -303,6 +317,8 @@ component TopBar inherits Rectangle {
         HorizontalLayout {
             alignment: end;
             spacing: 4px;
+            Middle { IconButton { icon: Icons.clock; clicked => { root.open-history(); } } }
+            Middle { IconButton { icon: Icons.chart; clicked => { root.open-stats(); } } }
             Middle { IconButton { icon: Icons.users; } }
             Middle { IconButton { icon: Icons.puzzle; } }
             Middle { IconButton { icon: Icons.download; } }
@@ -912,6 +928,138 @@ component ArtistView inherits Flickable {
     }
 }
 
+// The history: day groups and the songs heard, newest first; a song can be taken out (×).
+component HistoryView inherits HorizontalLayout {
+    in property <[HistoryItem]> items;
+    in property <string> now-id;
+    callback play(int);
+    callback remove(int);
+    callback open-artist(string);
+    padding-left: 8px;
+    padding-right: 4px;
+    ListView {
+        for it in root.items: Rectangle {
+            height: it.header != "" ? 44px : Grid.row;
+            if it.header != "": Text {
+                x: 12px;
+                y: parent.height - self.height - 6px;
+                text: it.header;
+                font-family: Theme.heading-font;
+                font-weight: 700;
+                font-size: 16px;
+                color: Theme.text;
+            }
+            if it.header == "": Rectangle {
+                row := SongRow {
+                    width: parent.width;
+                    song: it.song;
+                    current: root.now-id != "" && it.song.id == root.now-id;
+                    play => { root.play(it.index); }
+                    open-artist(id) => { root.open-artist(id); }
+                }
+                // Remove from the history: shown over the time on hover.
+                if hover.has-hover: Rectangle {
+                    x: parent.width - 44px;
+                    width: 36px;
+                    height: 36px;
+                    y: (parent.height - 36px) / 2;
+                    IconButton { icon: Icons.x; size: 32px; icon-size: 15px; clicked => { root.remove(it.event); } }
+                }
+                hover := TouchArea { x: parent.width - 120px; width: 120px; }
+            }
+        }
+    }
+}
+
+// Statistics: period chips, totals, top tracks, artists and albums.
+component StatsView inherits Flickable {
+    in property <[SourceChip]> periods;
+    in property <[StatTile]> tiles;
+    in property <[SongItem]> tracks;
+    in property <int> tracks-total;
+    in property <bool> expanded;
+    in property <[HomeCard]> artists;
+    in property <[HomeCard]> albums;
+    in property <string> now-id;
+    in property <string> note;
+    callback period(int);
+    callback play(int);
+    callback more();
+    callback open-artist(string);
+    callback open-album(string);
+    content-height: body.preferred-height + Grid.pad;
+    body := VerticalLayout {
+        width: root.width;
+        spacing: Grid.pad;
+        alignment: start;
+        HorizontalLayout {
+            padding-left: Grid.pad + 4px;
+            spacing: 6px;
+            alignment: start;
+            for c[i] in root.periods: Chip { label: c.label; selected: c.selected; clicked => { root.period(i); } }
+        }
+        HorizontalLayout {
+            padding-left: Grid.pad + 4px;
+            padding-right: Grid.pad + 4px;
+            spacing: Grid.gap;
+            for t in root.tiles: Rectangle {
+                horizontal-stretch: 1;
+                height: 84px;
+                border-radius: Grid.item-radius;
+                background: Theme.fill;
+                VerticalLayout {
+                    padding: Grid.pad;
+                    spacing: 2px;
+                    alignment: center;
+                    Text { text: t.value; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 24px; color: Theme.text; overflow: elide; }
+                    Text { text: t.label; font-family: Theme.body-font; font-size: 12px; color: Theme.mute; overflow: elide; }
+                }
+            }
+        }
+        if root.note != "": Text {
+            x: Grid.pad + 4px;
+            text: root.note;
+            font-family: Theme.body-font; font-size: 12px; color: Theme.mute;
+        }
+        if root.tracks.length > 0: VerticalLayout {
+            spacing: 4px;
+            HorizontalLayout {
+                padding-left: Grid.pad + 4px;
+                padding-right: Grid.pad + 4px;
+                height: 28px;
+                Text { horizontal-stretch: 1; text: "Топ треков"; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; vertical-alignment: center; }
+                if root.tracks-total > 10: Link {
+                    text: root.expanded ? "Свернуть" : "Показать все · " + root.tracks-total;
+                    font-size: 13px;
+                    clicked => { root.more(); }
+                }
+            }
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                VerticalLayout {
+                    for t[i] in root.tracks: SongRow {
+                        song: t;
+                        current: root.now-id != "" && t.id == root.now-id;
+                        play => { root.play(i); }
+                        open-artist(id) => { root.open-artist(id); }
+                    }
+                }
+            }
+        }
+        if root.artists.length > 0: VerticalLayout {
+            spacing: 8px;
+            SectionHead { text: "Топ исполнителей"; }
+            CardStrip { cards: root.artists; round: true; clicked(i) => { root.open-artist(root.artists[i].id); } }
+        }
+        if root.albums.length > 0: VerticalLayout {
+            spacing: 8px;
+            SectionHead { text: "Топ альбомов"; }
+            CardStrip { cards: root.albums; clicked(i) => { root.open-album(root.albums[i].id); } }
+        }
+    }
+}
+
 component MainArea inherits VerticalLayout {
     in property <string> title;
     in property <string> subtitle;
@@ -931,6 +1079,22 @@ component MainArea inherits VerticalLayout {
     in property <bool> settings;
     in property <bool> search; // the search page
     in property <bool> artist-view; // an artist page (sections instead of the track list)
+    in property <bool> history;
+    in property <[HistoryItem]> h-items;
+    callback h-play(int);
+    callback h-remove(int);
+    in property <bool> stats;
+    in property <[SourceChip]> st-periods;
+    in property <[StatTile]> st-tiles;
+    in property <[SongItem]> st-tracks;
+    in property <int> st-total;
+    in property <bool> st-expanded;
+    in property <[HomeCard]> st-artists;
+    in property <[HomeCard]> st-albums;
+    in property <string> st-note;
+    callback st-period(int);
+    callback st-play(int);
+    callback st-more();
     in property <[SongItem]> a-tracks;
     in property <int> a-total;
     in property <bool> a-expanded;
@@ -1078,6 +1242,31 @@ component MainArea inherits VerticalLayout {
             }
         }
     }
+    if root.history: HistoryView {
+        vertical-stretch: 1;
+        items: root.h-items;
+        now-id: root.now-id;
+        play(i) => { root.h-play(i); }
+        remove(e) => { root.h-remove(e); }
+        open-artist(id) => { root.open-artist(id); }
+    }
+    if root.stats: StatsView {
+        vertical-stretch: 1;
+        periods: root.st-periods;
+        tiles: root.st-tiles;
+        tracks: root.st-tracks;
+        tracks-total: root.st-total;
+        expanded: root.st-expanded;
+        artists: root.st-artists;
+        albums: root.st-albums;
+        note: root.st-note;
+        now-id: root.now-id;
+        period(i) => { root.st-period(i); }
+        play(i) => { root.st-play(i); }
+        more => { root.st-more(); }
+        open-artist(id) => { root.open-artist(id); }
+        open-album(id) => { root.open-album(id); }
+    }
     if root.artist-view && !root.empty-library: ArtistView {
         vertical-stretch: 1;
         tracks: root.a-tracks;
@@ -1133,7 +1322,7 @@ component MainArea inherits VerticalLayout {
         set-day(v) => { root.set-day(v); }
     }
     // Home: rows of cards, the page scrolls down, each row sideways.
-    if root.home && !root.settings && !root.search && !root.empty-library: Flickable {
+    if root.home && !root.settings && !root.search && !root.history && !root.stats && !root.empty-library: Flickable {
         vertical-stretch: 1;
         content-height: root.sections.length * 244px + Grid.pad;
         for sec[si] in root.sections: VerticalLayout {
@@ -1197,7 +1386,7 @@ component MainArea inherits VerticalLayout {
             }
         }
     }
-    if !root.home && !root.settings && !root.search && !root.artist-view && !root.empty-library: HorizontalLayout {
+    if !root.home && !root.settings && !root.search && !root.artist-view && !root.history && !root.stats && !root.empty-library: HorizontalLayout {
         vertical-stretch: 1;
         padding-left: 8px;
         padding-right: 4px;
@@ -1424,6 +1613,24 @@ export component MainWindow inherits Window {
     in property <bool> view-home;
     in property <bool> view-search;
     in property <bool> view-artist;
+    in property <bool> view-history;
+    in property <[HistoryItem]> history-items;
+    in property <bool> view-stats;
+    in property <[SourceChip]> stats-periods;
+    in property <[StatTile]> stats-tiles;
+    in property <[SongItem]> stats-tracks;
+    in property <int> stats-total;
+    in property <bool> stats-expanded;
+    in property <[HomeCard]> stats-artists;
+    in property <[HomeCard]> stats-albums;
+    in property <string> stats-note;
+    callback open-history();
+    callback open-stats();
+    callback history-play(int);
+    callback history-remove(int);
+    callback stats-period(int);
+    callback stats-play(int);
+    callback stats-more();
     in property <[SongItem]> artist-tracks;
     in property <int> artist-total;
     in property <bool> artist-expanded;
@@ -1530,6 +1737,8 @@ export component MainWindow inherits Window {
             forward => { root.forward(); }
             home => { root.home(); }
             open-settings => { root.open-settings(); }
+            open-history => { root.open-history(); }
+            open-stats => { root.open-stats(); }
             import-backup => { root.import-backup(); }
             search(q) => { root.suggest-open = false; root.search(q); }
             typing(t) => { root.search-typing(t); }
@@ -1570,7 +1779,7 @@ export component MainWindow inherits Window {
                         is-page: root.view-is-page;
                         kind-label: root.view-kind;
                         liked-cover: root.view-liked-cover;
-                        can-play: root.view-can-play && !root.view-home && !root.view-settings && !root.view-search;
+                        can-play: root.view-can-play && !root.view-home && !root.view-settings && !root.view-search && !root.view-history && !root.view-stats;
                         play-all => { root.play-all(); }
                         shuffle-all => { root.shuffle-all(); }
                         cover: root.view-cover;
@@ -1580,6 +1789,22 @@ export component MainWindow inherits Window {
                         settings: root.view-settings;
                         search: root.view-search;
                         artist-view: root.view-artist;
+                        history: root.view-history;
+                        h-items: root.history-items;
+                        h-play(i) => { root.history-play(i); }
+                        h-remove(e) => { root.history-remove(e); }
+                        stats: root.view-stats;
+                        st-periods: root.stats-periods;
+                        st-tiles: root.stats-tiles;
+                        st-tracks: root.stats-tracks;
+                        st-total: root.stats-total;
+                        st-expanded: root.stats-expanded;
+                        st-artists: root.stats-artists;
+                        st-albums: root.stats-albums;
+                        st-note: root.stats-note;
+                        st-period(i) => { root.stats-period(i); }
+                        st-play(i) => { root.stats-play(i); }
+                        st-more => { root.stats-more(); }
                         a-tracks: root.artist-tracks;
                         a-total: root.artist-total;
                         a-expanded: root.artist-expanded;

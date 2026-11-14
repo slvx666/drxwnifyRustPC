@@ -3,6 +3,7 @@
 //! Drxwnify Mini: the native, light edition. All logic lives in `drx-app`; this file only binds the UI to it.
 
 mod artist_view;
+mod history_view;
 mod home_view;
 mod lazy_library;
 mod lazy_songs;
@@ -10,6 +11,7 @@ mod nav;
 mod os;
 mod search_view;
 mod settings_view;
+mod stats_view;
 mod themes;
 
 use drx_app::{App, AppEvent, Command, CommandOutcome, EditionProfile, LibraryKind, ListSpec};
@@ -103,16 +105,12 @@ fn main() {
                 },
                 _ => return,
             };
-            let page = nav::Page {
+            let page = nav::Page::list(
                 spec,
-                title: item.title.to_string(),
-                subtitle: String::new(),
-                selected: item.id.to_string(),
-                home: false,
-                settings: false,
-                image: Some(item.thumb.to_string()).filter(|t| !t.is_empty()),
-                search: None,
-            };
+                &item.title,
+                &item.id,
+                Some(item.thumb.to_string()).filter(|t| !t.is_empty()),
+            );
             nav::go(&ui, &app2, &songs2, page);
         });
     }
@@ -126,16 +124,7 @@ fn main() {
                 return;
             }
             let spec = app2.runtime().block_on(app2.artist_page(&id));
-            let page = nav::Page {
-                spec,
-                title: String::new(),
-                subtitle: String::new(),
-                selected: String::new(),
-                home: false,
-                settings: false,
-                image: None,
-                search: None,
-            };
+            let page = nav::Page::list(spec, "", "", None);
             nav::go(&ui, &app2, &songs2, page);
         });
         let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
@@ -145,16 +134,7 @@ fn main() {
                 return;
             }
             let spec = app2.runtime().block_on(app2.album_page(&id));
-            let page = nav::Page {
-                spec,
-                title: String::new(),
-                subtitle: String::new(),
-                selected: String::new(),
-                home: false,
-                settings: false,
-                image: None,
-                search: None,
-            };
+            let page = nav::Page::list(spec, "", "", None);
             nav::go(&ui, &app2, &songs2, page);
         });
         let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
@@ -242,6 +222,55 @@ fn main() {
         ui.on_artist_more(move || {
             if let Some(ui) = ui_w.upgrade() {
                 artist_view::toggle_more(&ui, &songs2);
+            }
+        });
+    }
+    // History and statistics.
+    {
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_open_history(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                nav::go(&ui, &app2, &songs2, nav::Page::history());
+            }
+        });
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_open_stats(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                nav::go(&ui, &app2, &songs2, nav::Page::stats());
+            }
+        });
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_history_play(move |i| {
+            if let Some(id) = history_view::play(&app2, i.max(0) as usize)
+                && let Some(ui) = ui_w.upgrade()
+            {
+                ui.set_now_id(id.into());
+            }
+        });
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_history_remove(move |e| {
+            if let Some(ui) = ui_w.upgrade() {
+                history_view::remove(&ui, &app2, e as i64);
+            }
+        });
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_stats_period(move |i| {
+            if let Some(ui) = ui_w.upgrade() {
+                stats_view::set_period(&ui, &app2, i.max(0) as usize);
+            }
+        });
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_stats_play(move |i| {
+            if let Some(id) = stats_view::play(&app2, i.max(0) as usize)
+                && let Some(ui) = ui_w.upgrade()
+            {
+                ui.set_now_id(id.into());
+            }
+        });
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_stats_more(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                stats_view::toggle_more(&ui, &app2);
             }
         });
     }
@@ -334,16 +363,7 @@ fn main() {
             let Some((id, title, image, library)) = search_view::playlist(i.max(0) as usize) else {
                 return;
             };
-            let page = nav::Page {
-                spec: app2.playlist_page(&id, library),
-                title,
-                subtitle: String::new(),
-                selected: String::new(),
-                home: false,
-                settings: false,
-                image,
-                search: None,
-            };
+            let page = nav::Page::list(app2.playlist_page(&id, library), &title, "", image);
             nav::go(&ui, &app2, &songs2, page);
         });
     }
@@ -698,6 +718,8 @@ fn main() {
                 home_view::refresh(&ui, &app3);
                 search_view::refresh_covers(&ui, &app3);
                 artist_view::refresh_covers(&ui, &app3, &songs3);
+                history_view::refresh_covers(&ui);
+                stats_view::refresh_covers(&ui, &app3);
                 let url = ui.get_view_cover_url().to_string();
                 if !url.is_empty()
                     && let Some(c) = cover_r(
@@ -751,7 +773,12 @@ fn main() {
     if std::env::var("DRX_DEMO").is_err() {
         nav::go(&ui, &app, &songs, nav::Page::home());
     }
-    if let Some(q) = std::env::var("DRX_DEMO")
+    let demo_page = std::env::var("DRX_DEMO").ok();
+    if demo_page.as_deref() == Some("history") {
+        nav::go(&ui, &app, &songs, nav::Page::history());
+    } else if demo_page.as_deref() == Some("stats") {
+        nav::go(&ui, &app, &songs, nav::Page::stats());
+    } else if let Some(q) = std::env::var("DRX_DEMO")
         .ok()
         .and_then(|d| d.strip_prefix("search:").map(str::to_string))
     {

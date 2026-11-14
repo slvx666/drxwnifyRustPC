@@ -8,62 +8,74 @@ use slint::{ComponentHandle, Model};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// What the centre shows.
+#[derive(Clone, PartialEq)]
+pub enum PageKind {
+    /// A list of tracks (`spec`).
+    List,
+    Home,
+    Settings,
+    Search(String, drx_app::SearchSource),
+    History,
+    Stats,
+}
+
 #[derive(Clone)]
 pub struct Page {
+    pub kind: PageKind,
+    /// The list of a `List` page.
     pub spec: ListSpec,
     pub title: String,
     /// Shown before the track count («Альбом · Prado»); empty for plain lists.
     pub subtitle: String,
     /// Library row to highlight ("" when the page is not in the library).
     pub selected: String,
-    /// The home page (rows of cards); `spec` is then unused.
-    pub home: bool,
-    /// The settings page; `spec` is then unused.
-    pub settings: bool,
     /// The library row's cover (playlists of the accounts have no other heading).
     pub image: Option<String>,
-    /// The search page for this query and place; `spec` is then unused.
-    pub search: Option<(String, drx_app::SearchSource)>,
 }
 
 impl Page {
-    pub fn home() -> Self {
+    fn special(kind: PageKind, title: &str) -> Self {
         Page {
+            kind,
             spec: ListSpec::LikedSongs,
-            title: "Главная".into(),
+            title: title.into(),
             subtitle: String::new(),
             selected: String::new(),
-            home: true,
-            settings: false,
             image: None,
-            search: None,
         }
+    }
+
+    /// A list page (library item, album, artist, playlist).
+    pub fn list(spec: ListSpec, title: &str, selected: &str, image: Option<String>) -> Self {
+        Page {
+            kind: PageKind::List,
+            spec,
+            title: title.into(),
+            subtitle: String::new(),
+            selected: selected.into(),
+            image,
+        }
+    }
+
+    pub fn home() -> Self {
+        Self::special(PageKind::Home, "Главная")
     }
 
     pub fn search(query: &str, source: drx_app::SearchSource) -> Self {
-        Page {
-            spec: ListSpec::LikedSongs,
-            title: "Поиск".into(),
-            subtitle: String::new(),
-            selected: String::new(),
-            home: false,
-            settings: false,
-            image: None,
-            search: Some((query.to_string(), source)),
-        }
+        Self::special(PageKind::Search(query.to_string(), source), "Поиск")
     }
 
     pub fn settings() -> Self {
-        Page {
-            spec: ListSpec::LikedSongs,
-            title: "Настройки".into(),
-            subtitle: String::new(),
-            selected: String::new(),
-            home: false,
-            settings: true,
-            image: None,
-            search: None,
-        }
+        Self::special(PageKind::Settings, "Настройки")
+    }
+
+    pub fn history() -> Self {
+        Self::special(PageKind::History, "История")
+    }
+
+    pub fn stats() -> Self {
+        Self::special(PageKind::Stats, "Статистика")
     }
 }
 
@@ -216,6 +228,23 @@ pub fn tracks_word(n: usize) -> String {
     format!("{n} {w}")
 }
 
+/// Russian plural: one / few / many («1 трек», «3 трека», «5 треков»).
+pub fn plural(n: usize, one: &str, few: &str, many: &str) -> String {
+    let w = match (n % 10, n % 100) {
+        (1, x) if x != 11 => one,
+        (2..=4, x) if !(12..=14).contains(&x) => few,
+        _ => many,
+    };
+    format!("{n} {w}")
+}
+
+/// «1 прослушивание», «3 прослушивания», «5 789 прослушиваний».
+pub fn plays_word(n: usize) -> String {
+    let p = plural(n, "прослушивание", "прослушивания", "прослушиваний");
+    let (_, w) = p.split_once(' ').unwrap_or(("", ""));
+    format!("{} {w}", crate::group_digits(n as u64))
+}
+
 /// «47 мин», «1 ч 3 мин».
 pub fn length_words(secs: i64) -> String {
     let m = (secs + 30) / 60;
@@ -319,45 +348,39 @@ fn apply_header(ui: &MainWindow, app: &App, h: &ListHeader, n: usize, secs: i64)
 }
 
 fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
-    ui.set_view_home(page.home);
-    ui.set_view_settings(page.settings);
+    ui.set_view_home(page.kind == PageKind::Home);
+    ui.set_view_settings(page.kind == PageKind::Settings);
+    ui.set_view_search(matches!(page.kind, PageKind::Search(..)));
+    ui.set_view_history(page.kind == PageKind::History);
+    ui.set_view_stats(page.kind == PageKind::Stats);
     ui.set_view_artist(
-        matches!(
-            page.spec,
-            ListSpec::Artist { .. } | ListSpec::CatalogArtist { .. }
-        ) && !page.home
-            && !page.settings
-            && page.search.is_none(),
+        page.kind == PageKind::List
+            && matches!(
+                page.spec,
+                ListSpec::Artist { .. } | ListSpec::CatalogArtist { .. }
+            ),
     );
     crate::artist_view::clear(ui);
-    ui.set_view_search(page.search.is_some());
-    if let Some((q, source)) = &page.search {
+    if page.kind != PageKind::List {
         ui.set_selected_id("".into());
+        ui.set_view_title(page.title.clone().into());
+        ui.set_view_subtitle("".into());
         ui.set_view_is_page(false);
         ui.set_view_kind("".into());
+        ui.set_view_can_play(false);
         set_header_image(ui, app, None);
         set_releases(ui, app, Vec::new());
-        crate::search_view::show(ui, app, q, *source);
-        return;
     }
-    if page.settings {
-        ui.set_selected_id("".into());
-        ui.set_view_title(page.title.clone().into());
-        ui.set_view_subtitle("Аккаунты и оформление".into());
-        ui.set_view_is_page(false);
-        set_header_image(ui, app, None);
-        set_releases(ui, app, Vec::new());
-        crate::settings_view::fill(ui, app);
-        return;
-    }
-    if page.home {
-        ui.set_selected_id("".into());
-        ui.set_view_title(page.title.clone().into());
-        ui.set_view_is_page(false);
-        set_header_image(ui, app, None);
-        set_releases(ui, app, Vec::new());
-        crate::home_view::show(ui, app, false);
-        return;
+    match &page.kind {
+        PageKind::Search(q, source) => return crate::search_view::show(ui, app, q, *source),
+        PageKind::Settings => {
+            ui.set_view_subtitle("Аккаунты и оформление".into());
+            return crate::settings_view::fill(ui, app);
+        }
+        PageKind::Home => return crate::home_view::show(ui, app, false),
+        PageKind::History => return crate::history_view::show(ui, app),
+        PageKind::Stats => return crate::stats_view::show(ui, app),
+        PageKind::List => {}
     }
     songs.reopen(page.spec.clone());
     ui.set_selected_id(page.selected.clone().into());

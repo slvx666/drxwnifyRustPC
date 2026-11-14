@@ -161,3 +161,15 @@ pub fn set_autostart(name: &str, command: Option<&str>) -> Result<(), String> {
         Err("not supported yet".into())
     }
 }
+
+/// The local time's offset from UTC in seconds, daylight saving included (history times, day groups).
+pub fn utc_offset_seconds() -> i64 {
+    #[cfg(windows)]
+    {
+        windows_impl::utc_offset_seconds()
+    }
+    #[cfg(not(windows))]
+    {
+        0
+    }
+}

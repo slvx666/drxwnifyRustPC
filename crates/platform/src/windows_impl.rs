@@ -587,6 +587,22 @@ pub fn listen_pipe(pipe: String, first: isize, events: EventSink) {
         });
 }
 
+// ── time zone ────────────────────────────────────────────────────────────────────────────────────
+
+pub fn utc_offset_seconds() -> i64 {
+    use windows::Win32::System::Time::{GetTimeZoneInformation, TIME_ZONE_INFORMATION};
+    let mut tz = TIME_ZONE_INFORMATION::default();
+    let id = unsafe { GetTimeZoneInformation(&mut tz) };
+    // Bias is UTC − local in minutes; 2 = TIME_ZONE_ID_DAYLIGHT.
+    let bias = tz.Bias
+        + if id == 2 {
+            tz.DaylightBias
+        } else {
+            tz.StandardBias
+        };
+    -(bias as i64) * 60
+}
+
 // ── start with Windows ───────────────────────────────────────────────────────────────────────────
 
 pub const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";

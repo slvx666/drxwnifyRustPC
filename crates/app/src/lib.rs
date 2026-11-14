@@ -7,6 +7,7 @@ mod home;
 pub mod lists;
 pub mod playback;
 mod search;
+mod stats;
 
 pub use accounts::AccountState;
 pub use drx_audio::player::PlaybackClock;
@@ -19,6 +20,7 @@ pub use home::{HomeAlbum, HomeFeed, HomeRow, HomeRowKind};
 pub use lists::{ListHandle, ListHeader, ListSpec, SongRow};
 pub use playback::{NowPlaying, Playable, Repeat};
 pub use search::{SearchOutcome, SearchSource, fold};
+pub use stats::{HistoryEntry, StatItem, StatPeriod, StatSong, Stats, history_group};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
@@ -1024,6 +1026,21 @@ mod tests {
             eprintln!("album {:?}: {n} tracks", album.title);
             assert!(n > 0);
         }
+        // Statistics and history from the backup's 5789 events.
+        let st = rt.block_on(app.stats(StatPeriod::All)).unwrap();
+        assert!(st.plays > 0 && st.total_ms > 0 && !st.songs.is_empty() && !st.artists.is_empty());
+        assert!(st.songs.windows(2).all(|w| w[0].ms >= w[1].ms));
+        let h = rt.block_on(app.history(0, 30)).unwrap();
+        assert_eq!(h.len(), 30);
+        assert!(h.windows(2).all(|w| w[0].at_ms >= w[1].at_ms));
+        eprintln!(
+            "stats: plays={} hours={} songs={} artists={} albums={}",
+            st.plays,
+            st.total_ms / 3_600_000,
+            st.songs.len(),
+            st.artists.len(),
+            st.albums.len()
+        );
         // Library view: chips, orders, search (LibraryMixScreen).
         let v = |filter, sort, descending, query: &str| LibraryView {
             filter,
