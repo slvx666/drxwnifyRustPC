@@ -611,7 +611,19 @@ fn main() {
     }
 
     // System media controls (media keys, volume flyout, lock screen) and the tray.
-    let _platform = os::start(&ui, &app, Some(&guard));
+    let platform = os::start(&ui, &app, Some(&guard));
+    {
+        let (app2, ui_w, platform) = (app.clone(), ui.as_weak(), platform.clone());
+        ui.on_set_hotkeys(move |on| {
+            let _ = app2.set_pref(os::HOTKEYS_KEY, drx_core::prefs::PrefValue::Bool(on));
+            if let Some(p) = &platform {
+                os::apply_hotkeys(p, &app2);
+            }
+            if let Some(ui) = ui_w.upgrade() {
+                settings_view::fill(&ui, &app2);
+            }
+        });
+    }
 
     ui.run().expect("run UI");
 }

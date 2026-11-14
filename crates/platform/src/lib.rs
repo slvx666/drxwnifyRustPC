@@ -28,6 +28,20 @@ pub enum PlatformEvent {
     Quit,
     /// A second launch passed something along (a `drxwnify://` link, a file).
     Open(String),
+    /// A global hotkey (its id from `set_hotkeys`) was pressed — anywhere in Windows, even in a game.
+    Hotkey(u32),
+    /// Another program holds this hotkey's combination; it was not registered.
+    HotkeyBusy(u32),
+}
+
+/// A system-wide key combination (PC-001). `key` is a Windows virtual-key code (letters/digits = ASCII upper case).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Hotkey {
+    pub id: u32,
+    pub ctrl: bool,
+    pub alt: bool,
+    pub shift: bool,
+    pub key: u32,
 }
 
 /// What plays now, for the system media controls and the tray tooltip.
@@ -64,6 +78,14 @@ impl Platform {
             let _ = (tooltip, events);
             None
         }
+    }
+
+    /// Registers these global hotkeys instead of the previous ones (empty = none).
+    pub fn set_hotkeys(&self, keys: Vec<Hotkey>) {
+        #[cfg(windows)]
+        self.inner.set_hotkeys(keys);
+        #[cfg(not(windows))]
+        let _ = keys;
     }
 
     /// Shows what plays now (title, artist, cover, play state, timeline).

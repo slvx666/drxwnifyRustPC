@@ -1,6 +1,6 @@
 //! Windows: SMTC + tray on a hidden window's thread, single instance over a named pipe.
 
-use crate::{EventSink, Instance, InstanceGuard, MediaInfo, PlatformEvent};
+use crate::{EventSink, Hotkey, Instance, InstanceGuard, MediaInfo, PlatformEvent};
 use std::cell::RefCell;
 use std::io::Write;
 use std::sync::mpsc;
@@ -50,7 +50,10 @@ const MENU_QUIT: usize = 9;
 
 enum Cmd {
     Media(MediaInfo),
+    Hotkeys(Vec<Hotkey>),
 }
+
+const WM_HOTKEY: u32 = 0x0312;
 
 pub struct Handle {
     hwnd: isize,
@@ -73,6 +76,8 @@ struct State {
     tooltip: String,
     taskbar_created: u32,
     shown: MediaInfo,
+    /// Ids of the hotkeys registered now.
+    hotkeys: Vec<u32>,
 }
 
 thread_local! {
@@ -102,6 +107,14 @@ impl Handle {
             .ok()?;
         let hwnd = hwnd_rx.recv().ok().flatten()?;
         Some(Handle { hwnd, tx })
+    }
+
+    pub fn set_hotkeys(&self, keys: Vec<Hotkey>) {
+        if self.tx.send(Cmd::Hotkeys(keys)).is_ok() {
+            unsafe {
+                let _ = PostMessageW(Some(HWND(self.hwnd as _)), WM_CMD, WPARAM(0), LPARAM(0));
+            }
+        }
     }
 
     pub fn set_media(&self, info: MediaInfo) {
@@ -181,6 +194,7 @@ fn run(
                 tooltip,
                 taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
                 shown: MediaInfo::default(),
+                hotkeys: Vec::new(),
             })
         });
         tray(hwnd, NIM_ADD);
@@ -359,12 +373,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     match msg {
         WM_CMD => {
             let mut changed = false;
+            let mut busy: Vec<u32> = Vec::new();
             STATE.with(|s| {
                 let mut s = s.borrow_mut();
                 let Some(st) = s.as_mut() else { return };
                 let mut last = None;
-                while let Ok(Cmd::Media(info)) = st.rx.try_recv() {
-                    last = Some(info);
+                while let Ok(cmd) = st.rx.try_recv() {
+                    match cmd {
+                        Cmd::Media(info) => last = Some(info),
+                        Cmd::Hotkeys(keys) => busy = register_hotkeys(hwnd, &mut st.hotkeys, &keys),
+                    }
                 }
                 if let Some(info) = last {
                     if let Some(smtc) = &st.smtc
@@ -379,6 +397,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             if changed {
                 tray(hwnd, NIM_MODIFY);
             }
+            for id in busy {
+                emit(PlatformEvent::HotkeyBusy(id));
+            }
+            LRESULT(0)
+        }
+        WM_HOTKEY => {
+            emit(PlatformEvent::Hotkey(wp.0 as u32));
             LRESULT(0)
         }
         WM_TRAY => {
@@ -424,6 +449,41 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         _ => unsafe { DefWindowProcW(hwnd, msg, wp, lp) },
     }
+}
+
+/// Replaces the registered hotkeys; returns the ids another program already holds.
+fn register_hotkeys(hwnd: HWND, current: &mut Vec<u32>, keys: &[Hotkey]) -> Vec<u32> {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, RegisterHotKey,
+        UnregisterHotKey,
+    };
+    for id in current.drain(..) {
+        unsafe {
+            let _ = UnregisterHotKey(Some(hwnd), id as i32);
+        }
+    }
+    let mut busy = Vec::new();
+    for k in keys {
+        let mut mods = MOD_NOREPEAT;
+        if k.ctrl {
+            mods |= MOD_CONTROL;
+        }
+        if k.alt {
+            mods |= MOD_ALT;
+        }
+        if k.shift {
+            mods |= MOD_SHIFT;
+        }
+        let ok =
+            unsafe { RegisterHotKey(Some(hwnd), k.id as i32, HOT_KEY_MODIFIERS(mods.0), k.key) }
+                .is_ok();
+        if ok {
+            current.push(k.id);
+        } else {
+            busy.push(k.id);
+        }
+    }
+    busy
 }
 
 // ── single instance ──────────────────────────────────────────────────────────────────────────────

@@ -484,10 +484,12 @@ component SettingsPage inherits Flickable {
     in property <[AccountRow]> accounts;
     in property <[ThemeChip]> themes;
     in property <bool> day;
+    in property <bool> hotkeys;
     callback set-main(string);
     callback set-tab(string, bool);
     callback set-theme(string);
     callback set-day(bool);
+    callback set-hotkeys(bool);
     content-height: body.preferred-height + Grid.pad;
     body := VerticalLayout {
         width: root.width;
@@ -547,6 +549,11 @@ component SettingsPage inherits Flickable {
             hint: "Дневной вариант выбранной темы";
             Middle { Toggle { on: root.day; toggled(v) => { root.set-day(v); } } }
         }
+        SettingRow {
+            label: "Глобальные горячие клавиши";
+            hint: "Ctrl+Alt+Shift+Пробел — пауза, ← и → — треки. Работают в любой программе, даже в игре";
+            Middle { Toggle { on: root.hotkeys; toggled(v) => { root.set-hotkeys(v); } } }
+        }
         // Theme cards: a swatch of the theme's background and accent, the name under it.
         Flickable {
             height: 104px;
@@ -594,10 +601,12 @@ component MainArea inherits VerticalLayout {
     in property <[AccountRow]> accounts;
     in property <[ThemeChip]> themes;
     in property <bool> day;
+    in property <bool> hotkeys;
     callback set-main(string);
     callback set-tab(string, bool);
     callback set-theme(string);
     callback set-day(bool);
+    callback set-hotkeys(bool);
     in property <[HomeSection]> sections;
     callback home-play(int, int); // section, card
     callback play(int);
@@ -667,6 +676,8 @@ component MainArea inherits VerticalLayout {
         accounts: root.accounts;
         themes: root.themes;
         day: root.day;
+        hotkeys: root.hotkeys;
+        set-hotkeys(v) => { root.set-hotkeys(v); }
         set-main(k) => { root.set-main(k); }
         set-tab(k, v) => { root.set-tab(k, v); }
         set-theme(id) => { root.set-theme(id); }
@@ -955,6 +966,7 @@ export component MainWindow inherits Window {
     in property <[AccountRow]> settings-accounts;
     in property <[ThemeChip]> settings-themes;
     in property <bool> day-theme;
+    in property <bool> global-hotkeys;
     in property <[HomeSection]> home-sections;
     in property <[QueueItem]> upcoming;
     in property <string> lyric-now;
@@ -976,6 +988,7 @@ export component MainWindow inherits Window {
     callback set-account-tab(string, bool);
     callback set-theme(string);
     callback set-day(bool);
+    callback set-hotkeys(bool);
     callback open-artist(string);
     callback open-album(string);
     callback back();
@@ -1044,6 +1057,8 @@ export component MainWindow inherits Window {
                         accounts: root.settings-accounts;
                         themes: root.settings-themes;
                         day: root.day-theme;
+                        hotkeys: root.global-hotkeys;
+                        set-hotkeys(v) => { root.set-hotkeys(v); }
                         set-main(k) => { root.set-main-account(k); }
                         set-tab(k, v) => { root.set-account-tab(k, v); }
                         set-theme(id) => { root.set-theme(id); }
