@@ -14,7 +14,26 @@ use std::rc::Rc;
 
 slint::include_modules!();
 
+/// Developer checks while the owner uses the PC: `DRX_BACKGROUND_AT=x,y` opens the window at that screen position
+/// (e.g. on the second monitor) without taking focus.
+fn background_window() {
+    let Ok(at) = std::env::var("DRX_BACKGROUND_AT") else {
+        return;
+    };
+    let mut it = at.split(',').filter_map(|v| v.trim().parse::<i32>().ok());
+    let (Some(x), Some(y)) = (it.next(), it.next()) else {
+        return;
+    };
+    let _ = slint::BackendSelector::new()
+        .with_winit_window_attributes_hook(move |a| {
+            a.with_active(false)
+                .with_position(slint::winit_030::winit::dpi::PhysicalPosition::new(x, y))
+        })
+        .select();
+}
+
 fn main() {
+    background_window();
     let profile = match std::env::var_os("DRX_PROFILE") {
         Some(p) => Profile::at(p),
         None => Profile::default_location().expect("no profile folder (APPDATA)"),
