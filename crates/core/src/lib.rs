@@ -3,6 +3,8 @@
 
 pub mod db;
 pub mod error;
+pub mod keys;
+pub mod paths;
 pub mod prefs;
 pub mod shared_prefs;
 
