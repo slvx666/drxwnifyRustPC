@@ -14,3 +14,5 @@
 | 2026-11-14 | веха 0 | `drxwnify-mini.exe` (заглушка, `release-mini`) | 107 КБ | точка отсчёта, без интерфейса |
 | 2026-11-14 | спайк | `spike-egui.exe` (egui 0.37 + glow, со всеми тяжёлыми зависимостями: SQLite, QuickJS, reqwest+rustls/ring, libopus, symphonia, tokio) | exe 7,57 МБ, LZMA 3,12 МБ | `release`: opt "s", fat LTO, strip, abort |
 | 2026-11-14 | спайк | `spike-slint.exe` (Slint 1.18, программная отрисовка, те же зависимости) | exe 11,08 МБ, LZMA 5,01 МБ | то же |
+| 2026-11-14 | спайк | `spike-egui.exe`, окно 1600×900, 10 000 строк, 50 обложек, CJK-шрифты Windows | Private 175,2 МБ, WS 163,9 МБ, CPU 0,42 % | простой, `scripts/measure.ps1` (8 с прогрев, 20 с замер) |
+| 2026-11-14 | спайк | `spike-slint.exe`, то же | **Private 15,0 МБ, WS 33,2 МБ, CPU 0,03 %** | то же |

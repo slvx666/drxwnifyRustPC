@@ -23,8 +23,7 @@ $p.Refresh()
 function Tree($id) { $kids = Get-CimInstance Win32_Process -Filter "ParentProcessId=$id" | ForEach-Object { Tree $_.ProcessId }; @($id) + $kids }
 $ids = Tree $p.Id
 $procs = $ids | ForEach-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue }
-$cpu0 = ($procs | Measure-Object TotalProcessorTime -Sum).Sum
-if ($cpu0 -is [timespan]) { $cpu0 = $cpu0.TotalMilliseconds } else { $cpu0 = ($procs | ForEach-Object { $_.TotalProcessorTime.TotalMilliseconds } | Measure-Object -Sum).Sum }
+$cpu0 = ($procs | ForEach-Object { $_.TotalProcessorTime.TotalMilliseconds } | Measure-Object -Sum).Sum
 Start-Sleep -Seconds $sample
 $procs = $ids | ForEach-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue }
 $cpu1 = ($procs | ForEach-Object { $_.TotalProcessorTime.TotalMilliseconds } | Measure-Object -Sum).Sum
