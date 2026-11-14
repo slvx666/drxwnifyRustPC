@@ -1507,6 +1507,7 @@ dependencies = [
  "drx-audio",
  "drx-catalog",
  "drx-core",
+ "drx-lyrics",
  "drx-resolver",
  "drx-transfer",
  "reqwest",
@@ -1581,6 +1582,12 @@ version = "0.1.0"
 [[package]]
 name = "drx-lyrics"
 version = "0.1.0"
+dependencies = [
+ "drx-core",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "drx-platform"
@@ -1640,6 +1647,7 @@ dependencies = [
  "drx-app",
  "drx-catalog",
  "drx-core",
+ "drx-lyrics",
  "rfd",
  "serde_json",
  "slint",

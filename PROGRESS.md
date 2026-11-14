@@ -13,7 +13,8 @@
     powershell -NoProfile -File scripts\build.ps1 cargo build --workspace
     powershell -NoProfile -File scripts\build.ps1 cargo build -p drxwnify-mini --profile release-mini
 Скрипт сам ставит ограничения, пока запущен Apex или VM для iOS, и держит кэши cargo/npm на D:.
-Окна приложений поверх игры не открывать: интерфейс проверять без окна, где можно.
+Окна приложений поверх игры не открывать: интерфейс проверять без окна, где можно. Когда владелец за ПК
+(не спит) — тоже не открывать окна: проверять тестами в консоли.
 
 ## Вехи
 | # | Веха | Статус |

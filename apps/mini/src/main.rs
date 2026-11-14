@@ -228,6 +228,34 @@ fn main() {
                     if let Some(i) = now.index {
                         ui.set_current_index(i as i32);
                     }
+                    let up: Vec<QueueItem> = now
+                        .upcoming
+                        .iter()
+                        .map(|t| QueueItem {
+                            title: t.title.clone().into(),
+                            artists: t.artist_names().into(),
+                        })
+                        .collect();
+                    ui.set_upcoming(ModelRc::new(slint::VecModel::from(up)));
+                    LYRICS.with(|l| *l.borrow_mut() = now.lyrics.clone());
+                    match now.lyrics.as_deref() {
+                        Some(drx_lyrics::Lyrics::Plain(text)) => {
+                            ui.set_has_lyrics(true);
+                            ui.set_lyric_now(
+                                text.lines()
+                                    .take(3)
+                                    .collect::<Vec<_>>()
+                                    .join(
+                                        "
+",
+                                    )
+                                    .into(),
+                            );
+                            ui.set_lyric_next("".into());
+                        }
+                        Some(drx_lyrics::Lyrics::Synced(_)) => ui.set_has_lyrics(true),
+                        None => ui.set_has_lyrics(false),
+                    }
                     ui.set_playing(now.playing);
                     if let Some(e) = &now.error {
                         ui.set_toast(format!("Не удалось включить: {e}").into());
@@ -383,6 +411,7 @@ fn main() {
 }
 
 thread_local! {
+    static LYRICS: std::cell::RefCell<Option<std::sync::Arc<drx_lyrics::Lyrics>>> = const { std::cell::RefCell::new(None) };
     static LIBRARY: std::cell::RefCell<Option<Rc<lazy_library::LazyLibrary>>> = const { std::cell::RefCell::new(None) };
 }
 

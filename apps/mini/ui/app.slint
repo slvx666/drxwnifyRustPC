@@ -16,6 +16,11 @@ export struct SongItem {
     has-cover: bool,
 }
 
+export struct QueueItem {
+    title: string,
+    artists: string,
+}
+
 export struct LibItem {
     title: string,
     subtitle: string,
@@ -313,6 +318,10 @@ component RightPanel inherits Panel {
     in property <string> info;
     in property <image> cover;
     in property <bool> has-cover;
+    in property <[QueueItem]> upcoming;
+    in property <string> lyric-now;
+    in property <string> lyric-next;
+    in property <bool> has-lyrics;
     VerticalLayout {
         padding: 16px;
         spacing: 12px;
@@ -330,6 +339,16 @@ component RightPanel inherits Panel {
         Text { text: info; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; }
         Rectangle { height: 1px; background: Theme.panel-border; }
         Text { text: "ДАЛЕЕ"; font-family: Theme.body-font; font-weight: 700; font-size: 11px; color: Theme.mute; letter-spacing: 1.5px; }
+        for q[i] in root.upcoming: VerticalLayout {
+            if i < 3: VerticalLayout {
+                Text { text: q.title; font-family: Theme.body-font; font-size: 13px; color: Theme.text; overflow: elide; }
+                Text { text: q.artists; font-family: Theme.body-font; font-size: 11px; color: Theme.dim; overflow: elide; }
+            }
+        }
+        if root.has-lyrics: Rectangle { height: 1px; background: Theme.panel-border; }
+        if root.has-lyrics: Text { text: "ТЕКСТ"; font-family: Theme.body-font; font-weight: 700; font-size: 11px; color: Theme.mute; letter-spacing: 1.5px; }
+        if root.has-lyrics: Text { text: root.lyric-now; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.accent; wrap: word-wrap; }
+        if root.has-lyrics: Text { text: root.lyric-next; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; wrap: word-wrap; }
         Rectangle { }
     }
 }
@@ -434,6 +453,10 @@ export component MainWindow inherits Window {
     in property <string> now-title;
     in property <string> now-artists;
     in property <string> now-info;
+    in property <[QueueItem]> upcoming;
+    in property <string> lyric-now;
+    in property <string> lyric-next;
+    in property <bool> has-lyrics;
     in property <image> now-cover;
     in-out property <string> now-cover-url;
     in-out property <bool> has-now-cover;
@@ -490,6 +513,10 @@ export component MainWindow inherits Window {
                 info: root.now-info;
                 cover: root.now-cover;
                 has-cover: root.has-now-cover;
+                upcoming: root.upcoming;
+                lyric-now: root.lyric-now;
+                lyric-next: root.lyric-next;
+                has-lyrics: root.has-lyrics;
             }
         }
         HorizontalLayout {

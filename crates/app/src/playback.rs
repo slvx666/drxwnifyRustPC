@@ -31,6 +31,10 @@ pub struct NowPlaying {
     pub index: Option<usize>,
     pub playing: bool,
     pub error: Option<String>,
+    /// The next tracks of the queue (up to 5), for «Далее».
+    pub upcoming: Vec<Track>,
+    /// Lyrics of the current track, when found (LRCLIB).
+    pub lyrics: Option<Arc<drx_lyrics::Lyrics>>,
 }
 
 /// Blocking body reader for the download thread (it is not a runtime thread, so `block_on` is fine).
@@ -148,7 +152,7 @@ pub(crate) struct Playback {
     player: Mutex<Option<Arc<Player>>>,
     queue: Mutex<(Vec<Playable>, usize)>,
     current_id: Mutex<Option<drx_audio::player::TrackId>>,
-    pub now: watch::Sender<NowPlaying>,
+    pub now: Arc<watch::Sender<NowPlaying>>,
     volume: Mutex<f32>,
     /// Audio providers for tracks without a URL (the resolver asks them all at once).
     pub providers: Mutex<Vec<Arc<dyn AudioProvider>>>,
@@ -167,7 +171,7 @@ impl Playback {
             player: Mutex::new(None),
             queue: Mutex::new((Vec::new(), 0)),
             current_id: Mutex::new(None),
-            now: watch::channel(NowPlaying::default()).0,
+            now: Arc::new(watch::channel(NowPlaying::default()).0),
             volume: Mutex::new(0.8),
             providers: Mutex::new(Vec::new()),
             store: Mutex::new(None),
@@ -418,12 +422,44 @@ impl Playback {
             q.1 = index;
             q.0[index].clone()
         };
+        let upcoming: Vec<Track> = {
+            let q = self.queue.lock().expect("queue");
+            q.0.iter()
+                .skip(index + 1)
+                .take(5)
+                .map(|p| p.track.clone())
+                .collect()
+        };
         self.now.send_modify(|n| {
             n.track = Some(item.track.clone());
             n.index = Some(index);
             n.playing = true;
             n.error = None;
+            n.upcoming = upcoming;
+            n.lyrics = None;
         });
+        // Lyrics in the background; dropped if the track changed meanwhile.
+        {
+            let (now, http, t) = (self.now.clone(), self.http.clone(), item.track.clone());
+            self.handle.spawn(async move {
+                let found = drx_lyrics::LrcLib::new(http)
+                    .find(
+                        &t.title,
+                        t.artists.first().map(|a| a.name.as_str()).unwrap_or(""),
+                        Some(t.duration_ms / 1000).filter(|d| *d > 0),
+                    )
+                    .await;
+                if let Some(l) = found {
+                    now.send_if_modified(|n| {
+                        let same = n.track.as_ref().is_some_and(|x| x.id == t.id);
+                        if same {
+                            n.lyrics = Some(Arc::new(l));
+                        }
+                        same
+                    });
+                }
+            });
+        }
         let this = self.clone();
         // Opening a stream does network round-trips; never on the UI thread.
         std::thread::spawn(move || {
