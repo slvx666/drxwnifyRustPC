@@ -159,6 +159,7 @@ impl App {
             runtime: Arc::new(runtime),
         };
         app.watch_tables();
+        app.install_providers();
         let a = app.clone();
         app.runtime.spawn(async move {
             let _ = a.refresh_state().await;
@@ -315,6 +316,9 @@ impl App {
                 // Reopen whatever is on disk now (new data, or the old file if the import failed early).
                 let store = Store::open(&profile.song_db())?;
                 *self.inner.store.write().expect("store lock") = store;
+                // New sessions came with the backup: rebuild the clients and audio sources.
+                // (The VK client is created once per run; a new import needs a restart to switch accounts.)
+                self.install_providers();
                 self.watch_tables();
                 self.inner.lists.clear();
                 let _ = self.inner.events.send(AppEvent::LibraryReplaced);
@@ -492,6 +496,15 @@ impl App {
                 )))
             })
             .clone()
+    }
+
+    /// Audio sources available with this profile's sessions.
+    fn install_providers(&self) {
+        let mut list: Vec<Arc<dyn drx_resolver::provider::AudioProvider>> = Vec::new();
+        if let Some(vk) = self.vk() {
+            list.push(Arc::new(drx_resolver::providers::vk::VkProvider::new(vk)));
+        }
+        *self.inner.playback.providers.lock().expect("providers") = list;
     }
 
     pub fn has_vk(&self) -> bool {
@@ -721,6 +734,48 @@ mod live_playback {
             "next track: pos={:.1}s index={:?}",
             c.position_s,
             app.now_playing().borrow().index
+        );
+    }
+}
+
+#[cfg(test)]
+mod live_resolve {
+    use super::*;
+
+    /// Plays the first liked song from the database (a catalog track without audio): the resolver must find it
+    /// on VK. Volume 0. DRX_TEST_PROFILE; not run in CI.
+    #[test]
+    fn plays_liked_song_via_resolver() {
+        let Ok(dir) = std::env::var("DRX_TEST_PROFILE") else {
+            return;
+        };
+        let app = App::start(Profile::at(dir), EditionProfile::mini()).unwrap();
+        app.set_volume(0.0);
+        let rt = app.runtime();
+        let h = app.open_list(ListSpec::LikedSongs);
+        let mut ok = 0;
+        for i in 0..5 {
+            rt.block_on(app.play_list(h, i)).unwrap();
+            let mut played = false;
+            for _ in 0..80 {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                if app.clock().position_s > 0.5 {
+                    played = true;
+                    break;
+                }
+                if app.now_playing().borrow().error.is_some() {
+                    break;
+                }
+            }
+            let np = app.now_playing().borrow().clone();
+            eprintln!("liked #{i}: played={played} error={:?}", np.error);
+            if played {
+                ok += 1;
+            }
+        }
+        assert!(
+            ok >= 3,
+            "resolver found too few of the first 5 liked songs: {ok}"
         );
     }
 }

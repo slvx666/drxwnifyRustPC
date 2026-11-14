@@ -7,6 +7,9 @@ use drx_audio::player::{PlaybackClock, Player, PlayerEvent};
 use drx_audio::source::{CachedSource, RangeOpener};
 use drx_catalog::model::Track;
 use drx_core::http::{Http, Method};
+use drx_resolver::provider::{
+    AudioProvider, AudioQuery, AudioStream, DEFAULT_ORDER, ProviderMatch,
+};
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -146,6 +149,10 @@ pub(crate) struct Playback {
     current_id: Mutex<Option<drx_audio::player::TrackId>>,
     pub now: watch::Sender<NowPlaying>,
     volume: Mutex<f32>,
+    /// Audio providers for tracks without a URL (the resolver asks them all at once).
+    pub providers: Mutex<Vec<Arc<dyn AudioProvider>>>,
+    /// Streams found this session, by catalog track id (provider match kept for a fresh URL later).
+    resolved: Mutex<std::collections::HashMap<String, (ProviderMatch, AudioQuery)>>,
 }
 
 impl Playback {
@@ -159,6 +166,8 @@ impl Playback {
             current_id: Mutex::new(None),
             now: watch::channel(NowPlaying::default()).0,
             volume: Mutex::new(0.8),
+            providers: Mutex::new(Vec::new()),
+            resolved: Mutex::new(std::collections::HashMap::new()),
         })
     }
 
@@ -198,12 +207,62 @@ impl Playback {
         Ok(player)
     }
 
+    /// Finds audio for a catalog track: every ready provider at once (ParallelAudioResolver, AUTO), then a fresh
+    /// stream from the best match that can still give one.
+    fn resolve(&self, track: &drx_catalog::model::Track) -> Result<AudioStream, String> {
+        let providers = self.providers.lock().expect("providers").clone();
+        let by_id = |id: drx_resolver::provider::ProviderId| {
+            providers.iter().find(|p| p.id() == id).cloned()
+        };
+        if let Some((m, q)) = self
+            .resolved
+            .lock()
+            .expect("resolved")
+            .get(&track.id)
+            .cloned()
+            && let Some(p) = by_id(m.provider)
+            && let Ok(Some(s)) = self.handle.block_on(p.stream(&q, &m))
+        {
+            return Ok(s);
+        }
+        let q = AudioQuery::from_track(track);
+        let out = self.handle.block_on(drx_resolver::parallel::resolve(
+            &q,
+            &providers,
+            &DEFAULT_ORDER,
+        ));
+        tracing::info!(track = %track.title, report = ?out.report, "audio search");
+        for m in &out.matches {
+            let Some(p) = by_id(m.provider) else { continue };
+            if let Ok(Some(s)) = self.handle.block_on(p.stream(&q, m)) {
+                self.resolved
+                    .lock()
+                    .expect("resolved")
+                    .insert(track.id.clone(), (m.clone(), q.clone()));
+                return Ok(s);
+            }
+        }
+        Err(if providers.iter().any(|p| p.is_ready()) {
+            "звук не найден ни в одном источнике".to_string()
+        } else {
+            "нет источников звука: войдите во ВКонтакте (остальные источники — дальше)".to_string()
+        })
+    }
+
     fn source_for(&self, p: &Playable) -> Result<(CachedSource, Option<&'static str>), String> {
-        let url = p.url.clone().ok_or_else(|| {
-            "звук для этого трека ещё не найден (поиск источников — веха 5)".to_string()
-        })?;
-        let is_vk = p.track.id.starts_with("src:VK:");
-        let ua = is_vk.then_some(drx_catalog::vk::CLIENT_USER_AGENT);
+        let (url, ua) = match p.url.clone() {
+            Some(u) => (
+                u,
+                p.track
+                    .id
+                    .starts_with("src:VK:")
+                    .then_some(drx_catalog::vk::CLIENT_USER_AGENT),
+            ),
+            None => {
+                let s = self.resolve(&p.track)?;
+                (s.url, s.user_agent)
+            }
+        };
         let file = self.cache_dir.join("audio").join(cache_name(&p.track.id));
         if url.contains(".m3u8") {
             // VK: try the MP3 next to the HLS playlist first (as Android), else play the HLS itself.

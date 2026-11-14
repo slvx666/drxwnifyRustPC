@@ -260,20 +260,29 @@ fn main() {
     // the first track at volume 0. Not a user feature.
     if std::env::var("DRX_DEMO").as_deref() == Ok("vk") && app.has_vk() {
         app.set_volume(0.0);
-        let item = LibItem { title: "ВК · Моя музыка".into(), subtitle: "".into(), kind: "vkliked".into(), id: "vk_liked".into() };
+        let item = LibItem {
+            title: "ВК · Моя музыка".into(),
+            subtitle: "".into(),
+            kind: "vkliked".into(),
+            id: "vk_liked".into(),
+        };
         ui.set_selected_id(item.id.clone());
         ui.invoke_open_library(item);
         let (ui_w, songs2) = (ui.as_weak(), songs.clone());
         let t = slint::Timer::default();
-        t.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(500), move || {
-            if songs2.len() > 0
-                && let Some(ui) = ui_w.upgrade()
-                && !ui.get_playing()
-                && ui.get_current_index() < 0
-            {
-                ui.invoke_play(0);
-            }
-        });
+        t.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(500),
+            move || {
+                if songs2.len() > 0
+                    && let Some(ui) = ui_w.upgrade()
+                    && !ui.get_playing()
+                    && ui.get_current_index() < 0
+                {
+                    ui.invoke_play(0);
+                }
+            },
+        );
         std::mem::forget(t);
     }
 

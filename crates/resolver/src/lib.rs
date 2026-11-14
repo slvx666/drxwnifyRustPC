@@ -2,3 +2,6 @@
 //! Audius, lossless mirrors, Soulseek) with the order and thresholds of the Android app.
 
 pub mod matcher;
+pub mod parallel;
+pub mod provider;
+pub mod providers;
