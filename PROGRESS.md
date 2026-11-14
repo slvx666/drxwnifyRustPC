@@ -18,6 +18,7 @@
 Снимок — `scripts\shotwin.ps1 -Client` (PrintWindow: только окно Mini, даже если его закрыли другие окна; чужие окна
 владельца в кадр не попадают). Запускать `release-mini` (у отладочной сборки есть консоль — она всплывает на основном
 мониторе) или `Start-Process -NoNewWindow`. `DRX_THEME=<id>[:day]` — другая тема для проверки.
+Клики и колесо в окно Mini: `scripts\input.ps1 -Do click|wheel|hwheel -X -Y [-Amount]` (координаты внутри окна).
 
 ## Вехи
 | # | Веха | Статус |
