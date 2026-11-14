@@ -21,6 +21,14 @@ pub enum ListSpec {
     },
     /// Listening history, newest first.
     History,
+    /// A saved album, in track order (`song_album_map.index`, as Android's album page).
+    Album {
+        id: String,
+    },
+    /// Songs of an artist that are in the database, most played first.
+    Artist {
+        id: String,
+    },
     /// VK «Моя музыка», loaded from VK (not stored in the database).
     VkMyMusic,
     /// A VK album or playlist (`vk_<owner>_<id>[_<key>]`), loaded from VK.
@@ -52,6 +60,8 @@ impl ListSpec {
                 | ListSpec::LibrarySongs
                 | ListSpec::Playlist { .. }
                 | ListSpec::History
+                | ListSpec::Album { .. }
+                | ListSpec::Artist { .. }
         )
     }
 
@@ -92,6 +102,8 @@ impl ListSpec {
                 &["playlist_song_map", "song", "song_artist_map", "artist"]
             }
             ListSpec::History => &["event", "song", "song_artist_map", "artist"],
+            ListSpec::Album { .. } => &["song_album_map", "song", "song_artist_map", "artist"],
+            ListSpec::Artist { .. } => &["song_artist_map", "song", "artist"],
             _ => &[],
         }
     }
@@ -170,6 +182,15 @@ fn base(spec: &ListSpec) -> (String, Vec<String>) {
             vec![id.clone()],
         ),
         ListSpec::History => ("FROM event e JOIN song s ON s.id = e.songId ORDER BY e.timestamp DESC".into(), vec![]),
+        ListSpec::Album { id } => (
+            "FROM song_album_map m JOIN song s ON s.id = m.songId WHERE m.albumId = ?1 ORDER BY m.`index`".into(),
+            vec![id.clone()],
+        ),
+        ListSpec::Artist { id } => (
+            "FROM song_artist_map m JOIN song s ON s.id = m.songId WHERE m.artistId = ?1              ORDER BY s.totalPlayTime DESC, s.liked DESC, s.title COLLATE NOCASE"
+                .into(),
+            vec![id.clone()],
+        ),
         // Remote lists never reach SQL; an empty query keeps the match total.
         _ => ("FROM song s WHERE 0".into(), vec![]),
     }

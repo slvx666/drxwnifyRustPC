@@ -323,6 +323,15 @@ impl YouTube {
                     .insert(video.to_string(), l as f32);
             }
             if let Some((url, kbps)) = best_audio(&v) {
+                // A client's URL can point at a googlevideo server that is unreachable from here or answers 403
+                // (seen with VISIONOS while ANDROID_VR's URL for the same video plays): try the next client then.
+                if !self.reachable(&url, c.ua).await {
+                    tracing::info!(
+                        client = c.name,
+                        "youtube stream URL unreachable, next client"
+                    );
+                    continue;
+                }
                 return Some((
                     AudioStream {
                         url,
@@ -333,6 +342,19 @@ impl YouTube {
             }
         }
         None
+    }
+
+    /// One small ranged GET with a short timeout: does this stream URL answer?
+    async fn reachable(&self, url: &str, ua: &str) -> bool {
+        let req = self
+            .http
+            .client()
+            .get(url)
+            .header("User-Agent", ua)
+            .header("Range", "bytes=0-1")
+            .timeout(Duration::from_secs(5))
+            .send();
+        matches!(req.await, Ok(r) if r.status().is_success())
     }
 }
 
@@ -459,6 +481,55 @@ mod tests {
                 m.as_ref().map(|m| (m.confidence, m.quality_kbps))
             );
             assert!(m.is_some());
+        });
+    }
+
+    /// Real network: the stream of one video answers a ranged GET (catches 403 on stream URLs).
+    /// DRX_TEST_YT_VIDEO=<video id>; not run in CI.
+    #[test]
+    fn real_stream_bytes() {
+        let Ok(video) = std::env::var("DRX_TEST_YT_VIDEO") else {
+            return;
+        };
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let http = Http::new().unwrap();
+            let yt = YouTube::new(http.clone());
+            for c in STREAM_CLIENTS {
+                let v = yt
+                    .post(
+                        "player",
+                        c,
+                        json!({ "videoId": video, "contentCheckOk": true, "racyCheckOk": true }),
+                    )
+                    .await
+                    .unwrap();
+                let status = v.pointer("/playabilityStatus/status").cloned();
+                let audio = best_audio(&v);
+                let code = match &audio {
+                    Some((url, _)) => {
+                        let r = http
+                            .client()
+                            .get(url)
+                            .header("User-Agent", c.ua)
+                            .header("Range", "bytes=0-1023")
+                            .send()
+                            .await
+                            .map(|r| r.status().as_u16());
+                        format!("{r:?}")
+                    }
+                    None => "-".into(),
+                };
+                eprintln!(
+                    "{} {}: status={status:?} audio={} get={code}",
+                    c.name,
+                    c.version,
+                    audio.is_some()
+                );
+            }
         });
     }
 }

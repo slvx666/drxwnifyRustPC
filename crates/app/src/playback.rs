@@ -246,6 +246,26 @@ impl Playback {
                 return Ok((s, 1.0));
             }
         }
+        // 1b. A YouTube song in the library (its id is the video id, as on Android): that video is the audio.
+        if is_youtube_video_id(&catalog_id)
+            && let Some(p) = by_id(ProviderId::Youtube)
+        {
+            let m = ProviderMatch {
+                provider: ProviderId::Youtube,
+                track_id: catalog_id.clone(),
+                title: track.title.clone(),
+                artist: track.artist_names(),
+                duration_ms: Some(track.duration_ms),
+                confidence: 1.0,
+                quality_kbps: None,
+            };
+            if let Ok(Some(s)) = self.handle.block_on(p.stream(&q, &m)) {
+                return Ok((
+                    s,
+                    drx_audio::dsp::normalization_gain(p.loudness_db(&m.track_id)),
+                ));
+            }
+        }
         // 2. This session's choice, then the stored matches (the phone's 44k of them came with the backup).
         let mut known: Vec<ProviderMatch> = Vec::new();
         if let Some((m, _)) = self
@@ -545,5 +565,25 @@ impl Playback {
                 at: std::time::Instant::now(),
             },
         }
+    }
+}
+
+/// YouTube video ids are 11 characters of `[A-Za-z0-9_-]` (library songs from YouTube Music use them as ids).
+fn is_youtube_video_id(id: &str) -> bool {
+    id.len() == 11
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+#[cfg(test)]
+mod id_tests {
+    #[test]
+    fn youtube_video_ids() {
+        assert!(super::is_youtube_video_id("GAqvJ6FhllE"));
+        assert!(super::is_youtube_video_id("_LU6OTVCgvw"));
+        assert!(!super::is_youtube_video_id("src:VK:1_2"));
+        assert!(!super::is_youtube_video_id("SP_30F1234"));
+        assert!(!super::is_youtube_video_id("MPREb_0Cabcdef"));
     }
 }

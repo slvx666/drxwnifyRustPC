@@ -601,10 +601,15 @@ fn playable_of(r: SongRow) -> Playable {
                     name: a.to_string(),
                 })
                 .collect(),
-            album: r.album.map(|name| AlbumRef {
+            // The song's own thumbnail stands in for the album cover (now playing shows it).
+            album: (r.album.is_some() || r.thumbnail.is_some()).then(|| AlbumRef {
                 id: String::new(),
-                name,
-                images: Vec::new(),
+                name: r.album.unwrap_or_default(),
+                images: r
+                    .thumbnail
+                    .map(|url| drx_catalog::model::Image { url, width: None })
+                    .into_iter()
+                    .collect(),
             }),
             duration_ms: r.duration_s.max(0) as u64 * 1000,
             isrc: None,
@@ -649,6 +654,22 @@ mod tests {
         let state = app.state().borrow().clone();
         eprintln!("liked={n} state={:?}", state.library);
         assert_eq!(state.library.liked as usize, n);
+        // Album and artist pages from the library open from the database.
+        if let Some(album) = entries.iter().find(|e| e.kind == LibraryKind::Album) {
+            let h = app.open_list(ListSpec::Album {
+                id: album.id.clone(),
+            });
+            let n = rt.block_on(app.list_len(h)).unwrap();
+            eprintln!("album {:?}: {n} tracks", album.title);
+            assert!(n > 0);
+        }
+        if let Some(artist) = entries.iter().find(|e| e.kind == LibraryKind::Artist) {
+            let h = app.open_list(ListSpec::Artist {
+                id: artist.id.clone(),
+            });
+            let n = rt.block_on(app.list_len(h)).unwrap();
+            eprintln!("artist: {n} songs");
+        }
     }
 }
 
@@ -744,6 +765,38 @@ mod live_resolve {
             ok >= 3,
             "resolver found too few of the first 5 liked songs: {ok}"
         );
+    }
+
+    /// Plays the first track of the first saved album (a YouTube Music song: the video itself is the audio).
+    /// DRX_TEST_PROFILE; not run in CI.
+    #[test]
+    fn plays_album_track() {
+        let Ok(dir) = std::env::var("DRX_TEST_PROFILE") else {
+            return;
+        };
+        let app = App::start(Profile::at(dir), EditionProfile::mini()).unwrap();
+        app.set_volume(0.0);
+        let rt = app.runtime();
+        let entries = rt.block_on(app.library_entries()).unwrap();
+        let Some(album) = entries.iter().find(|e| e.kind == LibraryKind::Album) else {
+            return;
+        };
+        let h = app.open_list(ListSpec::Album {
+            id: album.id.clone(),
+        });
+        rt.block_on(app.play_list(h, 0)).unwrap();
+        let mut played = false;
+        for _ in 0..80 {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            if app.clock().position_s > 0.5 {
+                played = true;
+                break;
+            }
+            if let Some(e) = app.now_playing().borrow().error.clone() {
+                panic!("album track failed: {e}");
+            }
+        }
+        assert!(played, "album track did not start");
     }
 }
 

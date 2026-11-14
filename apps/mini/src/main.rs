@@ -6,7 +6,7 @@ mod lazy_library;
 mod lazy_songs;
 mod themes;
 
-use drx_app::{App, AppEvent, Command, CommandOutcome, EditionProfile, ListSpec};
+use drx_app::{App, AppEvent, Command, CommandOutcome, EditionProfile, LibraryKind, ListSpec};
 use drx_core::paths::Profile;
 use lazy_songs::LazySongs;
 use slint::{ComponentHandle, ModelRc};
@@ -75,16 +75,17 @@ fn main() {
                     id: item.id.to_string(),
                 },
                 "liked" => ListSpec::LikedSongs,
+                "album" => ListSpec::Album {
+                    id: item.id.to_string(),
+                },
+                "artist" => ListSpec::Artist {
+                    id: item.id.to_string(),
+                },
                 "remote" => match ListSpec::from_entry_id(item.id.as_str()) {
                     Some(spec) => spec,
                     None => return,
                 },
-                _ => {
-                    ui.set_toast(
-                        "Страницы альбомов и исполнителей появятся вместе с каталогами".into(),
-                    );
-                    return;
-                }
+                _ => return,
             };
             let remote = spec.is_remote();
             songs2.reopen(spec);
@@ -106,6 +107,9 @@ fn main() {
                         }
                     });
                 });
+            } else if matches!(item.kind.as_str(), "album" | "artist") {
+                // «Альбом · Исполнитель · 12 треков».
+                ui.set_view_subtitle(format!("{} · {} треков", item.subtitle, songs2.len()).into());
             } else {
                 ui.set_view_subtitle(format!("{} треков", songs2.len()).into());
             }
@@ -395,31 +399,38 @@ fn main() {
         });
     }
 
-    // Developer check without clicking (no automation needed): DRX_DEMO=vk opens VK «Моя музыка» and plays
-    // the first track at volume 0. Not a user feature.
+    // Developer check without clicking (no automation needed): DRX_DEMO=<library id> opens that list and plays
+    // the first track at volume 0 (`vk` = VK «Моя музыка», `album`/`artist` = the first saved one). Not a user feature.
     if let Ok(demo) = std::env::var("DRX_DEMO") {
-        let id = if demo == "vk" {
-            "vk:liked".to_string()
-        } else {
-            demo
-        };
         app.set_volume(0.0);
-        // The list's own title when the library has it (VK «Моя музыка» etc.), so screenshots look real.
-        let title = app
+        let entries = app
             .runtime()
             .block_on(app.library_entries())
-            .unwrap_or_default()
-            .into_iter()
-            .find(|e| e.id == id)
-            .map(|e| e.title)
-            .unwrap_or_else(|| id.clone());
-        let item = LibItem {
-            title: title.into(),
-            subtitle: "".into(),
-            kind: "remote".into(),
-            id: id.into(),
-            cover: Default::default(),
-            has_cover: false,
+            .unwrap_or_default();
+        let found = match demo.as_str() {
+            "vk" => entries.iter().find(|e| e.id == "vk:liked"),
+            "album" => entries.iter().find(|e| e.kind == LibraryKind::Album),
+            "artist" => entries.iter().find(|e| e.kind == LibraryKind::Artist),
+            id => entries.iter().find(|e| e.id == id),
+        };
+        // The list's own title and subtitle, so screenshots look real.
+        let item = match found {
+            Some(e) => LibItem {
+                title: e.title.clone().into(),
+                subtitle: e.subtitle.clone().into(),
+                kind: lazy_library::kind_name(e.kind).into(),
+                id: e.id.clone().into(),
+                cover: Default::default(),
+                has_cover: false,
+            },
+            None => LibItem {
+                title: demo.clone().into(),
+                subtitle: "".into(),
+                kind: "remote".into(),
+                id: demo.into(),
+                cover: Default::default(),
+                has_cover: false,
+            },
         };
         ui.set_selected_id(item.id.clone());
         ui.invoke_open_library(item);

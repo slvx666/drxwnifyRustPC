@@ -51,13 +51,7 @@ impl Model for LazyLibrary {
         Some(LibItem {
             title: e.title.into(),
             subtitle: e.subtitle.into(),
-            kind: SharedString::from(match e.kind {
-                LibraryKind::Liked => "liked",
-                LibraryKind::Playlist => "playlist",
-                LibraryKind::Album => "album",
-                LibraryKind::Artist => "artist",
-                LibraryKind::Remote => "remote",
-            }),
+            kind: SharedString::from(kind_name(e.kind)),
             id: e.id.into(),
             has_cover: cover.is_some(),
             cover: cover.unwrap_or_default(),
@@ -66,5 +60,16 @@ impl Model for LazyLibrary {
 
     fn model_tracker(&self) -> &dyn ModelTracker {
         &self.notify
+    }
+}
+
+/// The `kind` string the UI uses for a library entry.
+pub fn kind_name(k: LibraryKind) -> &'static str {
+    match k {
+        LibraryKind::Liked => "liked",
+        LibraryKind::Playlist => "playlist",
+        LibraryKind::Album => "album",
+        LibraryKind::Artist => "artist",
+        LibraryKind::Remote => "remote",
     }
 }
