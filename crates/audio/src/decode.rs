@@ -32,7 +32,7 @@ pub type DecodeResult<T> = std::result::Result<T, DecodeError>;
 
 /// A readable, seekable byte source. Files, memory and the HTTP cache source implement it.
 pub trait ByteSource: Read + Seek + Send + Sync {
-    fn len(&self) -> Option<u64>;
+    fn byte_len(&self) -> Option<u64>;
 }
 
 struct SourceAdapter<S: ByteSource>(S);
@@ -52,17 +52,17 @@ impl<S: ByteSource> MediaSource for SourceAdapter<S> {
         true
     }
     fn byte_len(&self) -> Option<u64> {
-        self.0.len()
+        self.0.byte_len()
     }
 }
 
 impl ByteSource for std::fs::File {
-    fn len(&self) -> Option<u64> {
+    fn byte_len(&self) -> Option<u64> {
         self.metadata().ok().map(|m| m.len())
     }
 }
 impl ByteSource for std::io::Cursor<Vec<u8>> {
-    fn len(&self) -> Option<u64> {
+    fn byte_len(&self) -> Option<u64> {
         Some(self.get_ref().len() as u64)
     }
 }
