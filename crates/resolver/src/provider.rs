@@ -31,6 +31,20 @@ impl ProviderId {
         }
     }
 
+    /// Parses the stored name (Android `AudioProviderId` names in `audio_fallback_match.provider`).
+    pub fn from_name(s: &str) -> Option<Self> {
+        Some(match s {
+            "YOUTUBE" => ProviderId::Youtube,
+            "VK" => ProviderId::Vk,
+            "SOUNDCLOUD" => ProviderId::Soundcloud,
+            "BANDCAMP" => ProviderId::Bandcamp,
+            "AUDIUS" => ProviderId::Audius,
+            "SOULSEEK" => ProviderId::Soulseek,
+            "LOSSLESS" => ProviderId::Lossless,
+            _ => return None,
+        })
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             ProviderId::Youtube => "YOUTUBE",

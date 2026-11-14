@@ -500,6 +500,7 @@ impl App {
 
     /// Audio sources available with this profile's sessions.
     fn install_providers(&self) {
+        *self.inner.playback.store.lock().expect("store") = Some(self.store());
         let mut list: Vec<Arc<dyn drx_resolver::provider::AudioProvider>> = Vec::new();
         list.push(Arc::new(
             drx_resolver::providers::soundcloud::SoundCloud::new(self.inner.http.clone()),

@@ -8,7 +8,7 @@ use drx_audio::source::{CachedSource, RangeOpener};
 use drx_catalog::model::Track;
 use drx_core::http::{Http, Method};
 use drx_resolver::provider::{
-    AudioProvider, AudioQuery, AudioStream, DEFAULT_ORDER, ProviderMatch,
+    AudioProvider, AudioQuery, AudioStream, DEFAULT_ORDER, ProviderId, ProviderMatch,
 };
 use std::io::Read;
 use std::path::PathBuf;
@@ -151,6 +151,8 @@ pub(crate) struct Playback {
     volume: Mutex<f32>,
     /// Audio providers for tracks without a URL (the resolver asks them all at once).
     pub providers: Mutex<Vec<Arc<dyn AudioProvider>>>,
+    /// The music database: stored matches (`audio_fallback_match`, shared with Android) are tried before a search.
+    pub store: Mutex<Option<drx_core::store::Store>>,
     /// Streams found this session, by catalog track id (provider match kept for a fresh URL later).
     resolved: Mutex<std::collections::HashMap<String, (ProviderMatch, AudioQuery)>>,
 }
@@ -167,6 +169,7 @@ impl Playback {
             now: watch::channel(NowPlaying::default()).0,
             volume: Mutex::new(0.8),
             providers: Mutex::new(Vec::new()),
+            store: Mutex::new(None),
             resolved: Mutex::new(std::collections::HashMap::new()),
         })
     }
@@ -211,21 +214,56 @@ impl Playback {
     /// stream from the best match that can still give one.
     fn resolve(&self, track: &drx_catalog::model::Track) -> Result<AudioStream, String> {
         let providers = self.providers.lock().expect("providers").clone();
-        let by_id = |id: drx_resolver::provider::ProviderId| {
-            providers.iter().find(|p| p.id() == id).cloned()
-        };
-        if let Some((m, q)) = self
+        let by_id = |id: ProviderId| providers.iter().find(|p| p.id() == id).cloned();
+        // Library rows are `mfb:<catalog id>` (Android FallbackIds); the matches table is keyed by the catalog id.
+        let catalog_id = track
+            .id
+            .strip_prefix("mfb:")
+            .unwrap_or(&track.id)
+            .to_string();
+        let mut q = AudioQuery::from_track(track);
+        q.catalog_id = Some(catalog_id.clone());
+
+        // 1. A VK track in the library is itself the audio: no search.
+        if let Some(full) = catalog_id.strip_prefix("src:VK:")
+            && let Some(p) = by_id(ProviderId::Vk)
+        {
+            let m = ProviderMatch {
+                provider: ProviderId::Vk,
+                track_id: full.to_string(),
+                title: track.title.clone(),
+                artist: track.artist_names(),
+                duration_ms: Some(track.duration_ms),
+                confidence: 1.0,
+                quality_kbps: None,
+            };
+            if let Ok(Some(s)) = self.handle.block_on(p.stream(&q, &m)) {
+                return Ok(s);
+            }
+        }
+        // 2. This session's choice, then the stored matches (the phone's 44k of them came with the backup).
+        let mut known: Vec<ProviderMatch> = Vec::new();
+        if let Some((m, _)) = self
             .resolved
             .lock()
             .expect("resolved")
-            .get(&track.id)
+            .get(&catalog_id)
             .cloned()
-            && let Some(p) = by_id(m.provider)
-            && let Ok(Some(s)) = self.handle.block_on(p.stream(&q, &m))
         {
-            return Ok(s);
+            known.push(m);
         }
-        let q = AudioQuery::from_track(track);
+        known.extend(self.stored_matches(&catalog_id));
+        for m in &known {
+            let Some(p) = by_id(m.provider) else { continue };
+            if let Ok(Some(s)) = self.handle.block_on(p.stream(&q, m)) {
+                self.resolved
+                    .lock()
+                    .expect("resolved")
+                    .insert(catalog_id.clone(), (m.clone(), q.clone()));
+                return Ok(s);
+            }
+        }
+        // 3. Search every ready source at once.
         let out = self.handle.block_on(drx_resolver::parallel::resolve(
             &q,
             &providers,
@@ -238,15 +276,65 @@ impl Playback {
                 self.resolved
                     .lock()
                     .expect("resolved")
-                    .insert(track.id.clone(), (m.clone(), q.clone()));
+                    .insert(catalog_id.clone(), (m.clone(), q.clone()));
+                self.store_matches(&q, &out.matches, m);
                 return Ok(s);
             }
         }
         Err(if providers.iter().any(|p| p.is_ready()) {
             "звук не найден ни в одном источнике".to_string()
         } else {
-            "нет источников звука: войдите во ВКонтакте (остальные источники — дальше)".to_string()
+            "нет источников звука".to_string()
         })
+    }
+
+    /// Stored matches for a catalog track, the last winner first, then by confidence.
+    fn stored_matches(&self, catalog_id: &str) -> Vec<ProviderMatch> {
+        let Some(store) = self.store.lock().expect("store").clone() else {
+            return Vec::new();
+        };
+        let id = catalog_id.to_string();
+        store
+            .call_blocking(move |c| {
+                let mut st = c.prepare_cached(
+                    "SELECT provider, providerTrackId, matchedTitle, matchedArtist, confidence, durationMs FROM audio_fallback_match WHERE catalogId = ?1 ORDER BY selected DESC, confidence DESC",
+                )?;
+                let rows = st.query_map([id], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, f64>(4)?, r.get::<_, i64>(5)?))
+                })?;
+                Ok(rows
+                    .filter_map(Result::ok)
+                    .filter_map(|(p, t, mt, ma, conf, dur)| {
+                        Some(ProviderMatch { provider: ProviderId::from_name(&p)?, track_id: t, title: mt, artist: ma, duration_ms: Some(dur.max(0) as u64), confidence: conf, quality_kbps: None })
+                    })
+                    .collect())
+            })
+            .unwrap_or_default()
+    }
+
+    /// Saves what a search found, so the next play (here or, after a backup, on the phone) needs no search.
+    fn store_matches(&self, q: &AudioQuery, matches: &[ProviderMatch], winner: &ProviderMatch) {
+        let Some(store) = self.store.lock().expect("store").clone() else {
+            return;
+        };
+        let (q, matches, winner) = (q.clone(), matches.to_vec(), winner.clone());
+        let _ = store.call_blocking(move |c| {
+            let Some(id) = q.catalog_id.clone() else { return Ok(()) };
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+            let tx = c.transaction()?;
+            tx.execute("UPDATE audio_fallback_match SET selected = 0 WHERE catalogId = ?1", [&id])?;
+            for m in &matches {
+                tx.execute(
+                    "INSERT OR REPLACE INTO audio_fallback_match (catalogId, provider, providerTrackId, matchedTitle, matchedArtist, confidence, title, artists, album, durationMs, isrc, selected, matchedAt) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                    rusqlite::params![
+                        id, m.provider.name(), m.track_id, m.title, m.artist, m.confidence, q.title, q.artists.join(", "), q.album,
+                        q.duration_ms as i64, q.isrc, (m == &winner) as i64, now
+                    ],
+                )?;
+            }
+            tx.commit()?;
+            Ok(())
+        });
     }
 
     fn source_for(&self, p: &Playable) -> Result<(CachedSource, Option<&'static str>), String> {
