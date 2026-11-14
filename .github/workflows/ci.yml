@@ -22,7 +22,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Linux packages
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config cmake
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config cmake libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libdbus-1-dev
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy

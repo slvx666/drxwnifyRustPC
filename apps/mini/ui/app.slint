@@ -1,0 +1,494 @@
+// Drxwnify Mini: the same layout as the Kotlin desktop app (pc/ Shell.kt): top bar, library on the left,
+// content in the middle, «Сейчас играет» on the right, player bar at the bottom. Static themes, no animation loops.
+
+import { ListView, LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme, Icons } from "theme.slint";
+
+export { Theme }
+
+export struct SongItem {
+    title: string,
+    artists: string,
+    duration: string,
+    liked: bool,
+    index: int,
+}
+
+export struct LibItem {
+    title: string,
+    subtitle: string,
+    kind: string, // liked | playlist | album | artist
+    id: string,
+}
+
+component Icon inherits Text {
+    font-family: "tabler-icons";
+    font-size: 18px;
+    color: Theme.dim;
+    horizontal-alignment: center;
+    vertical-alignment: center;
+}
+
+component IconButton inherits Rectangle {
+    in property <string> icon;
+    in property <length> size: 34px;
+    in property <length> icon-size: 18px;
+    in property <bool> filled: false;
+    in property <bool> active: false;
+    in property <color> tint: Theme.dim;
+    callback clicked();
+    width: size;
+    height: size;
+    border-radius: Theme.chip-radius > size / 2 ? size / 2 : Theme.chip-radius;
+    background: ta.has-hover ? Theme.fill-hover : (filled || active ? Theme.fill : transparent);
+    Icon { text: icon; font-size: icon-size; color: active ? Theme.text : tint; }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+component Chip inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    callback clicked();
+    height: 28px;
+    border-radius: Theme.chip-radius > 14px ? 14px : Theme.chip-radius;
+    background: selected ? Theme.accent : (ta.has-hover ? Theme.fill-hover : Theme.fill);
+    HorizontalLayout {
+        padding-left: 11px;
+        padding-right: 11px;
+        Text {
+            text: label;
+            font-size: 12px;
+            font-family: Theme.body-font;
+            color: selected ? Theme.on-accent : Theme.dim;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+component Panel inherits Rectangle {
+    background: Theme.panel;
+    border-color: Theme.panel-border;
+    border-width: 1px;
+    border-radius: Theme.panel-radius;
+    clip: true;
+}
+
+// Static vector backdrop: soft mist blobs in the theme colours, drawn once (no animation in Mini).
+component Backdrop inherits Rectangle {
+    background: @linear-gradient(160deg, Theme.bg2 0%, Theme.bg 60%);
+    Rectangle {
+        x: parent.width * 0.62;
+        y: -parent.height * 0.2;
+        width: parent.width * 0.6;
+        height: parent.height * 0.8;
+        background: @radial-gradient(circle, Theme.mist1.with-alpha(0.55) 0%, transparent 70%);
+    }
+    Rectangle {
+        x: -parent.width * 0.15;
+        y: parent.height * 0.45;
+        width: parent.width * 0.55;
+        height: parent.height * 0.75;
+        background: @radial-gradient(circle, Theme.mist2.with-alpha(0.45) 0%, transparent 70%);
+    }
+}
+
+component TopBar inherits Rectangle {
+    in-out property <string> search-text;
+    callback search(string);
+    callback home();
+    callback import-backup();
+    height: 64px;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 6px;
+        alignment: space-between;
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            Rectangle {
+                width: 32px;
+                height: 32px;
+                y: (parent.height - self.height) / 2;
+                border-radius: 8px;
+                background: Theme.accent2;
+                Text { text: Theme.brand; font-family: "Noto Serif JP"; font-size: 18px; color: white; horizontal-alignment: center; vertical-alignment: center; }
+            }
+            Text {
+                text: "drxwnify";
+                font-family: Theme.heading-font;
+                font-weight: Theme.heading-weight;
+                font-size: 19px;
+                color: Theme.text;
+                vertical-alignment: center;
+            }
+            Rectangle { width: 12px; }
+            IconButton { icon: Icons.chevron-left; filled: true; y: (parent.height - self.height) / 2; }
+            IconButton { icon: Icons.chevron-right; filled: true; y: (parent.height - self.height) / 2; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: center;
+            IconButton { icon: Icons.home; size: 46px; icon-size: 21px; filled: true; y: (parent.height - self.height) / 2; clicked => { root.home(); } }
+            Rectangle {
+                width: 400px;
+                height: 46px;
+                y: (parent.height - self.height) / 2;
+                border-radius: Theme.chip-radius > 23px ? 23px : Theme.chip-radius;
+                background: Theme.fill;
+                border-color: Theme.panel-border;
+                border-width: 1px;
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    spacing: 8px;
+                    Icon { text: Icons.search; width: 20px; }
+                    input := TextInput {
+                        text <=> root.search-text;
+                        font-family: Theme.body-font;
+                        font-size: 14px;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        accepted => { root.search(self.text); }
+                    }
+                    Text { text: "Ctrl K"; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; }
+                }
+                Text {
+                    x: 42px;
+                    visible: root.search-text == "";
+                    text: "Что хочешь включить?";
+                    font-family: Theme.body-font;
+                    font-size: 14px;
+                    color: Theme.mute;
+                    height: parent.height;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            alignment: end;
+            IconButton { icon: Icons.users; y: (parent.height - self.height) / 2; }
+            IconButton { icon: Icons.puzzle; y: (parent.height - self.height) / 2; }
+            IconButton { icon: Icons.download; y: (parent.height - self.height) / 2; }
+            IconButton { icon: Icons.upload; y: (parent.height - self.height) / 2; clicked => { root.import-backup(); } }
+        }
+    }
+}
+
+component LibraryPanel inherits Panel {
+    in property <[LibItem]> items;
+    in property <string> selected-id;
+    callback open(LibItem);
+    VerticalLayout {
+        padding: 14px;
+        spacing: 10px;
+        HorizontalLayout {
+            Text { text: "Медиатека"; font-family: Theme.heading-font; font-weight: 700; font-size: 15px; color: Theme.text; vertical-alignment: center; }
+            Rectangle { }
+            IconButton { icon: Icons.plus; size: 30px; icon-size: 16px; }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            Chip { label: "Плейлисты"; }
+            Chip { label: "Альбомы"; }
+            Chip { label: "Артисты"; }
+        }
+        ListView {
+            for item in root.items: Rectangle {
+                height: 64px;
+                border-radius: 10px;
+                background: item.id == root.selected-id ? Theme.fill-hover : (ta.has-hover ? Theme.fill : transparent);
+                HorizontalLayout {
+                    padding: 6px;
+                    spacing: 12px;
+                    Rectangle {
+                        width: 52px;
+                        height: 52px;
+                        border-radius: Theme.cover-radius;
+                        background: item.kind == "liked" ? Theme.accent : Theme.fill-hover;
+                        Icon {
+                            text: item.kind == "liked" ? Icons.heart-filled : Icons.music;
+                            color: item.kind == "liked" ? Theme.on-accent : Theme.mute;
+                            font-size: 20px;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Text { text: item.title; font-family: Theme.body-font; font-size: 14px; color: Theme.text; overflow: elide; }
+                        Text { text: item.subtitle; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; overflow: elide; }
+                    }
+                }
+                ta := TouchArea { clicked => { root.open(item); } }
+            }
+        }
+    }
+}
+
+component SongRow inherits Rectangle {
+    in property <SongItem> song;
+    in property <bool> current;
+    callback play();
+    height: 62px;
+    border-radius: 10px;
+    background: current ? Theme.fill-hover : (ta.has-hover ? Theme.fill : transparent);
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 16px;
+        spacing: 12px;
+        Text { width: 28px; text: song.index; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
+        VerticalLayout {
+            alignment: center;
+            Text { text: song.title; font-family: Theme.body-font; font-size: 15px; color: current ? Theme.accent : Theme.text; overflow: elide; }
+            Text { text: song.artists; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
+        }
+        Icon { width: 22px; text: song.liked ? Icons.heart-filled : ""; color: Theme.accent; font-size: 16px; }
+        Text { width: 48px; text: song.duration; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
+    }
+    ta := TouchArea { double-clicked => { root.play(); } }
+}
+
+component MainArea inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    in property <[SongItem]> songs;
+    in property <int> current-index: -1;
+    in property <bool> empty-library;
+    callback play(int);
+    callback import-backup();
+    VerticalLayout {
+        padding-left: 16px;
+        padding-right: 8px;
+        padding-top: 12px;
+        spacing: 8px;
+        Text { text: title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 30px; color: Theme.text; }
+        Text { text: subtitle; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; }
+        if root.empty-library: VerticalLayout {
+            alignment: center;
+            spacing: 14px;
+            Text { text: "Медиатека пуста"; font-family: Theme.heading-font; font-size: 20px; color: Theme.text; horizontal-alignment: center; }
+            Text { text: "Перенеси всё с телефона: резервная копия Drxwnify для Android (.backup)"; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; horizontal-alignment: center; }
+            HorizontalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 260px;
+                    height: 44px;
+                    border-radius: Theme.chip-radius > 22px ? 22px : Theme.chip-radius;
+                    background: ta.has-hover ? Theme.accent2 : Theme.accent;
+                    Text { text: "Импортировать резервную копию"; font-family: Theme.body-font; font-weight: 700; color: Theme.on-accent; }
+                    ta := TouchArea { clicked => { root.import-backup(); } }
+                }
+            }
+        }
+        if !root.empty-library: ListView {
+            for song in root.songs: SongRow {
+                song: song;
+                current: song.index - 1 == root.current-index;
+                play => { root.play(song.index - 1); }
+            }
+        }
+    }
+}
+
+component RightPanel inherits Panel {
+    in property <string> title;
+    in property <string> artists;
+    in property <string> info;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+        Text { text: "Сейчас играет"; font-family: Theme.heading-font; font-weight: 700; font-size: 15px; color: Theme.text; }
+        Rectangle {
+            height: self.width;
+            border-radius: Theme.cover-radius;
+            background: @linear-gradient(135deg, Theme.accent.with-alpha(0.35) 0%, Theme.fill 100%);
+            Icon { text: Icons.music; font-size: 64px; color: Theme.mute; }
+        }
+        Text { text: title == "" ? "Ничего не играет" : title; font-family: Theme.heading-font; font-weight: 700; font-size: 20px; color: Theme.text; overflow: elide; }
+        Text { text: artists; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+        Text { text: info; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; }
+        Rectangle { height: 1px; background: Theme.panel-border; }
+        Text { text: "ДАЛЕЕ"; font-family: Theme.body-font; font-weight: 700; font-size: 11px; color: Theme.mute; letter-spacing: 1.5px; }
+        Rectangle { }
+    }
+}
+
+component PlayerBar inherits Panel {
+    in property <string> title;
+    in property <string> artists;
+    in property <bool> playing;
+    in property <float> progress; // 0..1
+    in property <string> position;
+    in property <string> duration;
+    in-out property <float> volume: 0.8;
+    callback toggle();
+    callback next();
+    callback prev();
+    callback seek(float);
+    callback volume-changed(float);
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 18px;
+        spacing: 14px;
+        HorizontalLayout {
+            width: 300px;
+            spacing: 12px;
+            Rectangle { width: 56px; height: 56px; y: (parent.height - self.height) / 2; border-radius: Theme.cover-radius; background: Theme.fill-hover;
+                Icon { text: Icons.music; color: Theme.mute; } }
+            VerticalLayout {
+                alignment: center;
+                Text { text: title; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.text; overflow: elide; }
+                Text { text: artists; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 4px;
+            HorizontalLayout {
+                alignment: center;
+                spacing: 14px;
+                IconButton { icon: Icons.shuffle; }
+                IconButton { icon: Icons.prev; clicked => { root.prev(); } }
+                Rectangle {
+                    width: 42px;
+                    height: 42px;
+                    border-radius: 21px;
+                    background: pta.has-hover ? Theme.accent2 : Theme.accent;
+                    Icon { text: root.playing ? Icons.pause : Icons.play; color: Theme.on-accent; font-size: 20px; }
+                    pta := TouchArea { clicked => { root.toggle(); } }
+                }
+                IconButton { icon: Icons.next; clicked => { root.next(); } }
+                IconButton { icon: Icons.repeat; }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                Text { text: position; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; width: 44px; horizontal-alignment: right; }
+                Rectangle {
+                    height: 16px;
+                    Rectangle { y: 6px; height: 4px; border-radius: 2px; background: Theme.fill-hover; }
+                    Rectangle { x: 0; y: 6px; height: 4px; width: parent.width * root.progress; border-radius: 2px; background: Theme.accent; }
+                    sta := TouchArea { clicked => { root.seek(self.mouse-x / self.width); } }
+                }
+                Text { text: duration; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; width: 44px; }
+            }
+        }
+        HorizontalLayout {
+            width: 220px;
+            spacing: 8px;
+            alignment: end;
+            IconButton { icon: Icons.moon; y: (parent.height - self.height) / 2; }
+            IconButton { icon: Icons.list; y: (parent.height - self.height) / 2; }
+            Icon { text: Icons.volume; width: 24px; }
+            Rectangle {
+                width: 90px;
+                Rectangle { y: (parent.height - 4px) / 2; height: 4px; border-radius: 2px; background: Theme.fill-hover; }
+                Rectangle { x: 0; y: (parent.height - 4px) / 2; height: 4px; width: parent.width * root.volume; border-radius: 2px; background: Theme.text; }
+                vta := TouchArea {
+                    clicked => { root.volume = max(0, min(1, self.mouse-x / self.width)); root.volume-changed(root.volume); }
+                }
+            }
+        }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "Drxwnify Mini";
+    min-width: 1000px;
+    min-height: 640px;
+    preferred-width: 1440px;
+    preferred-height: 900px;
+    background: Theme.bg;
+    default-font-family: Theme.body-font;
+
+    in property <[LibItem]> library;
+    in-out property <string> selected-id: "liked";
+    in property <string> view-title: "Любимые треки";
+    in property <string> view-subtitle;
+    in property <[SongItem]> songs;
+    in property <int> current-index: -1;
+    in property <bool> empty-library;
+    in property <string> now-title;
+    in property <string> now-artists;
+    in property <string> now-info;
+    in property <bool> playing;
+    in property <float> progress;
+    in property <string> position: "0:00";
+    in property <string> duration: "0:00";
+    in property <string> toast;
+
+    callback open-library(LibItem);
+    callback play(int);
+    callback toggle();
+    callback next();
+    callback prev();
+    callback seek(float);
+    callback volume-changed(float);
+    callback import-backup();
+    callback search(string);
+    callback list-changed();
+    callback library-changed();
+
+    Backdrop { }
+    VerticalLayout {
+        TopBar {
+            import-backup => { root.import-backup(); }
+            search(q) => { root.search(q); }
+        }
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 10px;
+            LibraryPanel {
+                width: 270px;
+                items: root.library;
+                selected-id: root.selected-id;
+                open(item) => { root.selected-id = item.id; root.open-library(item); }
+            }
+            MainArea {
+                title: root.view-title;
+                subtitle: root.view-subtitle;
+                songs: root.songs;
+                current-index: root.current-index;
+                empty-library: root.empty-library;
+                play(i) => { root.play(i); }
+                import-backup => { root.import-backup(); }
+            }
+            RightPanel {
+                width: 310px;
+                title: root.now-title;
+                artists: root.now-artists;
+                info: root.now-info;
+            }
+        }
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            PlayerBar {
+                height: 88px;
+                title: root.now-title;
+                artists: root.now-artists;
+                playing: root.playing;
+                progress: root.progress;
+                position: root.position;
+                duration: root.duration;
+                toggle => { root.toggle(); }
+                next => { root.next(); }
+                prev => { root.prev(); }
+                seek(f) => { root.seek(f); }
+                volume-changed(v) => { root.volume-changed(v); }
+            }
+        }
+        Rectangle { height: 12px; }
+    }
+    if root.toast != "": Rectangle {
+        x: (root.width - 420px) / 2;
+        y: root.height - 160px;
+        width: 420px;
+        height: 44px;
+        border-radius: 12px;
+        background: Theme.menu;
+        Text { text: root.toast; color: Theme.text; font-size: 13px; }
+    }
+}

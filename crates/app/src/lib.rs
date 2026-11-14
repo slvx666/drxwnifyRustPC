@@ -52,6 +52,25 @@ pub enum CommandOutcome {
     },
 }
 
+/// One row of the library panel (left column).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibraryEntry {
+    pub kind: LibraryKind,
+    pub id: String,
+    pub title: String,
+    pub subtitle: String,
+    pub thumbnail: Option<String>,
+    pub pinned: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryKind {
+    Liked,
+    Playlist,
+    Album,
+    Artist,
+}
+
 /// Library numbers shown on the home page and in settings.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LibraryCounts {
@@ -296,6 +315,75 @@ impl App {
         }
     }
 
+    /// Rows of the library panel: liked songs, local playlists, saved albums and artists (newest first).
+    pub async fn library_entries(&self) -> AppResult<Vec<LibraryEntry>> {
+        Ok(self
+            .store()
+            .call(|c| {
+                let liked: i64 = c.query_row("SELECT count(*) FROM song WHERE liked = 1", [], |r| r.get(0))?;
+                let mut out = vec![LibraryEntry {
+                    kind: LibraryKind::Liked,
+                    id: "liked".into(),
+                    title: "Любимые треки".into(),
+                    subtitle: format!("{liked} треков"),
+                    thumbnail: None,
+                    pinned: true,
+                }];
+                let mut st = c.prepare(
+                    "SELECT p.id, p.name, p.thumbnailUrl, (SELECT count(*) FROM playlist_song_map m WHERE m.playlistId = p.id)
+                     FROM playlist p ORDER BY coalesce(p.lastUpdateTime, p.createdAt) DESC",
+                )?;
+                let rows = st.query_map([], |r| {
+                    Ok(LibraryEntry {
+                        kind: LibraryKind::Playlist,
+                        id: r.get(0)?,
+                        title: r.get(1)?,
+                        subtitle: format!("Плейлист · {}", r.get::<_, i64>(3)?),
+                        thumbnail: r.get(2)?,
+                        pinned: false,
+                    })
+                })?;
+                for r in rows {
+                    out.push(r?);
+                }
+                let mut st = c.prepare(
+                    "SELECT a.id, a.title, a.thumbnailUrl, (SELECT group_concat(ar.name, ', ') FROM album_artist_map m JOIN artist ar ON ar.id = m.artistId WHERE m.albumId = a.id)
+                     FROM album a WHERE a.bookmarkedAt IS NOT NULL ORDER BY a.bookmarkedAt DESC",
+                )?;
+                let rows = st.query_map([], |r| {
+                    Ok(LibraryEntry {
+                        kind: LibraryKind::Album,
+                        id: r.get(0)?,
+                        title: r.get(1)?,
+                        subtitle: format!("Альбом · {}", r.get::<_, Option<String>>(3)?.unwrap_or_default()),
+                        thumbnail: r.get(2)?,
+                        pinned: false,
+                    })
+                })?;
+                for r in rows {
+                    out.push(r?);
+                }
+                let mut st = c.prepare(
+                    "SELECT id, name, thumbnailUrl FROM artist WHERE bookmarkedAt IS NOT NULL ORDER BY bookmarkedAt DESC",
+                )?;
+                let rows = st.query_map([], |r| {
+                    Ok(LibraryEntry {
+                        kind: LibraryKind::Artist,
+                        id: r.get(0)?,
+                        title: r.get(1)?,
+                        subtitle: "Исполнитель".into(),
+                        thumbnail: r.get(2)?,
+                        pinned: false,
+                    })
+                })?;
+                for r in rows {
+                    out.push(r?);
+                }
+                Ok(out)
+            })
+            .await?)
+    }
+
     /// Opens a live list. Rows are fetched by range; [`AppEvent::ListChanged`] tells when to fetch again.
     pub fn open_list(&self, spec: ListSpec) -> ListHandle {
         self.inner.lists.open(spec)
@@ -363,6 +451,8 @@ mod tests {
         let n = rt.block_on(app.list_len(h)).unwrap();
         let rows = rt.block_on(app.list_rows(h, 0..20)).unwrap();
         assert!(n > 0 && !rows.is_empty());
+        let entries = rt.block_on(app.library_entries()).unwrap();
+        assert!(entries.len() > 1 && entries[0].kind == LibraryKind::Liked);
         let state = app.state().borrow().clone();
         eprintln!("liked={n} state={:?}", state.library);
         assert_eq!(state.library.liked as usize, n);

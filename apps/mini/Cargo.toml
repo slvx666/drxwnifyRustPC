@@ -9,7 +9,15 @@ authors.workspace = true
 description = "Drxwnify Mini: light native desktop player"
 
 [dependencies]
+drx-app.workspace = true
 drx-core.workspace = true
+slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software"] }
+rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
+serde_json = "1"
+tracing = "0.1"
+
+[build-dependencies]
+slint-build = "1.18"
 
 [lints]
 workspace = true
