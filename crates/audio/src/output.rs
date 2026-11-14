@@ -1,6 +1,7 @@
 //! The audio output device. One thread owns the cpal stream (some backends' streams cannot move between threads)
 //! and runs the [`Mixer`] in its callback. The stream is paused when nothing plays, so the PC is not woken every
-//! 10 ms and can sleep; it is rebuilt on the new default device when the old one disappears.
+//! 10 ms and can sleep; it is rebuilt on the new default device when the old one disappears, and — checked every
+//! 2 s while playing — when the user picks another default device (WASAPI keeps the old stream running then).
 //!
 //! Output is 48 kHz stereo `f32`. On Windows cpal opens WASAPI shared mode with AUTOCONVERTPCM, so Windows converts to
 //! the device rate if it differs.
@@ -47,9 +48,18 @@ impl Output {
     }
 }
 
-fn build(mixer: &Arc<Mutex<Mixer>>, tx: &Sender<OutCmd>) -> Result<cpal::Stream, String> {
+/// The id of the current default output device (None when there is none or it cannot say).
+fn default_id() -> Option<cpal::DeviceId> {
+    cpal::default_host().default_output_device()?.id().ok()
+}
+
+fn build(
+    mixer: &Arc<Mutex<Mixer>>,
+    tx: &Sender<OutCmd>,
+) -> Result<(cpal::Stream, Option<cpal::DeviceId>), String> {
     let host = cpal::default_host();
     let device = host.default_output_device().ok_or("no output device")?;
+    let id = device.id().ok();
     let config = cpal::StreamConfig {
         channels: 2,
         sample_rate: RATE,
@@ -71,6 +81,7 @@ fn build(mixer: &Arc<Mutex<Mixer>>, tx: &Sender<OutCmd>) -> Result<cpal::Stream,
             },
             None,
         )
+        .map(|s| (s, id))
         .map_err(|e| e.to_string())
 }
 
@@ -80,10 +91,10 @@ fn run(
     tx: Sender<OutCmd>,
     ready: Sender<Result<(), String>>,
 ) {
-    let mut stream = match build(&mixer, &tx) {
-        Ok(s) => {
+    let (mut stream, mut device) = match build(&mixer, &tx) {
+        Ok((s, id)) => {
             let _ = ready.send(Ok(()));
-            Some(s)
+            (Some(s), id)
         }
         Err(e) => {
             let _ = ready.send(Err(e));
@@ -91,7 +102,28 @@ fn run(
         }
     };
     let mut running = false;
-    while let Ok(cmd) = rx.recv() {
+    loop {
+        // While playing, wake every 2 s to notice a new default device; while idle, just wait.
+        let cmd = if running {
+            match rx.recv_timeout(Duration::from_secs(2)) {
+                Ok(c) => c,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    let now = default_id();
+                    if now.is_some() && now != device {
+                        tracing::info!("default output device changed: moving the stream");
+                        OutCmd::Rebuild
+                    } else {
+                        continue;
+                    }
+                }
+                Err(_) => return,
+            }
+        } else {
+            match rx.recv() {
+                Ok(c) => c,
+                Err(_) => return,
+            }
+        };
         match cmd {
             OutCmd::Run => {
                 if !running && let Some(s) = &stream {
@@ -107,7 +139,13 @@ fn run(
             OutCmd::Rebuild => {
                 drop(stream.take());
                 std::thread::sleep(Duration::from_millis(300));
-                stream = build(&mixer, &tx).ok();
+                match build(&mixer, &tx) {
+                    Ok((s, id)) => {
+                        stream = Some(s);
+                        device = id;
+                    }
+                    Err(e) => tracing::warn!("audio output rebuild: {e}"),
+                }
                 if running && let Some(s) = &stream {
                     running = s.play().is_ok();
                 }
