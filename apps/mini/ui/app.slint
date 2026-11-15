@@ -11,6 +11,13 @@ import { Icons } from "icons.slint";
 
 export { Theme }
 
+export struct ReactionChip {
+    label: string, // the emoji, or «стикер» for a sticker key
+    key: string,
+    count: int,
+    mine: bool,
+}
+
 export struct ChatItem {
     id: string,
     mine: bool,
@@ -25,6 +32,7 @@ export struct ChatItem {
     music-by: string,
     music-cover: image,
     has-music-cover: bool,
+    reactions: [ReactionChip],
 }
 
 export struct SongItem {
@@ -1973,6 +1981,16 @@ component ChatBubble inherits Rectangle {
     in property <ChatItem> m;
     in property <length> max-w: 480px;
     callback play();
+    callback react(string);
+    callback menu(length, length);
+    // Behind the content: a right press opens the message menu (the play button inside still gets its presses).
+    TouchArea {
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                root.menu(root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+            }
+        }
+    }
     probe := Text { visible: false; text: root.m.text; font-family: Theme.body-font; font-size: 14px; }
     property <length> text-w: min(root.max-w - 24px, probe.preferred-width + 1px);
     property <length> inner-w: max(root.m.has-music ? root.max-w - 24px : 0px, max(root.text-w, meta.preferred-width));
@@ -2019,6 +2037,28 @@ component ChatBubble inherits Rectangle {
                 }
             }
             if root.m.mine && root.m.state == 2: Text { text: "не отправлено"; font-family: Theme.mono-font; font-size: 10px; color: #E5484D; vertical-alignment: center; }
+            Rectangle { width: 4px; }
+            for r in root.m.reactions: Rectangle {
+                height: 20px;
+                width: chip-text.preferred-width + 14px;
+                border-radius: 10px;
+                background: r.mine ? Theme.accent.mix(Theme.bg, 0.3) : Theme.fill-hover;
+                chip-text := Text {
+                    text: r.count > 1 ? r.label + " " + r.count : r.label;
+                    font-size: 12px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                TouchArea { mouse-cursor: pointer; clicked => { root.react(r.key); } }
+            }
+            Middle {
+                Rectangle {
+                    width: 18px;
+                    height: 18px;
+                    Icon { icon: Icons.heart; size: 12px; color: ha.has-hover ? Theme.accent : Theme.mute; }
+                    ha := TouchArea { mouse-cursor: pointer; clicked => { root.react("e:❤️"); } }
+                }
+            }
         }
     }
 }
@@ -2043,8 +2083,16 @@ component FriendsView inherits Rectangle {
     in property <string> f-tab; // chat | history | likes | playlists
     in property <[ChatItem]> f-chat;
     in-out property <string> chat-text;
+    in property <bool> chat-editing;
+    in property <bool> f-can-along; // the friend plays something and lets others listen along
+    in property <bool> f-along; // this app follows them now
     callback chat-send(string);
     callback chat-play(int);
+    callback chat-react(int, string);
+    callback chat-menu(int, length, length);
+    callback chat-cancel-edit();
+    callback along();
+    callback remove();
     in property <string> f-likes;
     in property <[SongItem]> f-tracks;
     in property <string> f-empty;
@@ -2228,8 +2276,12 @@ component FriendsView inherits Rectangle {
                 spacing: 4px;
                 horizontal-stretch: 1;
                 Text { text: root.f-name; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
-                Text { text: root.f-status; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; overflow: elide; }
+                Text { text: root.f-status; font-family: Theme.mono-font; font-size: 12px; color: root.f-along ? Theme.accent : Theme.mute; overflow: elide; }
             }
+            if root.f-along || root.f-can-along: Middle {
+                Pill { label: root.f-along ? "Перестать слушать" : "Слушать вместе"; primary: !root.f-along; clicked => { root.along(); } }
+            }
+            Middle { IconButton { icon: Icons.trash; filled: true; clicked => { root.remove(); } } }
         }
         HorizontalLayout {
             padding-left: Grid.pad + 4px;
@@ -2259,6 +2311,8 @@ component FriendsView inherits Rectangle {
                         max-w: min(480px, (chat.width - 2 * Grid.pad) * 0.8);
                         x: m.mine ? parent.width - self.width - Grid.pad : Grid.pad + 4px;
                         play => { root.chat-play(i); }
+                        react(k) => { root.chat-react(i, k); }
+                        menu(x, y) => { root.chat-menu(i, x, y); }
                     }
                 }
             }
@@ -2271,6 +2325,14 @@ component FriendsView inherits Rectangle {
                 Text { text: "В чате пока тихо"; horizontal-alignment: center; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.text; }
                 Text { text: "Напиши " + root.f-name + " первое сообщение!"; horizontal-alignment: center; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; }
             }
+        }
+        if root.f-tab == "chat" && root.chat-editing: HorizontalLayout {
+            padding-left: Grid.pad + 8px;
+            padding-right: Grid.pad;
+            spacing: 8px;
+            Middle { Icon { icon: Icons.pencil; size: 14px; color: Theme.accent; } }
+            Text { text: "Изменение сообщения"; font-family: Theme.body-font; font-weight: 700; font-size: 12px; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; }
+            Middle { IconButton { icon: Icons.x; size: 24px; icon-size: 13px; clicked => { root.chat-cancel-edit(); } } }
         }
         if root.f-tab == "chat": HorizontalLayout {
             padding-left: Grid.pad + 4px;
@@ -2534,8 +2596,18 @@ export component MainWindow inherits Window {
     in property <string> friend-tab: "chat";
     in property <[ChatItem]> friend-chat;
     in-out property <string> friend-chat-text;
+    in property <bool> friend-chat-editing;
+    in property <bool> friend-can-along;
+    in property <bool> friend-along;
     callback friend-chat-send(string);
     callback friend-chat-play(int);
+    callback friend-chat-action(int, string); // «r:<key>» react, «edit», «del», «del-both», «cancel-edit»
+    callback friend-toggle-along();
+    callback friend-remove();
+    in-out property <int> chat-menu-index;
+    in-out property <length> chat-menu-x;
+    in-out property <length> chat-menu-y;
+    in-out property <bool> chat-menu-mine;
     in property <string> friend-likes;
     in property <[SongItem]> friend-tracks;
     in property <string> friend-empty;
@@ -2770,6 +2842,20 @@ export component MainWindow inherits Window {
                         chat-text <=> root.friend-chat-text;
                         chat-send(t) => { root.friend-chat-send(t); }
                         chat-play(i) => { root.friend-chat-play(i); }
+                        chat-editing: root.friend-chat-editing;
+                        f-can-along: root.friend-can-along;
+                        f-along: root.friend-along;
+                        chat-react(i, k) => { root.friend-chat-action(i, "r:" + k); }
+                        chat-cancel-edit => { root.friend-chat-action(-1, "cancel-edit"); }
+                        chat-menu(i, x, y) => {
+                            root.chat-menu-index = i;
+                            root.chat-menu-mine = root.friend-chat[i].mine;
+                            root.chat-menu-x = x;
+                            root.chat-menu-y = y;
+                            chat-menu.show();
+                        }
+                        along => { root.friend-toggle-along(); }
+                        remove => { root.friend-remove(); }
                         f-likes: root.friend-likes;
                         f-tracks: root.friend-tracks;
                         f-empty: root.friend-empty;
@@ -2876,6 +2962,39 @@ export component MainWindow inherits Window {
                 if root.menu-has-artist || root.menu-has-album: HLine { }
                 if root.menu-has-artist: MenuItem { icon: Icons.user-circle; label: "К исполнителю"; clicked => { root.track-menu-action("artist", root.menu-id); } }
                 if root.menu-has-album: MenuItem { icon: Icons.album; label: "К альбому"; clicked => { root.track-menu-action("album", root.menu-id); } }
+            }
+        }
+    }
+    // A chat message's menu: quick reactions, then change (mine) and delete.
+    chat-menu := PopupWindow {
+        x: max(0px, min(root.chat-menu-x, root.width - 268px));
+        y: max(0px, min(root.chat-menu-y, root.height - chat-box.preferred-height - 8px));
+        width: 260px;
+        chat-box := Rectangle {
+            border-radius: Grid.item-radius;
+            background: Theme.menu;
+            border-color: Theme.panel-border;
+            border-width: 1px;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000060;
+            VerticalLayout {
+                padding: 6px;
+                spacing: 2px;
+                HorizontalLayout {
+                    spacing: 2px;
+                    for e in ["❤️", "👍", "🔥", "😂", "😭", "😍", "🤯"]: Rectangle {
+                        width: 34px;
+                        height: 34px;
+                        border-radius: 17px;
+                        background: ea.has-hover ? Theme.fill-hover : transparent;
+                        Text { text: e; font-size: 18px; }
+                        ea := TouchArea { mouse-cursor: pointer; clicked => { root.friend-chat-action(root.chat-menu-index, "r:e:" + e); } }
+                    }
+                }
+                HLine { }
+                if root.chat-menu-mine: MenuItem { icon: Icons.pencil; label: "Изменить"; clicked => { root.friend-chat-action(root.chat-menu-index, "edit"); } }
+                MenuItem { icon: Icons.trash; label: "Удалить у меня"; clicked => { root.friend-chat-action(root.chat-menu-index, "del"); } }
+                if root.chat-menu-mine: MenuItem { icon: Icons.trash; label: "Удалить у всех"; clicked => { root.friend-chat-action(root.chat-menu-index, "del-both"); } }
             }
         }
     }
@@ -3008,7 +3127,7 @@ export component MainWindow inherits Window {
                     color: Theme.dim;
                 }
                 // Delete: what goes, and the two answers.
-                if root.dialog-kind == "delete": HorizontalLayout {
+                if root.dialog-kind == "delete" || root.dialog-kind == "unfriend": HorizontalLayout {
                     spacing: 10px;
                     alignment: end;
                     Rectangle {

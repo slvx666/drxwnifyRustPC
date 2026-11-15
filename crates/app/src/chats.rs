@@ -29,6 +29,8 @@ pub struct ChatRow {
     pub read: bool,
     /// A shared track, album, playlist or artist.
     pub music: Option<ChatMusic>,
+    /// Reactions on it: (key «e:<emoji>» / «s:<sticker>», put by me).
+    pub reactions: Vec<(String, bool)>,
 }
 
 /// A music card in a message (spec §1.4 ChatMusic): `kind` is track | album | playlist | artist.
@@ -84,7 +86,10 @@ impl ChatStore {
                  state INTEGER NOT NULL, read INTEGER NOT NULL DEFAULT 0, edited INTEGER NOT NULL DEFAULT 0,
                  deleted INTEGER NOT NULL DEFAULT 0, eventId TEXT, PRIMARY KEY (owner, peer, id));
              CREATE INDEX IF NOT EXISTS message_ts ON message (owner, peer, ts);
-             CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);",
+             CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
+             CREATE TABLE IF NOT EXISTS reaction (owner TEXT NOT NULL, peer TEXT NOT NULL, msgId TEXT NOT NULL,
+                 author TEXT NOT NULL, keys TEXT NOT NULL, ts INTEGER NOT NULL, eventId TEXT,
+                 PRIMARY KEY (owner, peer, msgId, author));",
         )?;
         Ok(ChatStore {
             db: Mutex::new(c),
@@ -151,6 +156,10 @@ impl ChatStore {
                         params![me, w.peer, id],
                     )
                     .unwrap_or(0);
+                let _ = c.execute(
+                    "DELETE FROM reaction WHERE owner = ?1 AND peer = ?2 AND msgId = ?3",
+                    params![me, w.peer, id],
+                );
                 if n == 0 {
                     c.execute(
                         "INSERT OR IGNORE INTO message (owner, peer, id, mine, ts, text, state, deleted) VALUES (?1, ?2, ?3, ?4, ?5, '', ?6, 1)",
@@ -165,7 +174,29 @@ impl ChatStore {
                 "UPDATE message SET read = 1 WHERE owner = ?1 AND peer = ?2 AND mine = ?3 AND ts <= ?4 AND read = 0",
                 params![me, w.peer, !w.mine, up_to],
             ),
-            Payload::Typing | Payload::Reaction { .. } => Ok(0),
+            Payload::Reaction { id, ts, keys } => {
+                let author = if w.mine { me } else { w.peer.as_str() };
+                let gone: bool = c
+                    .query_row(
+                        "SELECT deleted FROM message WHERE owner = ?1 AND peer = ?2 AND id = ?3",
+                        params![me, w.peer, id],
+                        |r| r.get(0),
+                    )
+                    .unwrap_or(false);
+                if gone {
+                    Ok(0)
+                } else {
+                    // The newer set wins; the same moment twice: the event id decides, the same on every device.
+                    c.execute(
+                        "INSERT INTO reaction (owner, peer, msgId, author, keys, ts, eventId) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                         ON CONFLICT (owner, peer, msgId, author) DO UPDATE SET keys = excluded.keys, ts = excluded.ts,
+                             eventId = excluded.eventId
+                         WHERE excluded.ts > reaction.ts OR (excluded.ts = reaction.ts AND excluded.eventId > coalesce(reaction.eventId, ''))",
+                        params![me, w.peer, id, author, keys.join("\n"), ts, w.event_id],
+                    )
+                }
+            }
+            Payload::Typing => Ok(0),
         };
         r.map(|n| n > 0).unwrap_or(false)
     }
@@ -294,11 +325,35 @@ impl App {
                     state: r.get(5)?,
                     read: r.get(6)?,
                     music: r.get::<_, Option<String>>(7)?.as_deref().and_then(ChatMusic::parse),
+                    reactions: Vec::new(),
                 })
             })
             .map(|it| it.flatten().collect())
             .unwrap_or_default();
         rows.reverse();
+        if let Some(oldest) = rows.first().map(|r| r.ts)
+            && let Ok(mut st) = c.prepare(
+                "SELECT r.msgId, r.author, r.keys FROM reaction r JOIN message m
+                     ON m.owner = r.owner AND m.peer = r.peer AND m.id = r.msgId
+                 WHERE r.owner = ?1 AND r.peer = ?2 AND m.ts >= ?3 ORDER BY r.ts",
+            )
+        {
+            let mut by_msg: std::collections::HashMap<String, Vec<(String, bool)>> = std::collections::HashMap::new();
+            let found = st.query_map(params![me, peer, oldest], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+            });
+            for (msg, author, keys) in found.map(|it| it.flatten().collect::<Vec<_>>()).unwrap_or_default() {
+                let list = by_msg.entry(msg).or_default();
+                for k in keys.split('\n').filter(|k| !k.is_empty()) {
+                    list.push((k.to_string(), author == me));
+                }
+            }
+            for row in &mut rows {
+                if let Some(v) = by_msg.remove(&row.id) {
+                    row.reactions = v;
+                }
+            }
+        }
         rows
     }
 
@@ -334,6 +389,147 @@ impl App {
                 }
             });
         }
+    }
+
+    /// Changes the text of my message; the friend's app shows it changed too.
+    pub fn edit_chat(&self, peer: &str, id: &str, text: &str) -> crate::AppResult<()> {
+        let text: String = text.trim().chars().take(chat::MAX_TEXT).collect();
+        let (store, f) = self.chat_parts()?;
+        let me = f.me();
+        let old: Option<String> = {
+            let c = store.db.lock().expect("chat db");
+            c.query_row(
+                "SELECT text FROM message WHERE owner = ?1 AND peer = ?2 AND id = ?3 AND mine = 1 AND deleted = 0",
+                params![me, peer, id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| crate::AppError::Other(e.to_string()))?
+        };
+        let Some(old) = old else { return Err(crate::AppError::Other("это не моё сообщение".into())) };
+        if text.is_empty() || text == old {
+            return Ok(());
+        }
+        if !crate::social::may_publish_pub() {
+            return Err(crate::AppError::Other("в тестовом запуске сообщения не меняю".into()));
+        }
+        {
+            let c = store.db.lock().expect("chat db");
+            c.execute(
+                "UPDATE message SET text = ?4, edited = 1 WHERE owner = ?1 AND peer = ?2 AND id = ?3",
+                params![me, peer, id, text],
+            )
+            .map_err(|e| crate::AppError::Other(e.to_string()))?;
+        }
+        store.bump();
+        if let Some(e) = chat::edit_event(&f.keys(), peer, id, now_ms(), &text) {
+            let pool = f.pool();
+            self.runtime.spawn(async move {
+                pool.publish(&e, Duration::from_secs(20)).await;
+            });
+        }
+        Ok(())
+    }
+
+    /// Deletes a message here; `for_both` (my own) also from the friend's app, and relays are asked to drop it.
+    pub fn delete_chat(&self, peer: &str, id: &str, for_both: bool) -> crate::AppResult<()> {
+        let (store, f) = self.chat_parts()?;
+        let me = f.me();
+        if !crate::social::may_publish_pub() {
+            return Err(crate::AppError::Other("в тестовом запуске сообщения не удаляю".into()));
+        }
+        let (mine, event_id): (bool, Option<String>) = {
+            let c = store.db.lock().expect("chat db");
+            let row = c
+                .query_row(
+                    "SELECT mine, eventId FROM message WHERE owner = ?1 AND peer = ?2 AND id = ?3",
+                    params![me, peer, id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()
+                .map_err(|e| crate::AppError::Other(e.to_string()))?;
+            let Some(row) = row else { return Ok(()) };
+            let _ = c.execute(
+                "UPDATE message SET text = '', music = NULL, deleted = 1, eventId = NULL WHERE owner = ?1 AND peer = ?2 AND id = ?3",
+                params![me, peer, id],
+            );
+            let _ = c.execute("DELETE FROM reaction WHERE owner = ?1 AND peer = ?2 AND msgId = ?3", params![me, peer, id]);
+            row
+        };
+        store.bump();
+        if for_both && mine {
+            let (keys, pool, peer, id) = (f.keys(), f.pool(), peer.to_string(), id.to_string());
+            self.runtime.spawn(async move {
+                if let Some(e) = chat::delete_event(&keys, &peer, &id, now_ms()) {
+                    pool.publish(&e, Duration::from_secs(20)).await;
+                }
+                if let Some(eid) = event_id {
+                    pool.publish(&chat::relay_delete_event(&keys, &eid), Duration::from_secs(20)).await;
+                }
+            });
+        }
+        Ok(())
+    }
+
+    /// Puts a reaction on a message or takes it off (at most three of mine); the friend gets my whole set.
+    pub fn react_chat(&self, peer: &str, id: &str, key: &str) -> crate::AppResult<()> {
+        if !chat::well_formed_reaction(key) {
+            return Ok(());
+        }
+        let (store, f) = self.chat_parts()?;
+        let me = f.me();
+        if !crate::social::may_publish_pub() {
+            return Err(crate::AppError::Other("в тестовом запуске реакции не ставлю".into()));
+        }
+        let (keys, ts) = {
+            let c = store.db.lock().expect("chat db");
+            let gone: Option<bool> = c
+                .query_row(
+                    "SELECT deleted FROM message WHERE owner = ?1 AND peer = ?2 AND id = ?3",
+                    params![me, peer, id],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(|e| crate::AppError::Other(e.to_string()))?;
+            if gone != Some(false) {
+                return Ok(());
+            }
+            let old: Option<(String, i64)> = c
+                .query_row(
+                    "SELECT keys, ts FROM reaction WHERE owner = ?1 AND peer = ?2 AND msgId = ?3 AND author = ?1",
+                    params![me, peer, id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()
+                .map_err(|e| crate::AppError::Other(e.to_string()))?;
+            let current: Vec<String> = old
+                .as_ref()
+                .map(|(k, _)| k.split('\n').filter(|k| !k.is_empty()).map(str::to_string).collect())
+                .unwrap_or_default();
+            let keys = chat::toggle_reaction(&current, key);
+            let ts = now_ms().max(old.map_or(0, |(_, t)| t + 1));
+            c.execute(
+                "INSERT INTO reaction (owner, peer, msgId, author, keys, ts) VALUES (?1, ?2, ?3, ?1, ?4, ?5)
+                 ON CONFLICT (owner, peer, msgId, author) DO UPDATE SET keys = excluded.keys, ts = excluded.ts",
+                params![me, peer, id, keys.join("\n"), ts],
+            )
+            .map_err(|e| crate::AppError::Other(e.to_string()))?;
+            (keys, ts)
+        };
+        store.bump();
+        if let Some(e) = chat::reaction_event(&f.keys(), peer, id, ts, &keys) {
+            let pool = f.pool();
+            self.runtime.spawn(async move {
+                pool.publish(&e, Duration::from_secs(20)).await;
+            });
+        }
+        Ok(())
+    }
+
+    fn chat_parts(&self) -> crate::AppResult<(Arc<ChatStore>, drx_social::friends::Friends)> {
+        self.chat_store()
+            .zip(self.friends())
+            .ok_or_else(|| crate::AppError::Other("нет профиля друзей".into()))
     }
 
     /// Sends a text message: shown at once as «sending», then «sent» or «failed».

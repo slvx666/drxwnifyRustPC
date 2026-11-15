@@ -3,6 +3,7 @@
 
 mod accounts;
 pub mod chats;
+pub mod listen_along;
 pub mod edition;
 pub mod genres;
 mod history;
@@ -182,6 +183,9 @@ struct Inner {
     genres: Mutex<genres::GenreCache>,
     friends: std::sync::OnceLock<Option<drx_social::friends::Friends>>,
     history_publish: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// The friend followed by «слушать вместе» and the task that follows them.
+    listen_along: Mutex<Option<(String, tokio::task::JoinHandle<()>)>>,
+    listen_along_version: watch::Sender<u64>,
     chats: std::sync::OnceLock<Option<Arc<chats::ChatStore>>>,
 }
 
@@ -228,6 +232,8 @@ impl App {
             genres: Mutex::default(),
             friends: std::sync::OnceLock::new(),
             history_publish: Mutex::default(),
+            listen_along: Mutex::default(),
+            listen_along_version: watch::channel(0).0,
             chats: std::sync::OnceLock::new(),
             lists: lists::Lists::default(),
             profile,

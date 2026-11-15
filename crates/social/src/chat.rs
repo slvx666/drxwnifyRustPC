@@ -3,7 +3,7 @@
 //! kind 21004. Both directions are read here: what friends sent to this identity and what this identity sent to
 //! them from any device (the phone keeps its own sent messages only in its local database).
 
-use crate::nostr::{Event, KIND_DM, KIND_TYPING, Keys};
+use crate::nostr::{Event, KIND_DELETE, KIND_DM, KIND_TYPING, Keys};
 use serde_json::{Value, json};
 
 pub const TYPE: &str = "drxw-chat";
@@ -68,7 +68,16 @@ pub fn decode(keys: &Keys, e: &Event) -> Option<ChatWord> {
             keys: o
                 .get("r")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(|k| k.as_str().map(str::to_string)).take(3).collect())
+                .map(|a| {
+                    let mut v: Vec<String> = Vec::new();
+                    for k in a.iter().filter_map(Value::as_str).filter(|k| well_formed_reaction(k)) {
+                        if !v.iter().any(|x| x == k) {
+                            v.push(k.to_string());
+                        }
+                    }
+                    v.truncate(MAX_REACTIONS);
+                    v
+                })
                 .unwrap_or_default(),
         }
     } else if t == TYPE {
@@ -124,6 +133,51 @@ pub fn read_event(keys: &Keys, peer: &str, up_to: i64) -> Option<Event> {
     Some(keys.sign(KIND_DM, vec![vec!["p".into(), peer.to_string()]], content))
 }
 
+fn sealed(keys: &Keys, peer: &str, o: &Value) -> Option<Event> {
+    let content = keys.encrypt(peer, &o.to_string()).ok()?;
+    Some(keys.sign(KIND_DM, vec![vec!["p".into(), peer.to_string()]], content))
+}
+
+/// «My message `id` now reads `text`» to `peer`.
+pub fn edit_event(keys: &Keys, peer: &str, id: &str, ts: i64, text: &str) -> Option<Event> {
+    let text: String = text.chars().take(MAX_TEXT).collect();
+    sealed(keys, peer, &json!({"t": TYPE, "v": PROTOCOL, "k": "edit", "id": id, "ts": ts, "text": text}))
+}
+
+/// «My message `id` is gone» to `peer` (their app hides it too).
+pub fn delete_event(keys: &Keys, peer: &str, id: &str, ts: i64) -> Option<Event> {
+    sealed(keys, peer, &json!({"t": TYPE, "v": PROTOCOL, "k": "del", "id": id, "ts": ts}))
+}
+
+/// Asks relays to drop a stored event of mine (NIP-09, kind 5).
+pub fn relay_delete_event(keys: &Keys, event_id: &str) -> Event {
+    keys.sign(KIND_DELETE, vec![vec!["e".into(), event_id.to_string()]], String::new())
+}
+
+/// My whole set of reactions on message `id` (at most three keys «e:<emoji>» / «s:<sticker>»).
+pub fn reaction_event(keys: &Keys, peer: &str, id: &str, ts: i64, reaction_keys: &[String]) -> Option<Event> {
+    sealed(keys, peer, &json!({"t": TYPE_REACT, "v": PROTOCOL, "id": id, "ts": ts, "r": reaction_keys}))
+}
+
+/// A reaction key as the phone accepts it (ChatReactions.isWellFormed).
+pub fn well_formed_reaction(key: &str) -> bool {
+    (3..=48).contains(&key.len()) && !key.contains('\n') && (key.starts_with("e:") || key.starts_with("s:"))
+}
+
+/// Puts `key` on or takes it off; at most three, the oldest goes first (ChatReactions.toggle).
+pub fn toggle_reaction(current: &[String], key: &str) -> Vec<String> {
+    if current.iter().any(|k| k == key) {
+        current.iter().filter(|k| *k != key).cloned().collect()
+    } else {
+        let mut v = current.to_vec();
+        v.push(key.to_string());
+        let skip = v.len().saturating_sub(MAX_REACTIONS);
+        v.into_iter().skip(skip).collect()
+    }
+}
+
+pub const MAX_REACTIONS: usize = 3;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,5 +198,12 @@ mod tests {
         let r = read_event(&friend, &me.public_hex(), 5000).unwrap();
         assert_eq!(decode(&me, &r).unwrap().payload, Payload::Read { up_to: 5000 });
         assert_eq!(new_id().len(), 36);
+        let r = reaction_event(&friend, &me.public_hex(), "m1", 6000, &["e:x1".into(), "bad".into()]).unwrap();
+        assert_eq!(decode(&me, &r).unwrap().payload, Payload::Reaction { id: "m1".into(), ts: 6000, keys: vec!["e:x1".into()] });
+        let e = edit_event(&me, &friend.public_hex(), "m1", 7000, "ok").unwrap();
+        assert!(matches!(decode(&friend, &e).unwrap().payload, Payload::Edit { ref text, .. } if text == "ok"));
+        let t = toggle_reaction(&["e:a".into(), "e:b".into(), "e:c".into()], "e:d");
+        assert_eq!(t, vec!["e:b".to_string(), "e:c".into(), "e:d".into()]);
+        assert_eq!(toggle_reaction(&t, "e:c"), vec!["e:b".to_string(), "e:d".into()]);
     }
 }

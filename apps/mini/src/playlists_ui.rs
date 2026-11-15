@@ -189,6 +189,7 @@ fn confirm(ui: &MainWindow, app: &App, text: String) {
                 Err(e) => ui.set_toast(format!("Не переименовалось: {e}").into()),
             }
         }
+        "unfriend" => crate::friends_view::remove_open(ui, app),
         "delete" => {
             let Some((id, name)) = OPEN.with(|o| o.borrow().clone()) else { return };
             ui.set_dialog_kind("".into());

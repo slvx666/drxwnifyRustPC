@@ -651,6 +651,40 @@ impl Friends {
         added
     }
 
+    /// Removes a friend (FriendsHub.removeFriend): off the list, every personal field sent to them (and the hello)
+    /// replaced by an empty one so their app forgets this profile's data, and the live view stops following them.
+    pub async fn remove_friend(&self, pubkey: &str) -> bool {
+        let removed = self.inner.state.send_if_modified(|s| {
+            let n = s.friends.len();
+            s.friends.retain(|f| f.pubkey != pubkey);
+            if n == s.friends.len() {
+                return false;
+            }
+            s.data.remove(pubkey);
+            true
+        });
+        if !removed {
+            return false;
+        }
+        self.inner.verified.lock().expect("verified").retain(|v| v != pubkey);
+        for field in DATA_FIELDS.iter().chain(std::iter::once(&"hello")) {
+            let e = self.inner.keys.sign(
+                KIND_APP_DATA,
+                vec![vec!["d".into(), format!("{D_PREFIX}{field}:{pubkey}")], vec!["p".into(), pubkey.to_string()]],
+                String::new(),
+            );
+            let pool = self.inner.pool.clone();
+            tokio::spawn(async move {
+                pool.publish(&e, Duration::from_secs(10)).await;
+            });
+        }
+        if !self.inner.live.lock().expect("live").is_empty() {
+            self.stop_live();
+            self.start_live();
+        }
+        true
+    }
+
     /// Hides a request; it does not come back (FriendsHub.dismissRequest).
     pub fn dismiss(&self, pubkey: &str) {
         {

@@ -2,7 +2,7 @@
 //! cards (live first), and a friend's page with the chat, history, likes and playlists to play. Follows the relays
 //! while the app runs; the page redraws at most every half second, the chat when a message comes or changes.
 
-use crate::{ChatItem, FriendCardItem, FriendRequestItem, MainWindow, SongItem};
+use crate::{ChatItem, FriendCardItem, FriendRequestItem, MainWindow, ReactionChip, SongItem};
 use drx_app::App;
 use drx_social::friends::{DEVELOPER_PUBKEY, FriendData, FriendsState, TrackRef};
 use slint::{ComponentHandle, ModelRc, VecModel};
@@ -14,6 +14,10 @@ thread_local! {
     static TAB: RefCell<String> = RefCell::new("chat".into());
     /// The music cards of the chat on screen, by row.
     static CHAT_MUSIC: RefCell<Vec<Option<drx_app::chats::ChatMusic>>> = const { RefCell::new(Vec::new()) };
+    /// The chat's rows on screen: (message id, mine, text).
+    static CHAT_ROWS: RefCell<Vec<(String, bool, String)>> = const { RefCell::new(Vec::new()) };
+    /// The message being changed (its text is in the field), if any.
+    static EDITING: RefCell<Option<String>> = const { RefCell::new(None) };
     static TRACKS: RefCell<Vec<drx_catalog::model::Track>> = const { RefCell::new(Vec::new()) };
     static WATCHING: RefCell<bool> = const { RefCell::new(false) };
 }
@@ -121,6 +125,8 @@ pub fn wire(ui: &MainWindow, app: &App) {
         OPEN.with(|o| *o.borrow_mut() = Some(p.to_string()));
         TAB.with(|t| *t.borrow_mut() = "chat".into());
         ui.set_friend_chat_text("".into());
+        EDITING.with(|e| *e.borrow_mut() = None);
+        ui.set_friend_chat_editing(false);
         render(&ui, &app2);
     });
     let app2 = app.clone();
@@ -159,10 +165,69 @@ pub fn wire(ui: &MainWindow, app: &App) {
         if text.trim().is_empty() {
             return;
         }
-        match app2.send_chat(&peer, &text) {
-            Ok(()) => ui.set_friend_chat_text("".into()),
-            Err(e) => ui.set_toast(format!("Не отправлено: {e}").into()),
+        let editing = EDITING.with(|e| e.borrow().clone());
+        let res = match &editing {
+            Some(id) => app2.edit_chat(&peer, id, &text),
+            None => app2.send_chat(&peer, &text),
+        };
+        match res {
+            Ok(()) => {
+                ui.set_friend_chat_text("".into());
+                EDITING.with(|e| *e.borrow_mut() = None);
+                ui.set_friend_chat_editing(false);
+            }
+            Err(e) => ui.set_toast(
+                format!("{}: {e}", if editing.is_some() { "Не изменено" } else { "Не отправлено" }).into(),
+            ),
         }
+    });
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    ui.on_friend_chat_action(move |i, action| {
+        let Some(ui) = ui_w.upgrade() else { return };
+        let Some(peer) = OPEN.with(|o| o.borrow().clone()) else { return };
+        if action == "cancel-edit" {
+            EDITING.with(|e| *e.borrow_mut() = None);
+            ui.set_friend_chat_editing(false);
+            ui.set_friend_chat_text("".into());
+            return;
+        }
+        let Some((id, _mine, text)) = CHAT_ROWS.with(|r| r.borrow().get(i as usize).cloned()) else { return };
+        let res = match action.as_str() {
+            "edit" => {
+                EDITING.with(|e| *e.borrow_mut() = Some(id));
+                ui.set_friend_chat_text(text.into());
+                ui.set_friend_chat_editing(true);
+                Ok(())
+            }
+            "del" => app2.delete_chat(&peer, &id, false),
+            "del-both" => app2.delete_chat(&peer, &id, true),
+            a => match a.strip_prefix("r:") {
+                Some(key) => app2.react_chat(&peer, &id, key),
+                None => Ok(()),
+            },
+        };
+        if let Err(e) = res {
+            ui.set_toast(format!("Не получилось: {e}").into());
+        }
+    });
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    ui.on_friend_toggle_along(move || {
+        let Some(ui) = ui_w.upgrade() else { return };
+        let Some(peer) = OPEN.with(|o| o.borrow().clone()) else { return };
+        if app2.listening_along().as_deref() == Some(peer.as_str()) {
+            app2.stop_listen_along();
+            ui.set_toast("Больше не слушаю вместе".into());
+        } else if let Err(e) = app2.start_listen_along(&peer) {
+            ui.set_toast(format!("Не получилось: {e}").into());
+        }
+        render(&ui, &app2);
+    });
+    let ui_w = ui.as_weak();
+    ui.on_friend_remove(move || {
+        let Some(ui) = ui_w.upgrade() else { return };
+        ui.set_dialog_title("Удалить из друзей?".into());
+        ui.set_dialog_subtitle(format!("{} больше не увидит, что ты слушаешь; переписка останется", ui.get_friend_name()).into());
+        ui.set_dialog_kind("unfriend".into());
     });
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     ui.on_friend_chat_play(move |i| {
@@ -216,6 +281,28 @@ pub fn wire(ui: &MainWindow, app: &App) {
     });
 }
 
+/// «Удалить» in the dialog: the open friend goes off the list (their data on the relays is cleared too).
+pub fn remove_open(ui: &MainWindow, app: &App) {
+    ui.set_dialog_kind("".into());
+    let Some(peer) = OPEN.with(|o| o.borrow().clone()) else { return };
+    let name = ui.get_friend_name().to_string();
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    app.runtime().spawn(async move {
+        let res = app2.remove_friend(&peer).await;
+        let _ = slint::invoke_from_event_loop(move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            match res {
+                Ok(()) => {
+                    OPEN.with(|o| *o.borrow_mut() = None);
+                    ui.set_toast(format!("{name} больше не в друзьях").into());
+                }
+                Err(e) => ui.set_toast(format!("Не получилось: {e}").into()),
+            }
+            render(&ui, &app2);
+        });
+    });
+}
+
 fn add(ui: &MainWindow, app: &App, code: String, name: String) {
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     app.runtime().spawn(async move {
@@ -260,6 +347,22 @@ pub fn show(ui: &MainWindow, app: &App) {
                         && ui.get_view_friends()
                         && ui.get_friend_page()
                         && TAB.with(|t| t.borrow().as_str() == "chat")
+                    {
+                        render(&ui, &app3);
+                    }
+                });
+            }
+        });
+    }
+    {
+        let mut rx = app.listen_along_version();
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        app.runtime().spawn(async move {
+            while rx.changed().await.is_ok() {
+                let (app3, ui_w) = (app2.clone(), ui_w.clone());
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_w.upgrade()
+                        && ui.get_view_friends()
                     {
                         render(&ui, &app3);
                     }
@@ -378,8 +481,12 @@ fn render(ui: &MainWindow, app: &App) {
         .filter(|n| !n.trim().is_empty())
         .map(|n| plain(&n))
         .unwrap_or_else(|| "Друг".into());
+    let along = app.listening_along().as_deref() == Some(p.as_str());
+    ui.set_friend_along(along);
+    ui.set_friend_can_along(d.and_then(|d| d.now.as_ref()).is_some_and(|n| n.is_live(t) && n.listen_along));
     ui.set_friend_status(
         match d.and_then(|d| d.now.as_ref()) {
+            Some(n) if along => format!("слушаю вместе: {} — {}", n.track.title, n.track.artist),
             Some(n) if n.is_live(t) => format!("слушает: {} — {}", n.track.title, n.track.artist),
             Some(n) => format!("последний трек {}", ago(n.at)),
             None => "ничего не слышно".into(),
@@ -471,11 +578,33 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
                 music_by: music.map(|c| c.by.clone()).unwrap_or_default().into(),
                 has_music_cover: cover.is_some(),
                 music_cover: cover.unwrap_or_default(),
+                reactions: ModelRc::new(VecModel::from(chips(&m.reactions))),
             }
         })
         .collect();
+    CHAT_ROWS.with(|c| *c.borrow_mut() = rows.iter().map(|m| (m.id.clone(), m.mine, m.text.clone())).collect());
     CHAT_MUSIC.with(|c| *c.borrow_mut() = rows.into_iter().map(|m| m.music).collect());
     ui.set_friend_chat(ModelRc::new(VecModel::from(items)));
+}
+
+/// Reactions grouped by key, in the order first put: «❤️ 2», mine marked.
+fn chips(reactions: &[(String, bool)]) -> Vec<ReactionChip> {
+    let mut out: Vec<ReactionChip> = Vec::new();
+    for (key, mine) in reactions {
+        match out.iter_mut().find(|c| c.key.as_str() == key) {
+            Some(c) => {
+                c.count += 1;
+                c.mine |= *mine;
+            }
+            None => out.push(ReactionChip {
+                label: key.strip_prefix("e:").map(str::to_string).unwrap_or_else(|| "стикер".into()).into(),
+                key: key.clone().into(),
+                count: 1,
+                mine: *mine,
+            }),
+        }
+    }
+    out
 }
 
 #[cfg(test)]

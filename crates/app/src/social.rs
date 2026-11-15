@@ -209,6 +209,20 @@ impl App {
         Ok(())
     }
 
+    /// Removes a friend (their data cleared on the relays too). A test run never does it.
+    pub async fn remove_friend(&self, pubkey: &str) -> crate::AppResult<()> {
+        let f = self.friends().ok_or_else(|| crate::AppError::Other("нет профиля друзей".into()))?;
+        if !may_publish() {
+            return Err(crate::AppError::Other("в тестовом запуске друзей не удаляю".into()));
+        }
+        if self.listening_along().as_deref() == Some(pubkey) {
+            self.stop_listen_along();
+        }
+        f.remove_friend(pubkey).await;
+        self.save_friends(&f);
+        Ok(())
+    }
+
     pub fn dismiss_request(&self, pubkey: &str) {
         if let Some(f) = self.friends() {
             f.dismiss(pubkey);
