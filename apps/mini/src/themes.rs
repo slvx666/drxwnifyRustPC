@@ -150,10 +150,22 @@ pub fn apply(ui: &MainWindow, id: &str, day: bool) {
     // Covers: two thirds of the theme's radius, as `Grid.cover-radius` in the UI.
     crate::set_cover_radius((px("coverRadius") * 2.0 / 3.0).round());
     g.set_chip_radius(px("chipRadius"));
-    g.set_body_font(family(t["body"].as_str().unwrap_or("manrope")).into());
-    g.set_heading_font(family(t["heading"].as_str().unwrap_or("manrope")).into());
-    g.set_heading_weight(weight(t["headingWeight"].as_str().unwrap_or("ExtraBold")));
-    g.set_mono_font(family(t["mono"].as_str().unwrap_or("mono")).into());
+    // Owner (2026-11-15): every theme reads in the base theme's font (Onest); only Gruvbox keeps its own (terminal
+    // mono). The themes' display faces (Russo, Cormorant, Playfair…) stay in Full.
+    let own_fonts = id == "gruvbox";
+    let font = |key: &str, base: &str| {
+        let f = t[key].as_str().unwrap_or(base);
+        family(if own_fonts { f } else { base })
+    };
+    g.set_body_font(font("body", "manrope").into());
+    g.set_heading_font(font("heading", "manrope").into());
+    let heading_is_base = t["heading"].as_str().unwrap_or("manrope") == "manrope";
+    g.set_heading_weight(if own_fonts || heading_is_base {
+        weight(t["headingWeight"].as_str().unwrap_or("ExtraBold"))
+    } else {
+        700 // a display face's «Normal» weight would read thin in Onest
+    });
+    g.set_mono_font(font("mono", "mono").into());
     g.set_look(t["look"].as_str().unwrap_or("Glass").into());
     g.set_backdrop(t["backdrop"].as_str().unwrap_or("Tategaki").into());
 }
