@@ -1974,6 +1974,8 @@ component FriendsView inherits Rectangle {
     in property <string> now-id;
     callback copy-code();
     callback copy-link();
+    callback add(string);
+    in-out property <string> add-text;
     callback open(string);
     callback back();
     callback set-tab(string);
@@ -2015,6 +2017,40 @@ component FriendsView inherits Rectangle {
                 }
                 Middle { Pill { label: "Мой код"; clicked => { root.copy-code(); } } }
                 Middle { Pill { label: "Ссылка"; clicked => { root.copy-link(); } } }
+            }
+            // Add a friend: their code (npub…) or an invite link.
+            HorizontalLayout {
+                spacing: 10px;
+                Rectangle {
+                    height: 38px;
+                    horizontal-stretch: 1;
+                    border-radius: 10px;
+                    background: Theme.fill;
+                    border-color: add-input.has-focus ? Theme.accent : Theme.panel-border;
+                    border-width: 1px;
+                    if root.add-text == "": Text {
+                        x: 12px;
+                        height: parent.height;
+                        text: "Код друга (npub…) или ссылка-приглашение";
+                        font-family: Theme.body-font;
+                        font-size: 13px;
+                        color: Theme.mute;
+                        vertical-alignment: center;
+                    }
+                    add-input := TextInput {
+                        x: 12px;
+                        width: parent.width - 24px;
+                        height: parent.height;
+                        text <=> root.add-text;
+                        font-family: Theme.body-font;
+                        font-size: 13px;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        single-line: true;
+                        accepted => { root.add(self.text); }
+                    }
+                }
+                Middle { Pill { label: "Добавить"; primary: true; clicked => { root.add(root.add-text); } } }
             }
             if root.requests.length > 0: Text { text: "Заявки · " + root.requests.length; font-family: Theme.heading-font; font-weight: 700; font-size: 16px; color: Theme.text; }
             for r in root.requests: HorizontalLayout {
@@ -2336,6 +2372,8 @@ export component MainWindow inherits Window {
     callback friend-play(int);
     callback friend-accept(string);
     callback friend-dismiss(string);
+    in-out property <string> friends-add-text;
+    callback friend-add(string);
     in property <bool> view-can-edit;
     callback rename-view();
     callback delete-view();
@@ -2558,6 +2596,8 @@ export component MainWindow inherits Window {
                         now-id: root.now-id;
                         copy-code => { root.friends-copy("code"); }
                         copy-link => { root.friends-copy("link"); }
+                        add-text <=> root.friends-add-text;
+                        add(t) => { root.friend-add(t); }
                         open(p) => { root.friend-open(p); }
                         back => { root.friend-back(); }
                         set-tab(t) => { root.friend-set-tab(t); }

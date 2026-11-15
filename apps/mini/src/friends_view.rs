@@ -95,17 +95,50 @@ pub fn wire(ui: &MainWindow, app: &App) {
             app2.play_tracks(tracks, i as usize);
         }
     });
-    let ui_w = ui.as_weak();
-    ui.on_friend_accept(move |_| {
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    ui.on_friend_accept(move |p| {
+        let Some(ui) = ui_w.upgrade() else { return };
+        let name = app2
+            .friends_state()
+            .and_then(|rx| rx.borrow().requests.iter().find(|r| r.pubkey == p.as_str()).map(|r| r.name.clone()))
+            .unwrap_or_default();
+        add(&ui, &app2, p.to_string(), name);
+    });
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    ui.on_friend_dismiss(move |p| {
+        app2.dismiss_request(&p);
         if let Some(ui) = ui_w.upgrade() {
-            ui.set_toast("Принять заявку можно на телефоне — добавление друзей с ПК будет позже".into());
+            render(&ui, &app2);
         }
     });
-    let ui_w = ui.as_weak();
-    ui.on_friend_dismiss(move |_| {
-        if let Some(ui) = ui_w.upgrade() {
-            ui.set_toast("Скрыть заявку можно на телефоне".into());
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    ui.on_friend_add(move |text| {
+        let Some(ui) = ui_w.upgrade() else { return };
+        let t = text.trim().to_string();
+        if t.is_empty() {
+            return;
         }
+        // An invite link may carry the name: …/add/<npub>?n=<name>.
+        let name = t.split("?n=").nth(1).map(|n| n.replace("%20", " ")).unwrap_or_default();
+        add(&ui, &app2, t, name);
+    });
+}
+
+fn add(ui: &MainWindow, app: &App, code: String, name: String) {
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    app.runtime().spawn(async move {
+        let res = app2.add_friend(&code, &name).await;
+        let _ = slint::invoke_from_event_loop(move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            match res {
+                Ok(()) => {
+                    ui.set_friends_add_text("".into());
+                    ui.set_toast("Заявка отправлена".into());
+                }
+                Err(e) => ui.set_toast(format!("Не получилось: {e}").into()),
+            }
+            render(&ui, &app2);
+        });
     });
 }
 

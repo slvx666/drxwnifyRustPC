@@ -149,6 +149,10 @@ impl App {
             .unwrap_or_default()
     }
 
+    pub(crate) fn edit_shared_prefs(&self, name: &str, f: impl FnOnce(&mut SharedPrefs)) {
+        self.edit_shared(name, f)
+    }
+
     fn edit_shared(&self, name: &str, f: impl FnOnce(&mut SharedPrefs)) {
         let _guard = self.inner.shared_lock.lock().expect("shared prefs lock");
         let mut p = self.shared(name);

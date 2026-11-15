@@ -178,3 +178,36 @@ impl App {
         }));
     }
 }
+
+impl App {
+    fn save_friends(&self, f: &Friends) {
+        let (list, dismissed) = (f.friends_json(), f.dismissed());
+        self.edit_shared_prefs(drx_core::keys::sp::FRIENDS, move |p| {
+            p.values.insert("friends".into(), drx_core::shared_prefs::SpValue::String(list));
+            p.values.insert("dismissed".into(), drx_core::shared_prefs::SpValue::Set(dismissed));
+        });
+    }
+
+    /// Adds a friend by code (npub / hex), invite link or accepted request. Err = not a profile code.
+    pub async fn add_friend(&self, code: &str, name: &str) -> crate::AppResult<()> {
+        let f = self.friends().ok_or_else(|| crate::AppError::Other("нет профиля друзей".into()))?;
+        let text = code.trim();
+        let key = text.rsplit('/').next().unwrap_or(text);
+        let key = key.split('?').next().unwrap_or(key);
+        let pubkey = drx_social::nostr::pubkey_from_text(key)
+            .ok_or_else(|| crate::AppError::Other("это не код профиля".into()))?;
+        if !may_publish() {
+            return Err(crate::AppError::Other("в тестовом запуске друзей не добавляю".into()));
+        }
+        f.add_friend(&pubkey, name, drx_core::APP_VERSION).await;
+        self.save_friends(&f);
+        Ok(())
+    }
+
+    pub fn dismiss_request(&self, pubkey: &str) {
+        if let Some(f) = self.friends() {
+            f.dismiss(pubkey);
+            self.save_friends(&f);
+        }
+    }
+}

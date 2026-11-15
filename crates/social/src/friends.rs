@@ -582,6 +582,82 @@ impl Friends {
         }
     }
 
+    /// The friends list as the phone keeps it (`friends` in friends.xml).
+    pub fn friends_json(&self) -> String {
+        let st = self.inner.state.borrow();
+        Value::Array(
+            st.friends
+                .iter()
+                .map(|f| json!({"p": f.pubkey, "n": f.name, "t": f.added_at}))
+                .collect(),
+        )
+        .to_string()
+    }
+
+    /// Requests hidden on purpose (`dismissed` in friends.xml).
+    pub fn dismissed(&self) -> Vec<String> {
+        self.inner.dismissed.lock().expect("dismissed").clone()
+    }
+
+    /// Adds a friend (a code, an invite or an accepted request) and says hello to them (FriendsHub.addFriend):
+    /// they see this profile as a request, or as a friend if they added it already.
+    pub async fn add_friend(&self, pubkey: &str, name: &str, version: &str) -> bool {
+        let pubkey = pubkey.to_lowercase();
+        if pubkey == self.me() || pubkey.len() != 64 {
+            return false;
+        }
+        let added = self.inner.state.send_if_modified(|s| {
+            s.requests.retain(|r| r.pubkey != pubkey);
+            if s.friends.iter().any(|f| f.pubkey == pubkey) {
+                return true;
+            }
+            s.friends.push(Friend {
+                pubkey: pubkey.clone(),
+                name: name.chars().take(40).collect(),
+                added_at: now_s() * 1000,
+            });
+            true
+        });
+        let my_name = self
+            .inner
+            .state
+            .borrow()
+            .data
+            .get(&self.me())
+            .and_then(|d| d.name.clone())
+            .unwrap_or_default();
+        let hello = json!({"name": my_name, "chat": 2, "ver": version.chars().take(16).collect::<String>()}).to_string();
+        if let Ok(enc) = self.inner.keys.encrypt(&pubkey, &hello) {
+            let e = self.inner.keys.sign(
+                KIND_APP_DATA,
+                vec![vec!["d".into(), format!("{D_PREFIX}hello:{pubkey}")], vec!["p".into(), pubkey.clone()]],
+                enc,
+            );
+            self.inner.pool.publish(&e, Duration::from_secs(10)).await;
+        }
+        // Follow the new friend too.
+        if !self.inner.live.lock().expect("live").is_empty() {
+            self.stop_live();
+            self.start_live();
+        }
+        added
+    }
+
+    /// Hides a request; it does not come back (FriendsHub.dismissRequest).
+    pub fn dismiss(&self, pubkey: &str) {
+        {
+            let mut d = self.inner.dismissed.lock().expect("dismissed");
+            if !d.iter().any(|x| x == pubkey) {
+                d.push(pubkey.to_string());
+            }
+        }
+        self.inner.state.send_if_modified(|s| {
+            let n = s.requests.len();
+            s.requests.retain(|r| r.pubkey != pubkey);
+            n != s.requests.len()
+        });
+    }
+
     /// What plays now (already debounced by the caller), to whoever may see it.
     pub async fn publish_now(&self, mut now: NowPlaying) {
         let privacy = self.privacy();
