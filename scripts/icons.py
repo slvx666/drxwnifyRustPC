@@ -62,6 +62,8 @@ ICONS = {
     "playlist-add": 0xF008,
     "user-circle": 0xEF68,
     "album": 0xF022,
+    "chevron-up": 0xEA62,
+    "chevron-down": 0xEA5F,
 }
 OPTICAL = {"play"}
 

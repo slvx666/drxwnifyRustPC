@@ -8,6 +8,7 @@ mod home_view;
 mod lazy_library;
 mod lazy_songs;
 mod likes_ui;
+mod playlists_ui;
 mod track_menu;
 mod nav;
 mod os;
@@ -673,12 +674,13 @@ fn main() {
         });
     }
     {
-        let songs2 = songs.clone();
+        let (app2, songs2) = (app.clone(), songs.clone());
         let ui_w = ui.as_weak();
         ui.on_list_changed(move || {
             songs2.invalidate();
             if let Some(ui) = ui_w.upgrade() {
                 artist_view::set_tracks(&ui, &songs2);
+                nav::refresh_header(&ui, &app2);
             }
         });
     }
@@ -874,6 +876,7 @@ fn main() {
     os::wire_title_bar(&ui);
     likes_ui::wire(&ui, &app);
     track_menu::wire(&ui, &app);
+    playlists_ui::wire(&ui, &app);
     let platform = os::start(&ui, &app, Some(&guard));
     {
         let (app2, ui_w, platform) = (app.clone(), ui.as_weak(), platform.clone());

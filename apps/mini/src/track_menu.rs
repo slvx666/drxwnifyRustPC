@@ -7,8 +7,16 @@ use slint::ComponentHandle;
 
 pub fn wire(ui: &MainWindow, app: &App) {
     let (app2, ui_w) = (app.clone(), ui.as_weak());
-    ui.on_menu_opening(move |id| {
+    ui.on_menu_opening(move |id, index| {
         let Some(ui) = ui_w.upgrade() else { return };
+        // On an own playlist's page, a row of its list can move and be taken out.
+        let (row, len) = crate::nav::row_at(index.max(0) as usize);
+        let in_playlist = crate::playlists_ui::open_playlist().is_some()
+            && index >= 0
+            && row.as_deref() == Some(id.as_str());
+        ui.set_menu_in_playlist(in_playlist);
+        ui.set_menu_can_up(in_playlist && index > 0);
+        ui.set_menu_can_down(in_playlist && (index as usize) + 1 < len);
         let t = app2.runtime().block_on(app2.known_track(&id));
         ui.set_menu_liked(crate::likes_ui::shown_liked(&ui, &id));
         ui.set_menu_has_artist(
@@ -33,6 +41,10 @@ fn act(ui: &MainWindow, app: &App, action: &str, id: String) {
     match action {
         "like" => crate::likes_ui::toggle(ui, app, id),
         "radio" => radio(ui, app, Some(id)),
+        "add" => crate::playlists_ui::ask_add(ui, app, id),
+        "up" => crate::playlists_ui::edit_row(ui, app, ui.get_menu_index() as i64, -1),
+        "down" => crate::playlists_ui::edit_row(ui, app, ui.get_menu_index() as i64, 1),
+        "remove" => crate::playlists_ui::edit_row(ui, app, ui.get_menu_index() as i64, 0),
         "next" | "queue" => {
             let Some(t) = app.runtime().block_on(app.known_track(&id)) else {
                 return;

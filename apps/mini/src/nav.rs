@@ -206,6 +206,61 @@ pub fn go(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     update_arrows(ui);
 }
 
+/// The open library list changed (a row moved, came or went): its heading says the new count, length and cover.
+pub fn refresh_header(ui: &MainWindow, app: &App) {
+    let Some(page) = HISTORY.with(|h| {
+        let h = h.borrow();
+        h.pages.get(h.at).cloned()
+    }) else {
+        return;
+    };
+    if page.kind != PageKind::List || page.spec.is_remote() {
+        return;
+    }
+    let Some(h) = current_handle() else { return };
+    let n = current_len();
+    let secs = app.runtime().block_on(app.list_seconds(h)).unwrap_or(0);
+    ui.set_view_can_play(n > 0);
+    match app.runtime().block_on(app.local_header(&page.spec)) {
+        Some(mut head) => {
+            // A renamed playlist keeps the name the page shows now.
+            head.title = ui.get_view_title().to_string();
+            if head.image.is_none() {
+                set_header_image(ui, app, None);
+            }
+            apply_header(ui, app, &head, n, secs);
+        }
+        None => ui.set_view_subtitle(count_line(&page.subtitle, n, secs).into()),
+    }
+}
+
+fn songs_rc() -> Option<Rc<LazySongs>> {
+    SONGS.with(|s| s.borrow().clone())
+}
+
+/// Opens an own playlist's page (just made, or from a dialog).
+pub fn go_playlist(ui: &MainWindow, app: &App, id: &str, name: &str) {
+    if let Some(songs) = songs_rc() {
+        let page = Page::list(ListSpec::Playlist { id: id.to_string() }, name, id, None);
+        go(ui, app, &songs, page);
+    }
+}
+
+/// Opens the home page.
+pub fn go_home(ui: &MainWindow, app: &App) {
+    if let Some(songs) = songs_rc() {
+        go(ui, app, &songs, Page::home());
+    }
+}
+
+/// The id of the open list's row `i` and how many rows it has.
+pub fn row_at(i: usize) -> (Option<String>, usize) {
+    SONGS.with(|s| match s.borrow().as_ref() {
+        Some(m) => (m.row(i).map(|r| r.id), m.len()),
+        None => (None, 0),
+    })
+}
+
 /// Back (-1) or forward (+1) in the history.
 pub fn step(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, delta: i32) {
     let page = HISTORY.with(|h| {
@@ -385,6 +440,7 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
         set_header_image(ui, app, None);
         set_releases(ui, app, Vec::new());
         crate::likes_ui::page_opened(ui, app, None);
+        crate::playlists_ui::page_opened(ui, None, "");
     }
     match &page.kind {
         PageKind::Search(q, source) => return crate::search_view::show(ui, app, q, *source),
@@ -410,6 +466,7 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     ui.set_view_is_page(!search);
     ui.set_view_can_play(false);
     crate::likes_ui::page_opened(ui, app, Some(&page.spec));
+    crate::playlists_ui::page_opened(ui, Some(&page.spec), &page.title);
     if !page.spec.is_remote() {
         let n = songs.len();
         let secs = app

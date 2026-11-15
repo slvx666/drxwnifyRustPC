@@ -42,6 +42,16 @@ export struct HomeCard {
     album: bool, // an album card opens the album; a track card plays its row from there
 }
 
+// One playlist in «Добавить в плейлист».
+export struct PlaylistPick {
+    id: string,
+    name: string,
+    count: string,
+    cover: image,
+    has-cover: bool,
+    has-all: bool, // every chosen track is in it already
+}
+
 export struct HomeSection {
     title: string,
     artist-id: string, // «Похоже на …»: the title links to the artist
@@ -513,6 +523,7 @@ component LibraryPanel inherits VerticalLayout {
     callback set-filter(string);
     callback set-sort(string);
     callback set-descending(bool);
+    callback create-playlist();
     callback query-changed(string);
     padding-top: Grid.pad;
     padding-bottom: 4px;
@@ -522,6 +533,7 @@ component LibraryPanel inherits VerticalLayout {
         padding-right: Grid.pad - 6px;
         spacing: 2px;
         SectionTitle { text: "Медиатека"; horizontal-stretch: 1; }
+        Middle { IconButton { icon: Icons.plus; size: 32px; icon-size: 18px; clicked => { root.create-playlist(); } } }
         Middle {
             IconButton {
                 icon: Icons.search; size: 32px; icon-size: 18px; active: root.searching;
@@ -649,7 +661,7 @@ component SongRow inherits Rectangle {
     callback play();
     callback open-artist(string);
     callback like-song(string);
-    callback song-menu(string, length, length);
+    callback song-menu(string, int, length, length);
     height: Grid.row;
     border-radius: Grid.item-radius;
     background: current ? Theme.fill-hover : (ta.has-hover || hot ? Theme.fill : transparent);
@@ -658,7 +670,7 @@ component SongRow inherits Rectangle {
         double-clicked => { root.play(); }
         pointer-event(e) => {
             if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
-                root.song-menu(root.song.id, root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+                root.song-menu(root.song.id, root.song.index - 1, root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
             }
         }
     }
@@ -900,7 +912,7 @@ component SearchPage inherits Flickable {
     callback more();
     callback open-artist(string);
     callback like-song(string);
-    callback song-menu(string, length, length);
+    callback song-menu(string, int, length, length);
     callback artist(int);
     callback album(int);
     callback playlist(int);
@@ -963,7 +975,7 @@ component SearchPage inherits Flickable {
                     play => { root.play(i); }
                     open-artist(id) => { root.open-artist(id); }
                     like-song(id) => { root.like-song(id); }
-                    song-menu(id, x, y) => { root.song-menu(id, x, y); }
+                    song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
                 }
             }
         }
@@ -999,7 +1011,7 @@ component ArtistView inherits Flickable {
     callback more();
     callback open-artist(string);
     callback like-song(string);
-    callback song-menu(string, length, length);
+    callback song-menu(string, int, length, length);
     callback open-album(string);
     content-height: body.preferred-height + Grid.pad;
     body := VerticalLayout {
@@ -1029,7 +1041,7 @@ component ArtistView inherits Flickable {
                         play => { root.play(i); }
                         open-artist(id) => { root.open-artist(id); }
                         like-song(id) => { root.like-song(id); }
-                        song-menu(id, x, y) => { root.song-menu(id, x, y); }
+                        song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
                     }
                 }
             }
@@ -1065,7 +1077,7 @@ component HistoryView inherits HorizontalLayout {
     callback remove(int);
     callback open-artist(string);
     callback like-song(string);
-    callback song-menu(string, length, length);
+    callback song-menu(string, int, length, length);
     padding-left: 8px;
     padding-right: 4px;
     ListView {
@@ -1090,7 +1102,7 @@ component HistoryView inherits HorizontalLayout {
                     play => { root.play(it.index); }
                     open-artist(id) => { root.open-artist(id); }
                     like-song(id) => { root.like-song(id); }
-                    song-menu(id, x, y) => { root.song-menu(id, x, y); }
+                    song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
                 }
                 // Remove from the history: in place of the time while the row's right end is hovered. The button is a
                 // child of the hover area, so the area stays hovered (and the button shown) while the pointer is on it.
@@ -1128,7 +1140,7 @@ component StatsView inherits Flickable {
     callback more();
     callback open-artist(string);
     callback like-song(string);
-    callback song-menu(string, length, length);
+    callback song-menu(string, int, length, length);
     callback open-album(string);
     content-height: body.preferred-height + Grid.pad;
     body := VerticalLayout {
@@ -1187,7 +1199,7 @@ component StatsView inherits Flickable {
                         play => { root.play(i); }
                         open-artist(id) => { root.open-artist(id); }
                         like-song(id) => { root.like-song(id); }
-                        song-menu(id, x, y) => { root.song-menu(id, x, y); }
+                        song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
                     }
                 }
             }
@@ -1285,11 +1297,14 @@ component MainArea inherits VerticalLayout {
     callback import-backup();
     callback open-artist(string);
     callback like-song(string);
-    callback song-menu(string, length, length);
+    callback song-menu(string, int, length, length);
     callback open-album(string);
     in property <bool> can-save; // album / playlist / artist pages of a catalog
     in property <bool> saved;
     callback toggle-save();
+    in property <bool> can-edit; // an own playlist: rename and delete
+    callback rename-list();
+    callback delete-list();
     padding-top: Grid.pad;
     padding-bottom: 4px;
     spacing: Grid.gap;
@@ -1312,11 +1327,11 @@ component MainArea inherits VerticalLayout {
             if root.kind-label != "": Caption { text: root.kind-label; }
             Text { text: title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
             Text { text: subtitle; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
-            if root.can-play: HorizontalLayout {
+            if root.can-play || root.can-edit: HorizontalLayout {
                 padding-top: 6px;
                 spacing: Grid.gap;
                 alignment: start;
-                Rectangle {
+                if root.can-play: Rectangle {
                     width: pl.preferred-width + 54px;
                     height: 38px;
                     border-radius: min(Theme.chip-radius, 19px);
@@ -1330,7 +1345,7 @@ component MainArea inherits VerticalLayout {
                     }
                     pa := TouchArea { mouse-cursor: pointer; clicked => { root.play-all(); } }
                 }
-                Rectangle {
+                if root.can-play: Rectangle {
                     width: sl.preferred-width + 54px;
                     height: 38px;
                     border-radius: min(Theme.chip-radius, 19px);
@@ -1356,6 +1371,26 @@ component MainArea inherits VerticalLayout {
                     border-width: 1px;
                     Icon { icon: root.saved ? Icons.heart-filled : Icons.heart; size: 17px; color: root.saved ? Theme.accent : Theme.text; }
                     va := TouchArea { mouse-cursor: pointer; clicked => { root.toggle-save(); } }
+                }
+                if root.can-edit: Rectangle {
+                    width: 38px;
+                    height: 38px;
+                    border-radius: min(Theme.chip-radius, 19px);
+                    background: rna.has-hover ? Theme.fill-hover : Theme.fill;
+                    border-color: Theme.panel-border;
+                    border-width: 1px;
+                    Icon { icon: Icons.pencil; size: 17px; color: Theme.text; }
+                    rna := TouchArea { mouse-cursor: pointer; clicked => { root.rename-list(); } }
+                }
+                if root.can-edit: Rectangle {
+                    width: 38px;
+                    height: 38px;
+                    border-radius: min(Theme.chip-radius, 19px);
+                    background: dla.has-hover ? Theme.fill-hover : Theme.fill;
+                    border-color: Theme.panel-border;
+                    border-width: 1px;
+                    Icon { icon: Icons.trash; size: 17px; color: Theme.text; }
+                    dla := TouchArea { mouse-cursor: pointer; clicked => { root.delete-list(); } }
                 }
             }
         }
@@ -1411,7 +1446,7 @@ component MainArea inherits VerticalLayout {
         remove(e) => { root.h-remove(e); }
         open-artist(id) => { root.open-artist(id); }
         like-song(id) => { root.like-song(id); }
-        song-menu(id, x, y) => { root.song-menu(id, x, y); }
+        song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
     }
     if root.stats: StatsView {
         vertical-stretch: 1;
@@ -1429,7 +1464,7 @@ component MainArea inherits VerticalLayout {
         more => { root.st-more(); }
         open-artist(id) => { root.open-artist(id); }
         like-song(id) => { root.like-song(id); }
-        song-menu(id, x, y) => { root.song-menu(id, x, y); }
+        song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
         open-album(id) => { root.open-album(id); }
     }
     if root.artist-view && !root.empty-library: ArtistView {
@@ -1446,7 +1481,7 @@ component MainArea inherits VerticalLayout {
         more => { root.a-more(); }
         open-artist(id) => { root.open-artist(id); }
         like-song(id) => { root.like-song(id); }
-        song-menu(id, x, y) => { root.song-menu(id, x, y); }
+        song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
         open-album(id) => { root.open-album(id); }
     }
     if root.search: SearchPage {
@@ -1471,7 +1506,7 @@ component MainArea inherits VerticalLayout {
         more => { root.s-more(); }
         open-artist(id) => { root.open-artist(id); }
         like-song(id) => { root.like-song(id); }
-        song-menu(id, x, y) => { root.song-menu(id, x, y); }
+        song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
         artist(i) => { root.s-artist(i); }
         album(i) => { root.s-album(i); }
         playlist(i) => { root.s-playlist(i); }
@@ -1574,7 +1609,7 @@ component MainArea inherits VerticalLayout {
                 play => { root.play(song.index - 1); }
                 open-artist(id) => { root.open-artist(id); }
                 like-song(id) => { root.like-song(id); }
-                song-menu(id, x, y) => { root.song-menu(id, x, y); }
+                song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
             }
         }
     }
@@ -1593,7 +1628,7 @@ component RightPanel inherits VerticalLayout {
     in property <[QueueItem]> upcoming;
     callback open-artist(string);
     callback like-song(string);
-    callback song-menu(string, length, length);
+    callback song-menu(string, int, length, length);
     callback open-album(string);
     in property <string> lyric-now;
     in property <string> lyric-next;
@@ -1680,7 +1715,7 @@ component PlayerBar inherits HorizontalLayout {
     in property <string> artist-id;
     callback open-artist(string);
     callback like-song(string);
-    callback song-menu(string, length, length);
+    callback song-menu(string, int, length, length);
     in property <bool> liked;
     in property <bool> can-like;
     callback toggle-like();
@@ -1925,7 +1960,7 @@ export component MainWindow inherits Window {
     callback set-autostart(bool);
     callback open-artist(string);
     callback like-song(string);
-    callback song-menu(string, length, length);
+    callback song-menu(string, int, length, length);
     callback open-album(string);
     // The playing track's heart.
     in property <bool> now-liked;
@@ -1938,8 +1973,24 @@ export component MainWindow inherits Window {
     in property <bool> menu-liked;
     in property <bool> menu-has-artist;
     in property <bool> menu-has-album;
-    callback menu-opening(string);
+    in-out property <int> menu-index; // the row's place in its list (own playlists: move / take out)
+    in property <bool> menu-in-playlist;
+    in property <bool> menu-can-up;
+    in property <bool> menu-can-down;
+    callback menu-opening(string, int);
     callback track-menu-action(string, string); // action, track id
+    callback create-playlist();
+    in property <bool> view-can-edit;
+    callback rename-view();
+    callback delete-view();
+    // The dialog over the window: "" (none), "add" (add to a playlist), "rename", "delete".
+    in-out property <string> dialog-kind;
+    in property <string> dialog-title;
+    in property <string> dialog-subtitle;
+    in-out property <string> dialog-text;
+    in property <[PlaylistPick]> dialog-items;
+    callback dialog-confirm(string); // add: create a playlist with this name; rename: the new name; delete: ""
+    callback dialog-pick(string); // add: put the tracks into this playlist
     // The open page's «in the library» / «follow» heart.
     in property <bool> view-can-save;
     in property <bool> view-saved;
@@ -2022,6 +2073,7 @@ export component MainWindow inherits Window {
                         descending: root.lib-descending;
                         set-filter(f) => { root.lib-set-filter(f); }
                         set-sort(s) => { root.lib-set-sort(s); }
+                        create-playlist => { root.create-playlist(); }
                         set-descending(d) => { root.lib-set-descending(d); }
                         query-changed(q) => { root.lib-query(q); }
                         open(item) => { root.selected-id = item.id; root.open-library(item); }
@@ -2045,6 +2097,9 @@ export component MainWindow inherits Window {
                         can-save: root.view-can-save;
                         saved: root.view-saved;
                         toggle-save => { root.toggle-view-save(); }
+                        can-edit: root.view-can-edit;
+                        rename-list => { root.rename-view(); }
+                        delete-list => { root.delete-view(); }
                         releases: root.view-releases;
                         home: root.view-home;
                         settings: root.view-settings;
@@ -2109,7 +2164,7 @@ export component MainWindow inherits Window {
                         home-play(s, c) => { root.home-play(s, c); }
                         open-artist(id) => { root.open-artist(id); }
                         like-song(id) => { root.like-song(id); }
-                        song-menu(id, x, y) => { root.song-menu(id, x, y); }
+                        song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
                         open-album(id) => { root.open-album(id); }
                         play(i) => { root.play(i); }
                         import-backup => { root.import-backup(); }
@@ -2124,7 +2179,7 @@ export component MainWindow inherits Window {
                         album-id: root.now-album-id;
                         open-artist(id) => { root.open-artist(id); }
                         like-song(id) => { root.like-song(id); }
-                        song-menu(id, x, y) => { root.song-menu(id, x, y); }
+                        song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
                         open-album(id) => { root.open-album(id); }
                         cover: root.now-cover;
                         has-cover: root.has-now-cover;
@@ -2144,7 +2199,7 @@ export component MainWindow inherits Window {
                     artist-id: root.now-artist-id;
                     open-artist(id) => { root.open-artist(id); }
                     like-song(id) => { root.like-song(id); }
-                    song-menu(id, x, y) => { root.song-menu(id, x, y); }
+                    song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
                     cover: root.now-cover-small;
                     has-cover: root.has-now-cover;
                     playing: root.playing;
@@ -2187,6 +2242,11 @@ export component MainWindow inherits Window {
                 MenuItem { icon: Icons.track-next; label: "Играть дальше"; clicked => { root.track-menu-action("next", root.menu-id); } }
                 MenuItem { icon: Icons.list; label: "Добавить в очередь"; clicked => { root.track-menu-action("queue", root.menu-id); } }
                 MenuItem { icon: Icons.radio; label: "Радио по треку"; clicked => { root.track-menu-action("radio", root.menu-id); } }
+                MenuItem { icon: Icons.playlist-add; label: "Добавить в плейлист…"; clicked => { root.track-menu-action("add", root.menu-id); } }
+                if root.menu-in-playlist: HLine { }
+                if root.menu-in-playlist && root.menu-can-up: MenuItem { icon: Icons.chevron-up; label: "Поднять выше"; clicked => { root.track-menu-action("up", root.menu-id); } }
+                if root.menu-in-playlist && root.menu-can-down: MenuItem { icon: Icons.chevron-down; label: "Опустить ниже"; clicked => { root.track-menu-action("down", root.menu-id); } }
+                if root.menu-in-playlist: MenuItem { icon: Icons.x; label: "Убрать из плейлиста"; clicked => { root.track-menu-action("remove", root.menu-id); } }
                 HLine { }
                 MenuItem {
                     icon: root.menu-liked ? Icons.heart-filled : Icons.heart;
@@ -2199,12 +2259,160 @@ export component MainWindow inherits Window {
             }
         }
     }
-    song-menu(id, x, y) => {
+    song-menu(id, i, x, y) => {
         root.menu-id = id;
+        root.menu-index = i;
         root.menu-x = x;
         root.menu-y = y;
-        root.menu-opening(id);
+        root.menu-opening(id, i);
         track-menu.show();
+    }
+    // The dialog (pc/ Dialogs): a panel in the middle; a click outside or Esc closes it. No dimmed backdrop: the
+    // software renderer blends a translucent layer over the translucent fills wrongly (white edges on buttons).
+    if root.dialog-kind != "": Rectangle {
+        TouchArea { clicked => { root.dialog-kind = ""; } }
+        dlg := Rectangle {
+            width: min(440px, root.width - 64px);
+            height: dlg-col.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: max(48px, (parent.height - self.height) / 2 - 40px);
+            border-radius: Grid.item-radius + 4px;
+            background: Theme.menu;
+            border-color: Theme.panel-border;
+            border-width: 1px;
+            drop-shadow-blur: 40px;
+            drop-shadow-color: #000000A0;
+            // Clicks on the panel stay on it.
+            TouchArea { }
+            dlg-keys := FocusScope {
+                key-pressed(e) => {
+                    if e.text == Key.Escape { root.dialog-kind = ""; return accept; }
+                    reject
+                }
+            }
+            dlg-col := VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                HorizontalLayout {
+                    VerticalLayout {
+                        spacing: 4px;
+                        horizontal-stretch: 1;
+                        Text { text: root.dialog-title; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; }
+                        if root.dialog-subtitle != "": Text { text: root.dialog-subtitle; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+                    }
+                    VerticalLayout { alignment: start; IconButton { icon: Icons.x; size: 30px; icon-size: 15px; clicked => { root.dialog-kind = ""; } } }
+                }
+                // A name: a new playlist («Добавить в плейлист») or the new name (rename).
+                if root.dialog-kind == "add" || root.dialog-kind == "rename": HorizontalLayout {
+                    spacing: 10px;
+                    Rectangle {
+                        height: 40px;
+                        horizontal-stretch: 1;
+                        border-radius: 10px;
+                        background: Theme.fill;
+                        border-color: name-input.has-focus ? Theme.accent : Theme.panel-border;
+                        border-width: 1px;
+                        if root.dialog-text == "": Text {
+                            x: 12px;
+                            text: root.dialog-kind == "add" ? "Новый плейлист…" : "Название";
+                            font-family: Theme.body-font;
+                            font-size: 13px;
+                            color: Theme.mute;
+                            vertical-alignment: center;
+                            height: parent.height;
+                        }
+                        name-input := TextInput {
+                            x: 12px;
+                            width: parent.width - 24px;
+                            height: parent.height;
+                            text <=> root.dialog-text;
+                            font-family: Theme.body-font;
+                            font-size: 13px;
+                            color: Theme.text;
+                            vertical-alignment: center;
+                            single-line: true;
+                            accepted => { root.dialog-confirm(self.text); }
+                            key-pressed(e) => {
+                                if e.text == Key.Escape { root.dialog-kind = ""; return accept; }
+                                reject
+                            }
+                            init => { self.focus(); }
+                        }
+                    }
+                    Rectangle {
+                        width: ok-label.preferred-width + (root.dialog-kind == "add" ? 54px : 36px);
+                        height: 40px;
+                        border-radius: min(Theme.chip-radius, 20px);
+                        background: oka.has-hover ? Theme.accent2 : Theme.accent;
+                        HorizontalLayout {
+                            padding-left: root.dialog-kind == "add" ? 14px : 18px;
+                            padding-right: 18px;
+                            spacing: 6px;
+                            if root.dialog-kind == "add": Middle { Icon { icon: Icons.plus; size: 16px; color: Theme.on-accent; } }
+                            ok-label := Text { text: root.dialog-kind == "add" ? "Создать" : "Сохранить"; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.on-accent; vertical-alignment: center; }
+                        }
+                        oka := TouchArea { mouse-cursor: pointer; clicked => { root.dialog-confirm(root.dialog-text); } }
+                    }
+                }
+                // «Добавить в плейлист»: the listener's playlists, a check where the track is already.
+                if root.dialog-kind == "add": Flickable {
+                    height: min(root.dialog-items.length * 52px, 52px * 6);
+                    content-height: root.dialog-items.length * 52px;
+                    for pl[i] in root.dialog-items: Rectangle {
+                        y: i * 52px;
+                        height: 52px;
+                        width: parent.width;
+                        border-radius: Grid.item-radius;
+                        background: pla.has-hover ? Theme.fill-hover : transparent;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 10px;
+                            spacing: 12px;
+                            Middle { Cover { size: 40px; source: pl.cover; has-source: pl.has-cover; radius: Grid.row-cover-radius; } }
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 2px;
+                                horizontal-stretch: 1;
+                                Text { text: pl.name; font-family: Theme.body-font; font-weight: 600; font-size: 14px; color: Theme.text; overflow: elide; }
+                                Text { text: pl.count; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; }
+                            }
+                            Middle { Icon { icon: pl.has-all ? Icons.check : ""; size: 16px; color: Theme.accent; } }
+                        }
+                        pla := TouchArea { mouse-cursor: pointer; clicked => { root.dialog-pick(pl.id); } }
+                    }
+                }
+                if root.dialog-kind == "add" && root.dialog-items.length == 0: Text {
+                    text: "Своих плейлистов пока нет — создай первый выше.";
+                    font-family: Theme.body-font;
+                    font-size: 13px;
+                    color: Theme.dim;
+                }
+                // Delete: what goes, and the two answers.
+                if root.dialog-kind == "delete": HorizontalLayout {
+                    spacing: 10px;
+                    alignment: end;
+                    Rectangle {
+                        width: no-label.preferred-width + 36px;
+                        height: 38px;
+                        border-radius: min(Theme.chip-radius, 19px);
+                        background: noa.has-hover ? Theme.fill-hover : Theme.fill;
+                        border-color: Theme.panel-border;
+                        border-width: 1px;
+                        no-label := Text { text: "Отмена"; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.text; }
+                        noa := TouchArea { mouse-cursor: pointer; clicked => { root.dialog-kind = ""; } }
+                    }
+                    Rectangle {
+                        width: yes-label.preferred-width + 36px;
+                        height: 38px;
+                        border-radius: min(Theme.chip-radius, 19px);
+                        background: yesa.has-hover ? #C93C42 : #E5484D;
+                        yes-label := Text { text: "Удалить"; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: #FFFFFF; }
+                        yesa := TouchArea { mouse-cursor: pointer; clicked => { root.dialog-confirm(""); } }
+                    }
+                }
+            }
+            init => { dlg-keys.focus(); }
+        }
     }
     // Under the search field: the history (field empty) or matching history + YouTube Music suggestions.
     if root.suggest-open && root.suggestions.length > 0: TouchArea {
