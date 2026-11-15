@@ -73,3 +73,29 @@ fn follows_friends() {
     );
     assert!(st.data.len() > 1);
 }
+
+#[test]
+fn reads_chats_both_ways() {
+    let Ok(dir) = std::env::var("DRX_TEST_PROFILE") else {
+        return;
+    };
+    let profile = drx_core::paths::Profile::at(dir);
+    let vault = drx_core::secrets::Vault::load(&profile).expect("vault");
+    let keys = Keys::from_hex(vault.shared("friends", "sk").unwrap()).unwrap();
+    let me = keys.public_hex();
+    let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64 - 30 * 86_400;
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let pool = Pool::new(rt.handle());
+    pool.set_signer(Some(keys.clone()));
+    let events = rt.block_on(pool.query(
+        vec![
+            json!({"kinds":[4],"#p":[me],"since":since}),
+            json!({"kinds":[4],"authors":[me],"since":since}),
+        ],
+        Duration::from_secs(15),
+    ));
+    let words: Vec<_> = events.iter().filter_map(|e| drx_social::chat::decode(&keys, e)).collect();
+    let msgs = |mine: bool| words.iter().filter(|w| w.mine == mine && matches!(w.payload, drx_social::chat::Payload::Message { .. })).count();
+    let peers: std::collections::HashSet<_> = words.iter().map(|w| w.peer.clone()).collect();
+    eprintln!("dm events {} | decoded {} | messages in {} out {} | chats {}", events.len(), words.len(), msgs(false), msgs(true), peers.len());
+}
