@@ -232,7 +232,8 @@ impl App {
 
     /// Plays songs from a statistics or history list.
     pub fn play_rows(&self, rows: Vec<SongRow>, index: usize) {
-        let items = rows.into_iter().map(crate::playable_of).collect();
+        let items: Vec<crate::playback::Playable> = rows.into_iter().map(crate::playable_of).collect();
+        self.remember(items.iter().map(|p| &p.track));
         self.inner.playback.play_list(items, index);
     }
 }

@@ -155,6 +155,20 @@ pub fn init(songs: &Rc<LazySongs>) {
     SONGS.with(|s| *s.borrow_mut() = Some(songs.clone()));
 }
 
+/// The liked flag of the open list's row with this id (when that row is loaded).
+pub fn row_liked(id: &str) -> Option<bool> {
+    SONGS.with(|s| s.borrow().as_ref().and_then(|m| m.liked_of(id)))
+}
+
+/// A heart flipped: the open list shows it at once.
+pub fn set_row_liked(id: &str, liked: bool) {
+    SONGS.with(|s| {
+        if let Some(m) = s.borrow().as_ref() {
+            m.set_liked(id, liked);
+        }
+    });
+}
+
 fn current_handle() -> Option<drx_app::ListHandle> {
     SONGS.with(|s| s.borrow().as_ref().map(|m| m.handle()))
 }
@@ -370,6 +384,7 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
         ui.set_view_can_play(false);
         set_header_image(ui, app, None);
         set_releases(ui, app, Vec::new());
+        crate::likes_ui::page_opened(ui, app, None);
     }
     match &page.kind {
         PageKind::Search(q, source) => return crate::search_view::show(ui, app, q, *source),
@@ -394,6 +409,7 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     ui.set_view_liked_cover(liked);
     ui.set_view_is_page(!search);
     ui.set_view_can_play(false);
+    crate::likes_ui::page_opened(ui, app, Some(&page.spec));
     if !page.spec.is_remote() {
         let n = songs.len();
         let secs = app

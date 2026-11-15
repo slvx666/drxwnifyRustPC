@@ -239,6 +239,24 @@ pub fn remove(ui: &MainWindow, app: &App, event_id: i64) {
     });
 }
 
+/// A heart flipped: the history's rows of that track show it.
+pub fn set_liked(id: &str, liked: bool) {
+    MODEL.with(|m| {
+        if let Some(model) = m.borrow().as_ref() {
+            let mut any = false;
+            for e in model.entries.borrow_mut().iter_mut() {
+                if e.song.id == id && e.song.liked != liked {
+                    e.song.liked = liked;
+                    any = true;
+                }
+            }
+            if any {
+                model.notify.reset();
+            }
+        }
+    });
+}
+
 pub fn refresh_covers(ui: &MainWindow) {
     if ui.get_view_history() {
         MODEL.with(|m| {

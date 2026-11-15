@@ -646,6 +646,7 @@ component SongRow inherits Rectangle {
     in property <bool> hide-duration; // the remove button stands where the time is
     callback play();
     callback open-artist(string);
+    callback like-song(string);
     height: Grid.row;
     border-radius: Grid.item-radius;
     background: current ? Theme.fill-hover : (ta.has-hover || hot ? Theme.fill : transparent);
@@ -667,7 +668,17 @@ component SongRow inherits Rectangle {
             }
         }
         if song.plays != "": Text { width: 96px; text: song.plays; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
-        Middle { Icon { icon: song.liked ? Icons.heart-filled : ""; color: Theme.accent; size: 16px; } }
+        // The heart (pc/ TrackRow): filled when liked, an outline while the row is hovered; a click flips it.
+        heart := Rectangle {
+            width: 28px;
+            property <bool> show: song.liked || ta.has-hover || root.hot || hta.has-hover;
+            Icon {
+                icon: heart.show ? (song.liked ? Icons.heart-filled : Icons.heart) : "";
+                color: song.liked ? Theme.accent : (hta.has-hover ? Theme.text : Theme.mute);
+                size: 16px;
+            }
+            hta := TouchArea { mouse-cursor: pointer; clicked => { root.like-song(song.id); } }
+        }
         Text { width: 40px; text: song.duration; font-family: Theme.mono-font; font-size: 12px; color: root.hide-duration ? transparent : Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
     }
 }
@@ -791,7 +802,7 @@ component SettingsPage inherits Flickable {
         }
         SettingRow {
             label: "Глобальные горячие клавиши";
-            hint: "Ctrl+Alt+Shift+Пробел — пауза, ← и → — треки. Работают в любой программе, даже в игре";
+            hint: "Ctrl+Alt+Shift+Пробел — пауза, ← и → — треки, L — в любимые. Работают в любой программе, даже в игре";
             Middle { Toggle { on: root.hotkeys; toggled(v) => { root.set-hotkeys(v); } } }
         }
         // Theme cards: a swatch of the theme's background and accent, the name under it.
@@ -878,6 +889,7 @@ component SearchPage inherits Flickable {
     callback top();
     callback more();
     callback open-artist(string);
+    callback like-song(string);
     callback artist(int);
     callback album(int);
     callback playlist(int);
@@ -939,6 +951,7 @@ component SearchPage inherits Flickable {
                     current: root.now-id != "" && t.id == root.now-id;
                     play => { root.play(i); }
                     open-artist(id) => { root.open-artist(id); }
+                    like-song(id) => { root.like-song(id); }
                 }
             }
         }
@@ -973,6 +986,7 @@ component ArtistView inherits Flickable {
     callback play(int);
     callback more();
     callback open-artist(string);
+    callback like-song(string);
     callback open-album(string);
     content-height: body.preferred-height + Grid.pad;
     body := VerticalLayout {
@@ -1001,6 +1015,7 @@ component ArtistView inherits Flickable {
                         current: root.now-id != "" && t.id == root.now-id;
                         play => { root.play(i); }
                         open-artist(id) => { root.open-artist(id); }
+                        like-song(id) => { root.like-song(id); }
                     }
                 }
             }
@@ -1035,6 +1050,7 @@ component HistoryView inherits HorizontalLayout {
     callback play(int);
     callback remove(int);
     callback open-artist(string);
+    callback like-song(string);
     padding-left: 8px;
     padding-right: 4px;
     ListView {
@@ -1058,6 +1074,7 @@ component HistoryView inherits HorizontalLayout {
                     hide-duration: hover.has-hover;
                     play => { root.play(it.index); }
                     open-artist(id) => { root.open-artist(id); }
+                    like-song(id) => { root.like-song(id); }
                 }
                 // Remove from the history: in place of the time while the row's right end is hovered. The button is a
                 // child of the hover area, so the area stays hovered (and the button shown) while the pointer is on it.
@@ -1094,6 +1111,7 @@ component StatsView inherits Flickable {
     callback play(int);
     callback more();
     callback open-artist(string);
+    callback like-song(string);
     callback open-album(string);
     content-height: body.preferred-height + Grid.pad;
     body := VerticalLayout {
@@ -1151,6 +1169,7 @@ component StatsView inherits Flickable {
                         current: root.now-id != "" && t.id == root.now-id;
                         play => { root.play(i); }
                         open-artist(id) => { root.open-artist(id); }
+                        like-song(id) => { root.like-song(id); }
                     }
                 }
             }
@@ -1247,7 +1266,11 @@ component MainArea inherits VerticalLayout {
     callback play(int);
     callback import-backup();
     callback open-artist(string);
+    callback like-song(string);
     callback open-album(string);
+    in property <bool> can-save; // album / playlist / artist pages of a catalog
+    in property <bool> saved;
+    callback toggle-save();
     padding-top: Grid.pad;
     padding-bottom: 4px;
     spacing: Grid.gap;
@@ -1304,6 +1327,17 @@ component MainArea inherits VerticalLayout {
                     }
                     sa := TouchArea { mouse-cursor: pointer; clicked => { root.shuffle-all(); } }
                 }
+                // In the library / follow (pc/ PageHeader): a round button with the heart.
+                if root.can-save: Rectangle {
+                    width: 38px;
+                    height: 38px;
+                    border-radius: min(Theme.chip-radius, 19px);
+                    background: va.has-hover ? Theme.fill-hover : Theme.fill;
+                    border-color: Theme.panel-border;
+                    border-width: 1px;
+                    Icon { icon: root.saved ? Icons.heart-filled : Icons.heart; size: 17px; color: root.saved ? Theme.accent : Theme.text; }
+                    va := TouchArea { mouse-cursor: pointer; clicked => { root.toggle-save(); } }
+                }
             }
         }
     }
@@ -1357,6 +1391,7 @@ component MainArea inherits VerticalLayout {
         play(i) => { root.h-play(i); }
         remove(e) => { root.h-remove(e); }
         open-artist(id) => { root.open-artist(id); }
+        like-song(id) => { root.like-song(id); }
     }
     if root.stats: StatsView {
         vertical-stretch: 1;
@@ -1373,6 +1408,7 @@ component MainArea inherits VerticalLayout {
         play(i) => { root.st-play(i); }
         more => { root.st-more(); }
         open-artist(id) => { root.open-artist(id); }
+        like-song(id) => { root.like-song(id); }
         open-album(id) => { root.open-album(id); }
     }
     if root.artist-view && !root.empty-library: ArtistView {
@@ -1388,6 +1424,7 @@ component MainArea inherits VerticalLayout {
         play(i) => { root.play(i); }
         more => { root.a-more(); }
         open-artist(id) => { root.open-artist(id); }
+        like-song(id) => { root.like-song(id); }
         open-album(id) => { root.open-album(id); }
     }
     if root.search: SearchPage {
@@ -1411,6 +1448,7 @@ component MainArea inherits VerticalLayout {
         top => { root.s-top(); }
         more => { root.s-more(); }
         open-artist(id) => { root.open-artist(id); }
+        like-song(id) => { root.like-song(id); }
         artist(i) => { root.s-artist(i); }
         album(i) => { root.s-album(i); }
         playlist(i) => { root.s-playlist(i); }
@@ -1504,6 +1542,7 @@ component MainArea inherits VerticalLayout {
                 current: root.now-id != "" && song.id == root.now-id;
                 play => { root.play(song.index - 1); }
                 open-artist(id) => { root.open-artist(id); }
+                like-song(id) => { root.like-song(id); }
             }
         }
     }
@@ -1521,10 +1560,14 @@ component RightPanel inherits VerticalLayout {
     in property <bool> has-cover;
     in property <[QueueItem]> upcoming;
     callback open-artist(string);
+    callback like-song(string);
     callback open-album(string);
     in property <string> lyric-now;
     in property <string> lyric-next;
     in property <bool> has-lyrics;
+    in property <bool> liked;
+    in property <bool> can-like;
+    callback toggle-like();
     property <length> cover-size: root.width - 2 * Grid.pad;
     padding: Grid.pad;
     padding-bottom: 0;
@@ -1534,16 +1577,29 @@ component RightPanel inherits VerticalLayout {
         alignment: start;
         Cover { size: root.cover-size; source: root.cover; has-source: root.has-cover; placeholder-size: 64px; }
     }
-    VerticalLayout {
-        spacing: 4px;
-        Text { text: title == "" ? "Ничего не играет" : title; font-family: Theme.heading-font; font-weight: 700; font-size: 20px; color: Theme.text; overflow: elide; }
-        if artists != "": HorizontalLayout {
-            alignment: start;
-            Link { text: artists; font-size: 13px; enabled: root.artist-id != ""; clicked => { root.open-artist(root.artist-id); } }
+    HorizontalLayout {
+        spacing: Grid.gap;
+        VerticalLayout {
+            spacing: 4px;
+            horizontal-stretch: 1;
+            Text { text: title == "" ? "Ничего не играет" : title; font-family: Theme.heading-font; font-weight: 700; font-size: 20px; color: Theme.text; overflow: elide; }
+            if artists != "": HorizontalLayout {
+                alignment: start;
+                Link { text: artists; font-size: 13px; enabled: root.artist-id != ""; clicked => { root.open-artist(root.artist-id); } }
+            }
+            if info != "": HorizontalLayout {
+                alignment: start;
+                Link { text: info; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; enabled: root.album-id != ""; clicked => { root.open-album(root.album-id); } }
+            }
         }
-        if info != "": HorizontalLayout {
+        if root.can-like: VerticalLayout {
             alignment: start;
-            Link { text: info; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; enabled: root.album-id != ""; clicked => { root.open-album(root.album-id); } }
+            IconButton {
+                icon: root.liked ? Icons.heart-filled : Icons.heart;
+                active: root.liked;
+                active-color: Theme.accent;
+                clicked => { root.toggle-like(); }
+            }
         }
     }
     Rectangle {
@@ -1590,6 +1646,10 @@ component PlayerBar inherits HorizontalLayout {
     in property <string> artists;
     in property <string> artist-id;
     callback open-artist(string);
+    callback like-song(string);
+    in property <bool> liked;
+    in property <bool> can-like;
+    callback toggle-like();
     in property <bool> playing;
     in property <float> progress; // 0..1
     in property <string> position;
@@ -1620,6 +1680,17 @@ component PlayerBar inherits HorizontalLayout {
             if artists != "": HorizontalLayout {
                 alignment: start;
                 Link { text: artists; enabled: root.artist-id != ""; clicked => { root.open-artist(root.artist-id); } }
+            }
+        }
+        if root.can-like: Middle {
+            IconButton {
+                icon: root.liked ? Icons.heart-filled : Icons.heart;
+                size: 32px;
+                icon-size: 17px;
+                active: root.liked;
+                active-color: Theme.accent;
+                tint: Theme.mute;
+                clicked => { root.toggle-like(); }
             }
         }
     }
@@ -1819,7 +1890,16 @@ export component MainWindow inherits Window {
     callback set-hotkeys(bool);
     callback set-autostart(bool);
     callback open-artist(string);
+    callback like-song(string);
     callback open-album(string);
+    // The playing track's heart.
+    in property <bool> now-liked;
+    in property <bool> now-can-like;
+    callback toggle-now-like();
+    // The open page's «in the library» / «follow» heart.
+    in property <bool> view-can-save;
+    in property <bool> view-saved;
+    callback toggle-view-save();
     callback back();
     callback forward();
     callback home();
@@ -1918,6 +1998,9 @@ export component MainWindow inherits Window {
                         shuffle-all => { root.shuffle-all(); }
                         cover: root.view-cover;
                         has-cover: root.has-view-cover;
+                        can-save: root.view-can-save;
+                        saved: root.view-saved;
+                        toggle-save => { root.toggle-view-save(); }
                         releases: root.view-releases;
                         home: root.view-home;
                         settings: root.view-settings;
@@ -1981,6 +2064,7 @@ export component MainWindow inherits Window {
                         sections: root.home-sections;
                         home-play(s, c) => { root.home-play(s, c); }
                         open-artist(id) => { root.open-artist(id); }
+                        like-song(id) => { root.like-song(id); }
                         open-album(id) => { root.open-album(id); }
                         play(i) => { root.play(i); }
                         import-backup => { root.import-backup(); }
@@ -1994,6 +2078,7 @@ export component MainWindow inherits Window {
                         artist-id: root.now-artist-id;
                         album-id: root.now-album-id;
                         open-artist(id) => { root.open-artist(id); }
+                        like-song(id) => { root.like-song(id); }
                         open-album(id) => { root.open-album(id); }
                         cover: root.now-cover;
                         has-cover: root.has-now-cover;
@@ -2001,6 +2086,9 @@ export component MainWindow inherits Window {
                         lyric-now: root.lyric-now;
                         lyric-next: root.lyric-next;
                         has-lyrics: root.has-lyrics;
+                        liked: root.now-liked;
+                        can-like: root.now-can-like;
+                        toggle-like => { root.toggle-now-like(); }
                     }
                 }
                 HLine { }
@@ -2009,6 +2097,7 @@ export component MainWindow inherits Window {
                     artists: root.now-artists;
                     artist-id: root.now-artist-id;
                     open-artist(id) => { root.open-artist(id); }
+                    like-song(id) => { root.like-song(id); }
                     cover: root.now-cover-small;
                     has-cover: root.has-now-cover;
                     playing: root.playing;
@@ -2026,6 +2115,9 @@ export component MainWindow inherits Window {
                     prev => { root.prev(); }
                     seek(f) => { root.seek(f); }
                     volume-changed(v) => { root.volume-changed(v); }
+                    liked: root.now-liked;
+                    can-like: root.now-can-like;
+                    toggle-like => { root.toggle-now-like(); }
                 }
             }
         }

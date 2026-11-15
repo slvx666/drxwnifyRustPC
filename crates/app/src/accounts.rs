@@ -337,6 +337,7 @@ impl App {
     }
 
     fn set_rows(&self, handle: ListHandle, rows: Vec<Playable>, version: u64) {
+        self.remember(rows.iter().map(|p| &p.track));
         self.inner
             .remote
             .lock()

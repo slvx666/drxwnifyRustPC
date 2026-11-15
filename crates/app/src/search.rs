@@ -181,6 +181,13 @@ impl App {
 
     /// Searches `query` in `source` (or opens the link it is).
     pub async fn search_page(&self, query: &str, source: SearchSource) -> AppResult<SearchOutcome> {
+        let out = self.search_page_inner(query, source).await?;
+        self.remember(out.playable.iter().map(|p| &p.track));
+        self.remember(out.results.tracks.iter());
+        Ok(out)
+    }
+
+    async fn search_page_inner(&self, query: &str, source: SearchSource) -> AppResult<SearchOutcome> {
         let q = query.trim();
         if q.is_empty() {
             return Ok(SearchOutcome::default());
@@ -673,6 +680,7 @@ impl App {
 
     /// Plays search results (VK ones with their URLs) from `index`.
     pub fn play_found(&self, tracks: Vec<Playable>, index: usize) {
+        self.remember(tracks.iter().map(|p| &p.track));
         self.inner.playback.play_list(tracks, index);
     }
 

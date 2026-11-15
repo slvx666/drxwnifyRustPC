@@ -347,10 +347,11 @@ impl App {
 
     /// Plays tracks that are not a list of the library (a home row) from `index`.
     pub fn play_tracks(&self, tracks: Vec<Track>, index: usize) {
-        let items = tracks
+        let items: Vec<Playable> = tracks
             .into_iter()
             .map(|track| Playable { track, url: None })
             .collect();
+        self.remember(items.iter().map(|p| &p.track));
         self.inner.playback.play_list(items, index);
     }
 

@@ -159,6 +159,85 @@ impl App {
         );
     }
 
+    /// Keeps tracks the UI was handed, so a heart on any of their rows knows the whole track.
+    pub(crate) fn remember<'a>(&self, tracks: impl Iterator<Item = &'a Track>) {
+        let mut k = self.inner.known.lock().expect("known");
+        if k.len() > 20_000 {
+            k.clear();
+        }
+        for t in tracks {
+            k.entry(t.id.clone()).or_insert_with(|| t.clone());
+        }
+    }
+
+    /// A track by the id a row or the player shows: one the UI was handed, else its library row.
+    pub async fn known_track(&self, id: &str) -> Option<Track> {
+        if let Some(t) = self.inner.known.lock().expect("known").get(id).cloned() {
+            return Some(t);
+        }
+        if let Some(t) = self.inner.playback.now.borrow().track.clone().filter(|t| t.id == id) {
+            return Some(t);
+        }
+        let song = song_id_of(id);
+        self.store()
+            .call(move |c| {
+                let row = c.query_row(
+                    "SELECT title, duration, albumId, albumName, thumbnailUrl, explicit, isrc FROM song WHERE id = ?1",
+                    [&song],
+                    |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, i64>(1)?,
+                            r.get::<_, Option<String>>(2)?,
+                            r.get::<_, Option<String>>(3)?,
+                            r.get::<_, Option<String>>(4)?,
+                            r.get::<_, bool>(5)?,
+                            r.get::<_, Option<String>>(6)?,
+                        ))
+                    },
+                );
+                let Ok((title, dur, album_id, album_name, thumb, explicit, isrc)) = row else {
+                    return Ok(None);
+                };
+                let mut st = c.prepare(
+                    "SELECT a.id, a.name FROM song_artist_map m JOIN artist a ON a.id = m.artistId
+                     WHERE m.songId = ?1 ORDER BY m.position",
+                )?;
+                let artists = st
+                    .query_map([&song], |r| {
+                        Ok(drx_catalog::model::ArtistRef { id: r.get(0)?, name: r.get(1)? })
+                    })?
+                    .flatten()
+                    .collect();
+                Ok(Some(Track {
+                    id: song.clone(),
+                    title,
+                    artists,
+                    album: album_name.map(|name| drx_catalog::model::AlbumRef {
+                        id: album_id.unwrap_or_default(),
+                        name,
+                        images: thumb
+                            .map(|url| vec![drx_catalog::model::Image { url, width: Some(300) }])
+                            .unwrap_or_default(),
+                    }),
+                    duration_ms: dur.max(0) as u64 * 1000,
+                    isrc,
+                    explicit,
+                    plays: None,
+                }))
+            })
+            .await
+            .ok()
+            .flatten()
+    }
+
+    /// Flips the heart of the track a row or the player shows; returns the new state.
+    pub async fn toggle_like(&self, id: &str) -> AppResult<bool> {
+        let t = self.known_track(id).await.ok_or_else(|| err("unknown track"))?;
+        let liked = !self.is_track_liked(id).await;
+        self.set_track_liked(&t, liked).await.map(|_| liked)
+    }
+
     pub fn like_mode(&self) -> LikeMode {
         self.prefs_now()
             .get_str(LIKE_MODE_KEY)

@@ -59,6 +59,32 @@ impl LazySongs {
         self.notify.reset();
     }
 
+    /// The liked flag of a cached row with this id.
+    pub fn liked_of(&self, id: &str) -> Option<bool> {
+        self.pages
+            .borrow()
+            .values()
+            .flat_map(|p| p.iter())
+            .find(|r| r.id == id)
+            .map(|r| r.liked)
+    }
+
+    /// A heart flipped: cached rows of this track show it at once.
+    pub fn set_liked(&self, id: &str, liked: bool) {
+        let mut changed = Vec::new();
+        for (page, rows) in self.pages.borrow_mut().iter_mut() {
+            for (i, r) in rows.iter_mut().enumerate() {
+                if r.id == id && r.liked != liked {
+                    r.liked = liked;
+                    changed.push(page * PAGE + i);
+                }
+            }
+        }
+        for row in changed {
+            self.notify.row_changed(row);
+        }
+    }
+
     /// Covers arrived: redraw the visible rows (cached pages are kept).
     pub fn refresh_covers(&self) {
         self.notify.reset();

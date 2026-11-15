@@ -171,6 +171,8 @@ struct Inner {
     images: drx_core::images::Images,
     /// One writer at a time for the Android shared-prefs files (cross_catalog, vk_saved_tracks).
     shared_lock: Mutex<()>,
+    /// Tracks the UI was handed (lists, search, queue), by id: a heart on any row knows the whole track.
+    known: Mutex<HashMap<String, drx_catalog::model::Track>>,
 }
 
 /// The running core. Cheap to clone; UIs call the async methods through [`App::runtime`].
@@ -212,6 +214,7 @@ impl App {
             clients: accounts::Clients::default(),
             images,
             shared_lock: Mutex::new(()),
+            known: Mutex::default(),
             lists: lists::Lists::default(),
             profile,
             edition,
@@ -766,11 +769,18 @@ impl App {
             .spec(handle)
             .ok_or_else(|| AppError::Other("list is closed".into()))?;
         if spec.is_remote() {
-            let remote = self.inner.remote.lock().expect("remote");
-            let rows = remote.get(&handle).map(Vec::as_slice).unwrap_or(&[]);
-            let end = range.end.min(rows.len());
-            let start = range.start.min(end);
-            return Ok(rows[start..end].iter().map(row_of).collect());
+            let mut out: Vec<SongRow> = {
+                let remote = self.inner.remote.lock().expect("remote");
+                let rows = remote.get(&handle).map(Vec::as_slice).unwrap_or(&[]);
+                let end = range.end.min(rows.len());
+                let start = range.start.min(end);
+                rows[start..end].iter().map(row_of).collect()
+            };
+            let flags = self.liked_flags(out.iter().map(|r| r.id.clone()).collect()).await;
+            for (r, f) in out.iter_mut().zip(flags) {
+                r.liked = f;
+            }
+            return Ok(out);
         }
         Ok(self
             .store()
@@ -801,6 +811,7 @@ impl App {
     /// Plays a list from `index`; the list becomes the queue.
     pub async fn play_list(&self, handle: ListHandle, index: usize) -> AppResult<()> {
         let items = self.list_items(handle).await?;
+        self.remember(items.iter().map(|p| &p.track));
         self.inner.playback.play_list(items, index);
         Ok(())
     }
@@ -880,6 +891,7 @@ impl App {
     /// «Перемешать» on a page: the list in random order (shuffle turns on).
     pub async fn play_list_shuffled(&self, handle: ListHandle) -> AppResult<()> {
         let items = self.list_items(handle).await?;
+        self.remember(items.iter().map(|p| &p.track));
         self.inner.playback.play_shuffled(items);
         self.save_shuffle_repeat();
         Ok(())
@@ -1692,6 +1704,25 @@ mod live_likes {
             eprintln!("yandex: liked={} after unlike present={}", after.contains(&t.id), gone.contains(&t.id));
             assert!(after.contains(&t.id));
             assert!(!gone.contains(&t.id));
+        }
+    }
+}
+
+#[cfg(test)]
+mod live_liked_head {
+    use super::*;
+
+    /// Prints the first three tracks of the Spotify account's Liked Songs (DRX_TEST_PROFILE). Not run in CI.
+    #[test]
+    fn spotify_liked_head() {
+        let Ok(dir) = std::env::var("DRX_TEST_PROFILE") else {
+            return;
+        };
+        let app = App::start(Profile::at(dir), EditionProfile::mini()).unwrap();
+        let sp = app.spotify().expect("spotify");
+        let page = app.runtime().block_on(sp.liked_songs(0, 3)).unwrap();
+        for t in page.items {
+            eprintln!("liked head: {} {}", t.id, t.title);
         }
     }
 }

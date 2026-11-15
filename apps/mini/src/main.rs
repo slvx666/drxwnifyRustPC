@@ -7,6 +7,7 @@ mod history_view;
 mod home_view;
 mod lazy_library;
 mod lazy_songs;
+mod likes_ui;
 mod nav;
 mod os;
 mod search_view;
@@ -559,15 +560,20 @@ fn main() {
     {
         let mut rx = app.now_playing();
         let ui_w = ui.as_weak();
+        let app_now0 = app.clone();
         app.runtime().spawn(async move {
             while rx.changed().await.is_ok() {
                 let now = rx.borrow().clone();
                 let ui_w = ui_w.clone();
+                let app_now = app_now0.clone();
                 let _ = slint::invoke_from_event_loop(move || {
                     let Some(ui) = ui_w.upgrade() else { return };
                     if let Some(t) = &now.track {
                         ui.set_now_title(t.title.clone().into());
-                        ui.set_now_id(t.id.clone().into());
+                        if ui.get_now_id() != t.id.as_str() {
+                            ui.set_now_id(t.id.clone().into());
+                            likes_ui::now_changed(&ui, &app_now, t.id.clone());
+                        }
                         ui.set_now_artists(t.artist_names().into());
                         ui.set_now_artist_id(
                             t.artists
@@ -865,6 +871,7 @@ fn main() {
 
     // System media controls (media keys, volume flyout, lock screen) and the tray.
     os::wire_title_bar(&ui);
+    likes_ui::wire(&ui, &app);
     let platform = os::start(&ui, &app, Some(&guard));
     {
         let (app2, ui_w, platform) = (app.clone(), ui.as_weak(), platform.clone());

@@ -14,8 +14,9 @@ pub const HOTKEYS_KEY: &str = "pcGlobalHotkeys";
 const HK_TOGGLE: u32 = 1;
 const HK_NEXT: u32 = 2;
 const HK_PREV: u32 = 3;
+const HK_LIKE: u32 = 4;
 
-/// pc/ Hotkeys.kt defaults: three modifiers nobody presses by accident. Like/download/radio come with those features.
+/// pc/ Hotkeys.kt defaults: three modifiers nobody presses by accident. Download and radio come with those features.
 fn default_hotkeys() -> Vec<Hotkey> {
     let k = |id, key| Hotkey {
         id,
@@ -24,13 +25,14 @@ fn default_hotkeys() -> Vec<Hotkey> {
         shift: true,
         key,
     };
-    vec![k(HK_TOGGLE, 0x20), k(HK_NEXT, 0x27), k(HK_PREV, 0x25)]
+    vec![k(HK_TOGGLE, 0x20), k(HK_NEXT, 0x27), k(HK_PREV, 0x25), k(HK_LIKE, 0x4C)]
 }
 
 fn hotkey_name(id: u32) -> &'static str {
     match id {
         HK_TOGGLE => "Ctrl+Alt+Shift+Пробел",
         HK_NEXT => "Ctrl+Alt+Shift+→",
+        HK_LIKE => "Ctrl+Alt+Shift+L",
         _ => "Ctrl+Alt+Shift+←",
     }
 }
@@ -123,6 +125,7 @@ fn handle(ui: &MainWindow, app: &App, e: PlatformEvent) {
         PlatformEvent::Hotkey(HK_TOGGLE) => app.toggle_play(),
         PlatformEvent::Hotkey(HK_NEXT) => app.next_track(),
         PlatformEvent::Hotkey(HK_PREV) => app.previous_track(),
+        PlatformEvent::Hotkey(HK_LIKE) => crate::likes_ui::toggle_now(ui, app),
         PlatformEvent::HotkeyBusy(id) => {
             ui.set_toast(format!("{} занято другой программой", hotkey_name(id)).into());
         }
