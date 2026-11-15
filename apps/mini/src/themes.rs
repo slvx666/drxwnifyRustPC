@@ -99,7 +99,8 @@ fn family(id: &str) -> &'static str {
         "forum" => "Forum",
         "playfair" => "Playfair Display",
         "jpSerif" => "Noto Serif JP",
-        _ => "Manrope",
+        // Manrope in Full; Mini draws it with Onest (owner: closer to Spotify, Manrope read wide and loose).
+        _ => "Onest",
     }
 }
 

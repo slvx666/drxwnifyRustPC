@@ -1,11 +1,11 @@
 // Theme values for Mini. Filled from assets/themes.json by Rust (same data as Full).
 // Mini draws themes statically: shapes, fonts, colours and a vector backdrop, no animation (decision D-014).
 
-import "../../../assets/fonts/Manrope-Regular.ttf";
-import "../../../assets/fonts/Manrope-Medium.ttf"; // the default text weight (500): reads like Spotify's UI text
-import "../../../assets/fonts/Manrope-SemiBold.ttf";
-import "../../../assets/fonts/Manrope-Bold.ttf";
-import "../../../assets/fonts/Manrope-ExtraBold.ttf";
+// Onest instead of the themes' Manrope (owner, 2026-11-15: a face close to Spotify's); cut by scripts/onest.py.
+import "../../../assets/fonts/Onest-Regular.ttf";
+import "../../../assets/fonts/Onest-Medium.ttf"; // the default text weight (500)
+import "../../../assets/fonts/Onest-SemiBold.ttf";
+import "../../../assets/fonts/Onest-Bold.ttf";
 import "../../../assets/fonts/JetBrainsMono-Regular.ttf";
 import "../../../assets/fonts/NotoSerifJP-SemiBold.ttf";
 
@@ -29,8 +29,8 @@ export global Theme {
     in-out property <length> panel-radius: 20px;
     in-out property <length> cover-radius: 12px;
     in-out property <length> chip-radius: 99px;
-    in-out property <string> body-font: "Manrope";
-    in-out property <string> heading-font: "Manrope";
+    in-out property <string> body-font: "Onest";
+    in-out property <string> heading-font: "Onest";
     in-out property <int> heading-weight: 800;
     in-out property <string> mono-font: "JetBrains Mono";
     in-out property <string> look: "Glass";

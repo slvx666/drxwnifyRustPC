@@ -10,3 +10,7 @@ Subsets made by `scripts/fonts.py` from the fonts of the Kotlin desktop app. All
 
 The OFL allows bundling and subsetting; subsets keep the original names as required by the reserved-name rules
 where applicable.
+
+Onest (`Onest-Regular/Medium/SemiBold/Bold.ttf`, Mini's text font): static weights cut from the variable
+`Onest[wght].ttf` of Google Fonts by `scripts/onest.py` (Latin, Cyrillic, punctuation). Copyright 2021 The Onest
+Project Authors (https://github.com/googlefonts/onest), SIL Open Font License 1.1.
