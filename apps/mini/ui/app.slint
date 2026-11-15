@@ -329,7 +329,7 @@ component Cover inherits Rectangle {
 component SectionTitle inherits Text {
     font-family: Theme.heading-font;
     font-weight: 700;
-    font-size: 16px;
+    font-size: 17px;
     color: Theme.text;
     vertical-alignment: center;
 }
@@ -748,8 +748,8 @@ component LibraryPanel inherits VerticalLayout {
                     VerticalLayout {
                         alignment: center;
                         spacing: 2px;
-                        Text { text: item.title; font-family: Theme.body-font; font-size: 15px; color: Theme.text; overflow: elide; }
-                        Text { text: item.subtitle; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; overflow: elide; }
+                        Text { text: item.title; font-family: Theme.body-font; font-size: 16px; color: Theme.text; overflow: elide; }
+                        Text { text: item.subtitle; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; overflow: elide; }
                     }
                 }
                 ta := TouchArea { clicked => { root.open(item); } }
@@ -775,7 +775,8 @@ component SongRow inherits Rectangle {
     background: current ? Theme.fill-hover : (root.row-hot ? Theme.fill : transparent);
     // Under the content, so the artist link on top gets its own clicks. A right click opens the track menu.
     ta := TouchArea {
-        double-clicked => { root.play(); }
+        mouse-cursor: pointer;
+        clicked => { root.play(); }
         pointer-event(e) => {
             if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                 root.song-menu(root.song.id, root.song.index - 1, root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
@@ -789,7 +790,7 @@ component SongRow inherits Rectangle {
         // The number; a play button over it while the row is hovered (pc/ TrackRow, Spotify).
         Rectangle {
             width: 28px;
-            if !root.row-hot: Text { width: 100%; height: 100%; text: song.index; font-family: Theme.mono-font; font-size: 13px; color: current ? Theme.accent : Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
+            if !root.row-hot: Text { width: 100%; height: 100%; text: song.index; font-family: Theme.body-font; font-size: 15px; color: current ? Theme.accent : Theme.dim; vertical-alignment: center; horizontal-alignment: right; }
             if root.row-hot: Icon { x: parent.width - self.width; icon: Icons.play; size: 16px; color: pa.has-hover ? Theme.text : (current ? Theme.accent : Theme.dim); }
             pa := TouchArea { mouse-cursor: pointer; clicked => { root.play(); } }
         }
@@ -812,7 +813,7 @@ component SongRow inherits Rectangle {
                 artist := Link { text: song.artists; enabled: song.artist-id != ""; clicked => { root.open-artist(song.artist-id); } }
             }
         }
-        if song.plays != "": Text { width: 96px; text: song.plays; font-family: Theme.mono-font; font-size: 13px; color: Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
+        if song.plays != "": Text { width: 110px; text: song.plays; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; vertical-alignment: center; horizontal-alignment: right; }
         // The heart (pc/ TrackRow): filled when liked, an outline while the row is hovered; a click flips it.
         heart := Rectangle {
             width: 28px;
@@ -824,7 +825,7 @@ component SongRow inherits Rectangle {
             }
             hta := TouchArea { mouse-cursor: pointer; clicked => { root.like-song(song.id); } }
         }
-        Text { width: 46px; text: song.duration; font-family: Theme.mono-font; font-size: 13px; color: root.hide-duration ? transparent : Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
+        Text { width: 48px; text: song.duration; font-family: Theme.body-font; font-size: 14px; color: root.hide-duration ? transparent : Theme.dim; vertical-alignment: center; horizontal-alignment: right; }
     }
 }
 
@@ -869,7 +870,56 @@ component SettingRow inherits HorizontalLayout {
     @children
 }
 
+// A sideways strip (home rows, search and artist rows, theme cards): round arrows at its ends appear while the strip
+// is hovered and page it left or right (the wheel scrolls the page, not the strip).
+component ArrowStrip inherits Rectangle {
+    in property <length> content-w;
+    in property <bool> hot; // a card in the strip is hovered
+    in property <length> arrow-y: (self.height - 40px) / 2;
+    property <length> step: max(160px, self.width * 0.8);
+    property <bool> show: root.hot || bg.has-hover || la.has-hover || ra.has-hover;
+    bg := TouchArea { }
+    f := Flickable {
+        width: 100%;
+        height: 100%;
+        content-width: root.content-w;
+        content-height: self.height;
+        @children
+    }
+    Rectangle {
+        x: 8px;
+        y: root.arrow-y;
+        width: 40px;
+        height: 40px;
+        border-radius: 20px;
+        visible: root.show && f.content-x < -1px;
+        background: la.has-hover ? Theme.text : Theme.menu;
+        drop-shadow-blur: 8px;
+        drop-shadow-color: #00000080;
+        Icon { icon: Icons.chevron-left; size: 20px; color: la.has-hover ? Theme.bg : Theme.text; }
+        la := TouchArea { mouse-cursor: pointer; clicked => { f.content-x = min(0px, f.content-x + root.step); } }
+    }
+    Rectangle {
+        x: root.width - self.width - 8px;
+        y: root.arrow-y;
+        width: 40px;
+        height: 40px;
+        border-radius: 20px;
+        visible: root.show && f.content-x > f.width - f.content-width + 1px;
+        background: ra.has-hover ? Theme.text : Theme.menu;
+        drop-shadow-blur: 8px;
+        drop-shadow-color: #00000080;
+        Icon { icon: Icons.chevron-right; size: 20px; color: ra.has-hover ? Theme.bg : Theme.text; }
+        ra := TouchArea { mouse-cursor: pointer; clicked => { f.content-x = max(min(0px, f.width - f.content-width), f.content-x - root.step); } }
+    }
+}
+
 component SettingsPage inherits Flickable {
+    // Its content would cap the window (Settings squeezed it to the minimum width and stopped «maximise»).
+    min-width: 0;
+    max-width: 100000px;
+    min-height: 0;
+    max-height: 100000px;
     in property <[AccountRow]> accounts;
     in property <[ThemeChip]> themes;
     in property <bool> day;
@@ -1009,10 +1059,12 @@ component SettingsPage inherits Flickable {
             wrap: word-wrap;
         }
         // Theme cards: a swatch of the theme's background and accent, the name under it.
-        Flickable {
+        themes-strip := ArrowStrip {
+            property <int> hover-i: -1;
             height: 104px;
-            content-height: self.height;
-            content-width: root.themes.length * 116px;
+            content-w: root.themes.length * 116px;
+            hot: self.hover-i >= 0;
+            arrow-y: 16px;
             for t[i] in root.themes: Rectangle {
                 x: i * 116px;
                 width: 104px;
@@ -1034,45 +1086,64 @@ component SettingsPage inherits Flickable {
                     }
                     Text { text: t.name; font-family: Theme.body-font; font-size: 14px; color: t.selected ? Theme.accent : Theme.text; horizontal-alignment: center; overflow: elide; }
                 }
-                tta := TouchArea { mouse-cursor: pointer; clicked => { root.set-theme(t.id); } }
+                tta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.set-theme(t.id); }
+                    changed has-hover => {
+                        if self.has-hover { themes-strip.hover-i = i; } else if themes-strip.hover-i == i { themes-strip.hover-i = -1; }
+                    }
+                }
             }
         }
     }
 }
 
 // A row of cards that scrolls sideways (search sections). Round covers for artists.
-component CardStrip inherits Flickable {
+component CardStrip inherits ArrowStrip {
     in property <[HomeCard]> cards;
     in property <bool> round;
     callback clicked(int);
-    height: 188px;
-    content-height: self.height;
-    content-width: Grid.pad + 4px + root.cards.length * 156px;
+    property <int> hover-i: -1;
+    height: 222px;
+    content-w: Grid.pad + 4px + root.cards.length * 176px + Grid.pad;
+    hot: root.hover-i >= 0;
+    arrow-y: 80px - 20px;
     for card[ci] in root.cards: Rectangle {
-        x: Grid.pad + 4px + ci * 156px;
+        x: Grid.pad + 4px + ci * 176px;
         y: 0;
-        width: 144px;
-        height: 188px;
+        width: 160px;
+        height: 212px;
         VerticalLayout {
             spacing: 4px;
             alignment: start;
-            Cover { size: 144px; source: card.cover; has-source: card.has-cover; radius: root.round ? 72px : Grid.cover-radius; }
-            Text { text: card.title; font-family: Theme.body-font; font-size: 14px; color: cta.has-hover ? Theme.accent : Theme.text; overflow: elide; horizontal-alignment: root.round ? center : left; }
-            Text { text: card.subtitle; font-family: Theme.body-font; font-size: 12px; color: Theme.mute; overflow: elide; horizontal-alignment: root.round ? center : left; }
+            Cover { size: 160px; source: card.cover; has-source: card.has-cover; radius: root.round ? 80px : Grid.cover-radius; }
+            Text { text: card.title; font-family: Theme.body-font; font-size: 15px; color: cta.has-hover ? Theme.accent : Theme.text; overflow: elide; horizontal-alignment: root.round ? center : left; }
+            Text { text: card.subtitle; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; overflow: elide; horizontal-alignment: root.round ? center : left; }
         }
-        cta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(ci); } }
+        cta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.clicked(ci); }
+            changed has-hover => {
+                if self.has-hover { root.hover-i = ci; } else if root.hover-i == ci { root.hover-i = -1; }
+            }
+        }
     }
 }
 
 component SectionHead inherits HorizontalLayout {
     in property <string> text;
     padding-left: Grid.pad + 4px;
-    height: 28px;
-    Text { text: root.text; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; vertical-alignment: center; }
+    height: 32px;
+    Text { text: root.text; font-family: Theme.heading-font; font-weight: 700; font-size: 22px; color: Theme.text; vertical-alignment: center; }
 }
 
 // The search page: source chips, best result beside the first tracks, then artists, albums, playlists.
 component SearchPage inherits Flickable {
+    // Its content would cap the window (Settings squeezed it to the minimum width and stopped «maximise»).
+    min-width: 0;
+    max-width: 100000px;
+    min-height: 0;
+    max-height: 100000px;
     in property <[SourceChip]> chips;
     in property <string> state; // loading | empty | error text | ""
     in property <string> top-kind; // artist | track | album | ""
@@ -1182,6 +1253,11 @@ component SearchPage inherits Flickable {
 
 // An artist page: popular tracks, then albums, singles, «Участие» and similar artists (Spotify / Android layout).
 component ArtistView inherits Flickable {
+    // Its content would cap the window (Settings squeezed it to the minimum width and stopped «maximise»).
+    min-width: 0;
+    max-width: 100000px;
+    min-height: 0;
+    max-height: 100000px;
     in property <[SongItem]> tracks;
     in property <int> tracks-total;
     in property <bool> expanded;
@@ -1312,6 +1388,11 @@ component HistoryView inherits HorizontalLayout {
 
 // Statistics: period chips, totals, top tracks, artists and albums.
 component StatsView inherits Flickable {
+    // Its content would cap the window (Settings squeezed it to the minimum width and stopped «maximise»).
+    min-width: 0;
+    max-width: 100000px;
+    min-height: 0;
+    max-height: 100000px;
     in property <[SourceChip]> periods;
     in property <[StatTile]> tiles;
     in property <[SongItem]> tracks;
@@ -1508,7 +1589,7 @@ component MainArea inherits VerticalLayout {
         padding-right: Grid.pad;
         spacing: Grid.pad + 4px;
         if root.is-page: Cover {
-            size: 132px;
+            size: 184px;
             source: root.cover;
             has-source: root.has-cover;
             placeholder: root.liked-cover ? Icons.heart-filled : Icons.music;
@@ -1519,8 +1600,8 @@ component MainArea inherits VerticalLayout {
             alignment: root.is-page ? end : start;
             spacing: 4px;
             if root.kind-label != "": Caption { text: root.kind-label; }
-            Text { text: title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
-            Text { text: subtitle; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; overflow: elide; }
+            Text { text: title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: root.is-page ? 44px : 32px; color: Theme.text; overflow: elide; }
+            Text { text: subtitle; font-family: Theme.body-font; font-size: 15px; color: Theme.dim; overflow: elide; }
             if root.can-play || root.can-edit: HorizontalLayout {
                 padding-top: 6px;
                 spacing: Grid.gap;
@@ -1723,23 +1804,23 @@ component MainArea inherits VerticalLayout {
     // Home: rows of cards, the page scrolls down, each row sideways.
     if root.home && !root.settings && !root.search && !root.history && !root.stats && !root.empty-library: Flickable {
         vertical-stretch: 1;
-        content-height: root.sections.length * 244px + Grid.pad;
+        content-height: root.sections.length * 284px + Grid.pad;
         for sec[si] in root.sections: VerticalLayout {
             x: 0;
-            y: si * 244px;
+            y: si * 284px;
             width: parent.width;
-            height: 224px;
+            height: 262px;
             spacing: 8px;
             HorizontalLayout {
                 padding-left: Grid.pad + 4px;
-                height: 28px;
+                height: 32px;
                 spacing: 10px;
                 alignment: start;
                 Link {
                     text: sec.title;
                     font-family: Theme.heading-font;
                     font-weight: 700;
-                    font-size: 18px;
+                    font-size: 22px;
                     color: Theme.text;
                     enabled: sec.artist-id != "";
                     clicked => { root.open-artist(sec.artist-id); }
@@ -1752,23 +1833,25 @@ component MainArea inherits VerticalLayout {
                     vertical-alignment: center;
                 }
             }
-            Flickable {
-                height: 188px;
-                content-height: self.height;
-                content-width: Grid.pad + 4px + sec.cards.length * 156px;
+            strip := ArrowStrip {
+                property <int> hover-i: -1;
+                height: 222px;
+                content-w: Grid.pad + 4px + sec.cards.length * 176px + Grid.pad;
+                hot: self.hover-i >= 0;
+                arrow-y: 80px - 20px;
                 for card[ci] in sec.cards: cb := Rectangle {
-                    x: Grid.pad + 4px + ci * 156px;
+                    x: Grid.pad + 4px + ci * 176px;
                     y: 0;
-                    width: 144px;
-                    height: 188px;
+                    width: 160px;
+                    height: 212px;
                     property <bool> playing: !card.album && root.now-id != "" && card.id == root.now-id;
                     VerticalLayout {
                         spacing: 4px;
                         alignment: start;
                         Rectangle {
-                            width: 144px;
-                            height: 144px;
-                            Cover { size: 144px; source: card.cover; has-source: card.has-cover; }
+                            width: 160px;
+                            height: 160px;
+                            Cover { size: 160px; source: card.cover; has-source: card.has-cover; }
                             // Play hint over a track cover on hover (and while it plays).
                             if !card.album && (cta.has-hover || cb.playing): Rectangle {
                                 x: parent.width - 44px;
@@ -1780,13 +1863,16 @@ component MainArea inherits VerticalLayout {
                                 Icon { icon: Icons.play; size: 18px; color: Theme.on-accent; }
                             }
                         }
-                        Text { text: card.title; font-family: Theme.body-font; font-size: 14px; color: cb.playing || cta.has-hover ? Theme.accent : Theme.text; overflow: elide; }
-                        Text { text: card.subtitle; font-family: Theme.body-font; font-size: 12px; color: Theme.mute; overflow: elide; }
+                        Text { text: card.title; font-family: Theme.body-font; font-size: 15px; color: cb.playing || cta.has-hover ? Theme.accent : Theme.text; overflow: elide; }
+                        Text { text: card.subtitle; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; overflow: elide; }
                     }
                     cta := TouchArea {
                         mouse-cursor: pointer;
                         clicked => {
                             if card.album { root.open-album(card.id); } else { root.home-play(si, ci); }
+                        }
+                        changed has-hover => {
+                            if self.has-hover { strip.hover-i = ci; } else if strip.hover-i == ci { strip.hover-i = -1; }
                         }
                     }
                 }
@@ -1898,7 +1984,7 @@ component Slider inherits Rectangle {
     in property <float> total-s; // > 0: the time under the pointer shows above it (the seek bar)
     in property <bool> live; // picks while dragging (volume), otherwise on release (seek)
     callback picked(float);
-    height: 16px;
+    height: 20px;
     property <bool> hot: ta.has-hover || ta.pressed;
     property <float> at: clamp(ta.mouse-x / max(1px, self.width), 0, 1);
     property <float> shown: ta.pressed ? root.at : clamp(root.value, 0, 1);
@@ -1958,9 +2044,12 @@ component PlayerBar inherits HorizontalLayout {
     in property <string> title;
     in property <string> artists;
     in property <string> artist-id;
+    in property <string> album-id;
     callback open-artist(string);
+    callback open-album(string);
     callback like-song(string);
     callback song-menu(string, int, length, length);
+    property <float> before-mute: 0.8;
     in property <bool> liked;
     in property <bool> can-like;
     callback toggle-like();
@@ -1991,7 +2080,17 @@ component PlayerBar inherits HorizontalLayout {
         VerticalLayout {
             alignment: center;
             spacing: 2px;
-            Text { text: title == "" ? "Ничего не играет" : title; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: title == "" ? Theme.mute : Theme.text; overflow: elide; }
+            HorizontalLayout {
+                alignment: start;
+                Link {
+                    text: root.title == "" ? "Ничего не играет" : root.title;
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: root.title == "" ? Theme.mute : Theme.text;
+                    enabled: root.album-id != "";
+                    clicked => { root.open-album(root.album-id); }
+                }
+            }
             if artists != "": HorizontalLayout {
                 alignment: start;
                 Link { text: artists; enabled: root.artist-id != ""; clicked => { root.open-artist(root.artist-id); } }
@@ -2034,9 +2133,9 @@ component PlayerBar inherits HorizontalLayout {
         }
         HorizontalLayout {
             spacing: 8px;
-            Text { text: position; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; width: 46px; horizontal-alignment: right; }
+            Text { text: position; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; vertical-alignment: center; width: 46px; horizontal-alignment: right; }
             Slider { value: root.progress; total-s: root.total-s; picked(f) => { root.seek(f); } }
-            Text { text: duration; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; width: 46px; }
+            Text { text: duration; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; vertical-alignment: center; width: 46px; }
         }
     }
     HorizontalLayout {
@@ -2047,7 +2146,20 @@ component PlayerBar inherits HorizontalLayout {
         alignment: end;
         Middle { IconButton { icon: root.day ? Icons.sun : Icons.moon; clicked => { root.set-day(!root.day); } } }
         Middle { IconButton { icon: Icons.list; } }
-        Middle { IconButton { icon: Icons.volume; } }
+        Middle {
+            IconButton {
+                icon: root.volume <= 0.001 ? Icons.volume-off : Icons.volume;
+                clicked => {
+                    if root.volume > 0.001 {
+                        root.before-mute = root.volume;
+                        root.volume = 0;
+                    } else {
+                        root.volume = root.before-mute > 0.01 ? root.before-mute : 0.5;
+                    }
+                    root.volume-changed(root.volume);
+                }
+            }
+        }
         Middle {
             Slider {
                 width: 96px;
@@ -2844,8 +2956,8 @@ export component MainWindow inherits Window {
                     }
                     Splitter {
                         current: Grid.lib-width;
-                        min-w: 200px;
-                        max-w: max(200px, min(480px, root.width - Grid.side-width - 480px));
+                        min-w: 300px;
+                        max-w: max(300px, min(480px, root.width - Grid.side-width - 480px));
                         sign: 1;
                         resize(w) => { Grid.lib-width = w; }
                         done => { root.panels-resized(); }
@@ -3037,6 +3149,8 @@ export component MainWindow inherits Window {
                     title: root.now-title;
                     artists: root.now-artists;
                     artist-id: root.now-artist-id;
+                    album-id: root.now-album-id;
+                    open-album(id) => { root.open-album(id); }
                     open-artist(id) => { root.open-artist(id); }
                     like-song(id) => { root.like-song(id); }
                     song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }

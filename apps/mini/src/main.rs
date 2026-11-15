@@ -710,6 +710,14 @@ fn main() {
                 );
             } else {
                 timer.stop();
+                // Paused (or a restored track not started yet): the bar and its hover time still know the length.
+                let c = a.clock();
+                ui.set_position(fmt_time(c.position_s).into());
+                if let Some(d) = c.duration_s.filter(|d| *d > 0.0) {
+                    ui.set_duration(fmt_time(d).into());
+                    ui.set_duration_s(d as f32);
+                    ui.set_progress((c.position_s / d).clamp(0.0, 1.0) as f32);
+                }
             }
         });
     }

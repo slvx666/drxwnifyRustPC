@@ -43,6 +43,7 @@ ICONS = {
     "shuffle": 0xF000,  # arrowsShuffle
     "repeat": 0xEB72,
     "volume": 0xEB51,
+    "volume-off": 0xEB50,  # volume-3 (muted)
     "list": 0xEB6B,  # playlist
     "sort": 0xEB5A,  # arrowsSort
     "layout-right": 0xF006,
@@ -70,6 +71,11 @@ ICONS = {
     "alert-circle": 0xEA05,  # alert-circle
 }
 OPTICAL = {"play"}
+# Drawn here instead of taken from the font: tabler's pause bars stand so close that at 22 px the gap smudges.
+CUSTOM = {
+    "pause": "M265 180Q265 160 285 160H405Q425 160 425 180V820Q425 840 405 840H285Q265 840 265 820Z"
+             "M575 180Q575 160 595 160H715Q735 160 735 180V820Q735 840 715 840H595Q575 840 575 820Z",
+}
 
 
 def main():
@@ -83,6 +89,9 @@ def main():
         "export global Icons {",
     ]
     for name, cp in ICONS.items():
+        if name in CUSTOM:
+            lines.append(f'    out property <string> {name}: "{CUSTOM[name]}";')
+            continue
         glyph = glyphs[cmap[cp]]
         bp = BoundsPen(glyphs)
         glyph.draw(bp)
