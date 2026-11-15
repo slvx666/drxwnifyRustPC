@@ -550,9 +550,20 @@ fn main() {
         let a = app.clone();
         ui.on_prev(move || a.previous_track());
         let a = app.clone();
+        let ui_w = ui.as_weak();
         ui.on_seek(move |f| {
-            if let Some(d) = a.clock().duration_s {
-                a.seek(d * f as f64);
+            let Some(ui) = ui_w.upgrade() else { return };
+            // Not started yet (restored after launch): the track's own length; it starts there when played.
+            let d = a.clock().duration_s.or_else(|| {
+                let d = ui.get_duration_s() as f64;
+                (d > 0.0).then_some(d)
+            });
+            if let Some(d) = d {
+                let s = d * f as f64;
+                a.seek(s);
+                // The bar stays where it was let go (also paused, when no timer moves it).
+                ui.set_position(fmt_time(s).into());
+                ui.set_progress(f);
             }
         });
         let a = app.clone();

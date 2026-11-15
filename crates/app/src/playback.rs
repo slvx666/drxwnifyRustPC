@@ -198,6 +198,8 @@ pub(crate) struct Playback {
     /// The queue in its own order while shuffle is on (to go back to it).
     original: Mutex<Option<Vec<Playable>>>,
     current_id: Mutex<Option<drx_audio::player::TrackId>>,
+    /// A seek on a track not started yet (restored after launch): (its id, where), used when it starts.
+    start_at: Mutex<Option<(String, f64)>>,
     pub now: Arc<watch::Sender<NowPlaying>>,
     volume: Mutex<f32>,
     /// Audio providers for tracks without a URL (the resolver asks them all at once).
@@ -218,6 +220,7 @@ impl Playback {
             queue: Mutex::new((Vec::new(), 0)),
             original: Mutex::new(None),
             current_id: Mutex::new(None),
+            start_at: Mutex::new(None),
             now: Arc::new(watch::channel(NowPlaying::default()).0),
             volume: Mutex::new(0.8),
             providers: Mutex::new(Vec::new()),
@@ -645,7 +648,15 @@ impl Playback {
         std::thread::spawn(move || {
             let res = this.source_for(&item).and_then(|(src, ext, gain)| {
                 let player = this.player()?;
-                player.play(src, ext, 0.0, gain)
+                // A position picked before the track started (only for this very track).
+                let at = this
+                    .start_at
+                    .lock()
+                    .expect("start at")
+                    .take()
+                    .filter(|(id, _)| *id == item.track.id)
+                    .map_or(0.0, |(_, s)| s);
+                player.play(src, ext, at, gain)
             });
             match res {
                 Ok(id) => *this.current_id.lock().expect("current") = Some(id),
@@ -706,8 +717,15 @@ impl Playback {
     }
 
     pub fn seek(&self, secs: f64) {
-        if let Some(p) = self.player.lock().expect("player lock").as_ref() {
-            p.seek(secs);
+        let loaded = self.current_id.lock().expect("current").is_some();
+        match self.player.lock().expect("player lock").as_ref() {
+            Some(p) if loaded => p.seek(secs),
+            // Nothing loaded yet (the track shown after launch): it starts there when played.
+            _ => {
+                if let Some(t) = self.now.borrow().track.as_ref() {
+                    *self.start_at.lock().expect("start at") = Some((t.id.clone(), secs.max(0.0)));
+                }
+            }
         }
     }
 

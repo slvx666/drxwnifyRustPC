@@ -2001,7 +2001,11 @@ component Slider inherits Rectangle {
     height: 20px;
     property <bool> hot: ta.has-hover || ta.pressed;
     property <float> at: clamp(ta.mouse-x / max(1px, self.width), 0, 1);
-    property <float> shown: ta.pressed ? root.at : clamp(root.value, 0, 1);
+    // Let go: the knob stays there until playback reaches it (a seek takes a moment), at most 1.5 s.
+    property <float> held: -1;
+    property <float> shown: ta.pressed ? root.at : (root.held >= 0 ? root.held : clamp(root.value, 0, 1));
+    changed value => { if root.held >= 0 && abs(root.value - root.held) < 0.02 { root.held = -1; } }
+    Timer { interval: 1500ms; running: root.held >= 0; triggered => { root.held = -1; } }
     property <int> tip-s: floor(root.total-s * root.at);
     property <int> tip-m: floor(root.tip-s / 60);
     Rectangle { y: (parent.height - 4px) / 2; height: 4px; border-radius: 2px; background: Theme.fill-hover; }
@@ -2046,7 +2050,10 @@ component Slider inherits Rectangle {
             if self.pressed && root.live { root.picked(root.at); }
         }
         pointer-event(e) => {
-            if e.kind == PointerEventKind.up && e.button == PointerEventButton.left { root.picked(root.at); }
+            if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                if !root.live { root.held = root.at; }
+                root.picked(root.at);
+            }
         }
     }
 }

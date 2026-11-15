@@ -274,7 +274,7 @@ fn maximized_overhang(ui: &MainWindow) -> f32 {
 }
 
 fn toggle_maximized(ui: &MainWindow) {
-    let max = !ui.window().is_maximized();
-    ui.window().set_maximized(max);
-    ui.set_window_maximized(max);
+    // The look (corners, insets, resize border) follows in the Resized handler, together with the new size: set
+    // here, one frame was drawn at the old size in the new look (the owner saw a «full screen» frame flash).
+    ui.window().set_maximized(!ui.window().is_maximized());
 }
