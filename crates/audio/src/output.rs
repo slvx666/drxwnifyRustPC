@@ -126,8 +126,23 @@ fn run(
         };
         match cmd {
             OutCmd::Run => {
-                if !running && let Some(s) = &stream {
-                    running = s.play().is_ok();
+                if !running {
+                    // Paused while the user picked another default device (or the last rebuild found none):
+                    // resume on the current default, not on the old one.
+                    let now = default_id();
+                    if stream.is_none() || (now.is_some() && now != device) {
+                        drop(stream.take());
+                        match build(&mixer, &tx) {
+                            Ok((s, id)) => {
+                                stream = Some(s);
+                                device = id;
+                            }
+                            Err(e) => tracing::warn!("audio output: {e}"),
+                        }
+                    }
+                    if let Some(s) = &stream {
+                        running = s.play().is_ok();
+                    }
                 }
             }
             OutCmd::Suspend => {
