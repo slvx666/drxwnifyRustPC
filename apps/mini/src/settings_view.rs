@@ -53,6 +53,35 @@ pub fn fill(ui: &MainWindow, app: &App) {
     ui.set_day_theme(day);
     ui.set_global_hotkeys(crate::os::hotkeys_on(app));
     ui.set_autostart(crate::os::autostart_on());
+    fill_hotkeys(ui, app);
+}
+
+/// The hotkey rows: each action's combination and how it works now.
+pub fn fill_hotkeys(ui: &MainWindow, app: &App) {
+    use crate::hotkeys;
+    let global = crate::os::hotkeys_on(app);
+    let rows: Vec<crate::HotkeyRow> = hotkeys::ACTIONS
+        .iter()
+        .map(|(id, _, label, _)| {
+            let combo = hotkeys::combo_of(app, *id);
+            let taken = global && hotkeys::is_taken(*id);
+            let note = match &combo {
+                None => "выключено",
+                Some(_) if taken => "сочетание занято другой программой — выберите другое",
+                Some(_) if global => "работает везде",
+                Some(_) => "работает в окне приложения",
+            };
+            crate::HotkeyRow {
+                id: *id as i32,
+                label: (*label).into(),
+                combo: combo.as_ref().map(hotkeys::label).unwrap_or_default().into(),
+                note: note.into(),
+                is_default: hotkeys::is_default(app, *id),
+                taken,
+            }
+        })
+        .collect();
+    ui.set_hotkey_rows(ModelRc::new(VecModel::from(rows)));
 }
 
 /// Re-applies the theme from the settings (after a theme or day/night change).

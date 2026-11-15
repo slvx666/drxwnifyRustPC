@@ -42,6 +42,16 @@ export struct HomeCard {
     album: bool, // an album card opens the album; a track card plays its row from there
 }
 
+// One hotkey row in the settings (pc/ KeysSection).
+export struct HotkeyRow {
+    id: int,
+    label: string,
+    combo: string, // «Ctrl + Alt + Shift + R», "" when off
+    note: string,
+    is-default: bool,
+    taken: bool,
+}
+
 // One playlist in «Добавить в плейлист».
 export struct PlaylistPick {
     id: string,
@@ -751,12 +761,19 @@ component SettingsPage inherits Flickable {
     in property <[ThemeChip]> themes;
     in property <bool> day;
     in property <bool> hotkeys;
+    in property <[HotkeyRow]> hotkey-rows;
+    in-out property <int> recording: -1;
     in property <bool> autostart;
     callback set-main(string);
     callback set-tab(string, bool);
     callback set-theme(string);
     callback set-day(bool);
     callback set-hotkeys(bool);
+    callback hotkey-start(int);
+    callback hotkey-captured(int, string, bool, bool, bool);
+    callback hotkey-cancel();
+    callback hotkey-reset(int);
+    callback hotkey-off(int);
     callback set-autostart(bool);
     content-height: body.preferred-height + Grid.pad;
     body := VerticalLayout {
@@ -824,8 +841,59 @@ component SettingsPage inherits Flickable {
         }
         SettingRow {
             label: "Глобальные горячие клавиши";
-            hint: "Ctrl+Alt+Shift+Пробел — пауза, ← и → — треки, L — в любимые, R — радио. Работают в любой программе, даже в игре";
+            hint: root.hotkeys ? "Работают в любой программе, даже в игре" : "Только пока окно Drxwnify активно";
             Middle { Toggle { on: root.hotkeys; toggled(v) => { root.set-hotkeys(v); } } }
+        }
+        // Each action's combination: a click on it records a new one (Esc cancels), ↺ brings back the default,
+        // × switches it off (pc/ KeysSection).
+        for hk in root.hotkey-rows: SettingRow {
+            label: hk.label;
+            hint: hk.note;
+            Middle {
+                Rectangle {
+                    width: kc.preferred-width + 24px;
+                    height: 32px;
+                    border-radius: 7px;
+                    background: root.recording == hk.id ? Theme.fill-hover : (kca.has-hover ? Theme.fill-hover : Theme.fill);
+                    border-color: root.recording == hk.id ? Theme.accent : (hk.taken ? #E5484D : Theme.panel-border);
+                    border-width: 1px;
+                    kc := Text {
+                        text: root.recording == hk.id ? "Нажмите сочетание…" : (hk.combo == "" ? "выключено" : hk.combo);
+                        font-family: Theme.mono-font;
+                        font-size: 12px;
+                        color: root.recording == hk.id ? Theme.accent : (hk.combo == "" ? Theme.mute : Theme.text);
+                    }
+                    kca := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.recording = hk.id; root.hotkey-start(hk.id); rec-scope.focus(); }
+                    }
+                }
+            }
+            if !hk.is-default: Middle { IconButton { icon: Icons.repeat; size: 30px; icon-size: 15px; clicked => { root.hotkey-reset(hk.id); } } }
+            if hk.combo != "": Middle { IconButton { icon: Icons.x; size: 30px; icon-size: 15px; clicked => { root.hotkey-off(hk.id); } } }
+        }
+        rec-scope := FocusScope {
+            width: 0;
+            height: 0;
+            key-pressed(e) => {
+                if root.recording < 0 { return reject; }
+                if e.text == Key.Escape { root.recording = -1; root.hotkey-cancel(); return accept; }
+                // A modifier alone: wait for the key.
+                if e.text == Key.Control || e.text == Key.ControlR || e.text == Key.Shift || e.text == Key.ShiftR
+                    || e.text == Key.Alt || e.text == Key.AltGr || e.text == Key.Meta || e.text == Key.MetaR {
+                    return accept;
+                }
+                root.hotkey-captured(root.recording, e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift);
+                accept
+            }
+            changed has-focus => { if !self.has-focus && root.recording >= 0 { root.recording = -1; root.hotkey-cancel(); } }
+        }
+        Text {
+            text: "Нажмите на сочетание, чтобы задать своё: зажмите Ctrl, Alt или Shift (лучше два-три сразу) и клавишу. Esc — отмена.";
+            font-family: Theme.body-font;
+            font-size: 12px;
+            color: Theme.mute;
+            wrap: word-wrap;
         }
         // Theme cards: a swatch of the theme's background and accent, the name under it.
         Flickable {
@@ -1284,6 +1352,8 @@ component MainArea inherits VerticalLayout {
     in property <[ThemeChip]> themes;
     in property <bool> day;
     in property <bool> hotkeys;
+    in property <[HotkeyRow]> hotkey-rows;
+    in-out property <int> recording: -1;
     in property <bool> autostart;
     callback set-autostart(bool);
     callback set-main(string);
@@ -1291,6 +1361,11 @@ component MainArea inherits VerticalLayout {
     callback set-theme(string);
     callback set-day(bool);
     callback set-hotkeys(bool);
+    callback hotkey-start(int);
+    callback hotkey-captured(int, string, bool, bool, bool);
+    callback hotkey-cancel();
+    callback hotkey-reset(int);
+    callback hotkey-off(int);
     in property <[HomeSection]> sections;
     callback home-play(int, int); // section, card
     callback play(int);
@@ -1518,6 +1593,13 @@ component MainArea inherits VerticalLayout {
         day: root.day;
         hotkeys: root.hotkeys;
         set-hotkeys(v) => { root.set-hotkeys(v); }
+        hotkey-rows: root.hotkey-rows;
+        recording <=> root.recording;
+        hotkey-start(i) => { root.hotkey-start(i); }
+        hotkey-captured(i, t, c, a, sh) => { root.hotkey-captured(i, t, c, a, sh); }
+        hotkey-cancel => { root.hotkey-cancel(); }
+        hotkey-reset(i) => { root.hotkey-reset(i); }
+        hotkey-off(i) => { root.hotkey-off(i); }
         autostart: root.autostart;
         set-autostart(v) => { root.set-autostart(v); }
         set-main(k) => { root.set-main(k); }
@@ -1926,6 +2008,8 @@ export component MainWindow inherits Window {
     in property <[ThemeChip]> settings-themes;
     in property <bool> day-theme;
     in property <bool> global-hotkeys;
+    in property <[HotkeyRow]> hotkey-rows;
+    in-out property <int> hotkey-recording: -1;
     in property <bool> autostart;
     in property <[HomeSection]> home-sections;
     in property <[QueueItem]> upcoming;
@@ -1957,6 +2041,11 @@ export component MainWindow inherits Window {
     callback set-theme(string);
     callback set-day(bool);
     callback set-hotkeys(bool);
+    callback hotkey-start(int);
+    callback hotkey-captured(int, string, bool, bool, bool);
+    callback hotkey-cancel();
+    callback hotkey-reset(int);
+    callback hotkey-off(int);
     callback set-autostart(bool);
     callback open-artist(string);
     callback like-song(string);
@@ -1980,6 +2069,7 @@ export component MainWindow inherits Window {
     callback menu-opening(string, int);
     callback track-menu-action(string, string); // action, track id
     callback create-playlist();
+    callback window-key(string, bool, bool, bool) -> bool;
     in property <bool> view-can-edit;
     callback rename-view();
     callback delete-view();
@@ -2023,6 +2113,8 @@ export component MainWindow inherits Window {
                 top-bar.focus-search();
                 return accept;
             }
+            // The player's keys while they are not registered system-wide.
+            if root.window-key(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift) { return accept; }
             reject
         }
     }
@@ -2154,6 +2246,13 @@ export component MainWindow inherits Window {
                         day: root.day-theme;
                         hotkeys: root.global-hotkeys;
                         set-hotkeys(v) => { root.set-hotkeys(v); }
+                        hotkey-rows: root.hotkey-rows;
+                        recording <=> root.hotkey-recording;
+                        hotkey-start(i) => { root.hotkey-start(i); }
+                        hotkey-captured(i, t, c, a, sh) => { root.hotkey-captured(i, t, c, a, sh); }
+                        hotkey-cancel => { root.hotkey-cancel(); }
+                        hotkey-reset(i) => { root.hotkey-reset(i); }
+                        hotkey-off(i) => { root.hotkey-off(i); }
                         autostart: root.autostart;
                         set-autostart(v) => { root.set-autostart(v); }
                         set-main(k) => { root.set-main-account(k); }

@@ -4,6 +4,7 @@
 
 mod artist_view;
 mod history_view;
+mod hotkeys;
 mod home_view;
 mod lazy_library;
 mod lazy_songs;
@@ -895,6 +896,72 @@ fn main() {
             }
             if let Some(ui) = ui_w.upgrade() {
                 settings_view::fill(&ui, &app2);
+            }
+        });
+    }
+
+    // Own hotkey combinations (settings): recording lets the keys through, then they are registered again.
+    {
+        let p = platform.clone();
+        ui.on_hotkey_start(move |_| {
+            if let Some(p) = &p {
+                p.set_hotkeys(Vec::new());
+            }
+        });
+        let reapply = {
+            let (app2, p) = (app.clone(), platform.clone());
+            move |ui: &MainWindow| {
+                if let Some(p) = &p {
+                    os::apply_hotkeys(p, &app2);
+                }
+                settings_view::fill_hotkeys(ui, &app2);
+            }
+        };
+        let (app2, ui_w, re) = (app.clone(), ui.as_weak(), reapply.clone());
+        ui.on_hotkey_captured(move |id, text, ctrl, alt, shift| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            match hotkeys::vk_of(&text) {
+                Some(key) if ctrl || alt || shift => {
+                    hotkeys::set(&app2, id as u32, Some(drx_platform::Hotkey { id: id as u32, ctrl, alt, shift, key }));
+                    ui.set_hotkey_recording(-1);
+                    re(&ui);
+                }
+                Some(_) => ui.set_toast("Нужен Ctrl, Alt или Shift вместе с клавишей".into()),
+                None => ui.set_toast("Эту клавишу нельзя назначить".into()),
+            }
+        });
+        let (ui_w, re) = (ui.as_weak(), reapply.clone());
+        ui.on_hotkey_cancel(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                re(&ui);
+            }
+        });
+        let (app2, ui_w, re) = (app.clone(), ui.as_weak(), reapply.clone());
+        ui.on_hotkey_reset(move |id| {
+            hotkeys::reset(&app2, id as u32);
+            if let Some(ui) = ui_w.upgrade() {
+                re(&ui);
+            }
+        });
+        let (app2, ui_w, re) = (app.clone(), ui.as_weak(), reapply);
+        ui.on_hotkey_off(move |id| {
+            hotkeys::set(&app2, id as u32, None);
+            if let Some(ui) = ui_w.upgrade() {
+                re(&ui);
+            }
+        });
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_window_key(move |text, ctrl, alt, shift| {
+            let Some(ui) = ui_w.upgrade() else { return false };
+            if os::hotkeys_on(&app2) {
+                return false; // registered system-wide: Windows hands them over itself
+            }
+            match hotkeys::vk_of(&text).and_then(|vk| hotkeys::action_for(&app2, ctrl, alt, shift, vk)) {
+                Some(id) => {
+                    os::perform(&ui, &app2, id);
+                    true
+                }
+                None => false,
             }
         });
     }

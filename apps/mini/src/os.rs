@@ -2,7 +2,7 @@
 
 use crate::MainWindow;
 use drx_app::App;
-use drx_platform::{EventSink, Hotkey, InstanceGuard, MediaInfo, Platform, PlatformEvent};
+use drx_platform::{EventSink, InstanceGuard, MediaInfo, Platform, PlatformEvent};
 use slint::ComponentHandle;
 use slint::winit_030::WinitWindowAccessor;
 use std::rc::Rc;
@@ -10,34 +10,6 @@ use std::sync::Arc;
 
 /// Setting: global hotkeys on (default, as in pc/) or off.
 pub const HOTKEYS_KEY: &str = "pcGlobalHotkeys";
-
-const HK_TOGGLE: u32 = 1;
-const HK_NEXT: u32 = 2;
-const HK_PREV: u32 = 3;
-const HK_LIKE: u32 = 4;
-const HK_RADIO: u32 = 5;
-
-/// pc/ Hotkeys.kt defaults: three modifiers nobody presses by accident. Download comes with that feature.
-fn default_hotkeys() -> Vec<Hotkey> {
-    let k = |id, key| Hotkey {
-        id,
-        ctrl: true,
-        alt: true,
-        shift: true,
-        key,
-    };
-    vec![k(HK_TOGGLE, 0x20), k(HK_NEXT, 0x27), k(HK_PREV, 0x25), k(HK_LIKE, 0x4C), k(HK_RADIO, 0x52)]
-}
-
-fn hotkey_name(id: u32) -> &'static str {
-    match id {
-        HK_TOGGLE => "Ctrl+Alt+Shift+Пробел",
-        HK_NEXT => "Ctrl+Alt+Shift+→",
-        HK_LIKE => "Ctrl+Alt+Shift+L",
-        HK_RADIO => "Ctrl+Alt+Shift+R",
-        _ => "Ctrl+Alt+Shift+←",
-    }
-}
 
 pub fn hotkeys_on(app: &App) -> bool {
     std::fs::read(app.profile().prefs_pb())
@@ -52,8 +24,9 @@ pub fn hotkeys_on(app: &App) -> bool {
 pub fn apply_hotkeys(platform: &Platform, app: &App) {
     let test_run =
         std::env::var_os("DRX_PROFILE").is_some() && std::env::var_os("DRX_HOTKEYS").is_none();
+    crate::hotkeys::clear_taken();
     platform.set_hotkeys(if hotkeys_on(app) && !test_run {
-        default_hotkeys()
+        crate::hotkeys::all(app)
     } else {
         Vec::new()
     });
@@ -110,6 +83,19 @@ pub fn show_window(ui: &MainWindow) {
     });
 }
 
+/// What a hotkey does (pressed system-wide or in the window).
+pub fn perform(ui: &MainWindow, app: &App, id: u32) {
+    use crate::hotkeys::*;
+    match id {
+        TOGGLE => app.toggle_play(),
+        NEXT => app.next_track(),
+        PREV => app.previous_track(),
+        LIKE => crate::likes_ui::toggle_now(ui, app),
+        RADIO => crate::track_menu::radio(ui, app, None),
+        _ => {}
+    }
+}
+
 fn handle(ui: &MainWindow, app: &App, e: PlatformEvent) {
     let playing = app.now_playing().borrow().playing;
     match e {
@@ -124,13 +110,13 @@ fn handle(ui: &MainWindow, app: &App, e: PlatformEvent) {
             let _ = slint::quit_event_loop();
         }
         PlatformEvent::Open(link) => tracing::info!("opened with {link}"),
-        PlatformEvent::Hotkey(HK_TOGGLE) => app.toggle_play(),
-        PlatformEvent::Hotkey(HK_NEXT) => app.next_track(),
-        PlatformEvent::Hotkey(HK_PREV) => app.previous_track(),
-        PlatformEvent::Hotkey(HK_LIKE) => crate::likes_ui::toggle_now(ui, app),
-        PlatformEvent::Hotkey(HK_RADIO) => crate::track_menu::radio(ui, app, None),
+        PlatformEvent::Hotkey(id) => perform(ui, app, id),
         PlatformEvent::HotkeyBusy(id) => {
-            ui.set_toast(format!("{} занято другой программой", hotkey_name(id)).into());
+            crate::hotkeys::mark_taken(id);
+            let name = crate::hotkeys::combo_of(app, id)
+                .map(|h| crate::hotkeys::label(&h))
+                .unwrap_or_default();
+            ui.set_toast(format!("{name} занято другой программой — выберите другое в настройках").into());
         }
         _ => {}
     }
