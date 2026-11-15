@@ -126,6 +126,13 @@ pub fn message_event(keys: &Keys, peer: &str, id: &str, ts: i64, text: &str, rep
     Some(keys.sign(KIND_DM, vec![vec!["p".into(), peer.to_string()]], content))
 }
 
+/// «I'm typing» to `peer` (kind 21004, not kept by relays; ChatHub.typingNow).
+pub fn typing_event(keys: &Keys, peer: &str, ts: i64) -> Option<Event> {
+    let o = json!({"t": TYPE, "v": PROTOCOL, "k": "typing", "id": "t", "ts": ts});
+    let content = keys.encrypt(peer, &o.to_string()).ok()?;
+    Some(keys.sign(KIND_TYPING, vec![vec!["p".into(), peer.to_string()]], content))
+}
+
 /// «Read up to `up_to`» to `peer`.
 pub fn read_event(keys: &Keys, peer: &str, up_to: i64) -> Option<Event> {
     let o = json!({"t": TYPE, "v": PROTOCOL, "k": "read", "id": new_id(), "upTo": up_to});
@@ -178,6 +185,44 @@ pub fn toggle_reaction(current: &[String], key: &str) -> Vec<String> {
 
 pub const MAX_REACTIONS: usize = 3;
 
+/// The phone's sticker list (assets/stickers/stickers.json of the Android app: ids and codes).
+const STICKERS: &str = include_str!("stickers.json");
+/// A sticker inside a message: U+E000, its id, U+E001 (Stickers.token).
+const STICKER_START: char = '\u{E000}';
+const STICKER_END: char = '\u{E001}';
+
+/// The text with stickers as their codes (Stickers.plain): the chat list and, until the pictures come, the bubbles.
+pub fn plain_stickers(text: &str) -> String {
+    if !text.contains(STICKER_START) && !text.contains(STICKER_END) {
+        return text.to_string();
+    }
+    static CODES: std::sync::OnceLock<std::collections::HashMap<String, String>> = std::sync::OnceLock::new();
+    let codes = CODES.get_or_init(|| {
+        serde_json::from_str::<Value>(STICKERS)
+            .ok()
+            .and_then(|v| v.get("stickers").and_then(Value::as_array).cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|s| Some((s.get("id")?.as_str()?.to_string(), s.get("code")?.as_str()?.to_string())))
+            .collect()
+    });
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(a) = rest.find(STICKER_START) {
+        out.push_str(&rest[..a].replace(STICKER_END, ""));
+        let after = &rest[a + STICKER_START.len_utf8()..];
+        match after.find(STICKER_END) {
+            Some(b) if (1..=40).contains(&b) && after[..b].bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_') => {
+                out.push_str(codes.get(&after[..b]).map_or("[стикер]", String::as_str));
+                rest = &after[b + STICKER_END.len_utf8()..];
+            }
+            _ => rest = after,
+        }
+    }
+    out.push_str(&rest.replace(STICKER_END, ""));
+    out
+}
+
 /// The built-in emoji reactions, in Android's order (ChatReactions.EMOJI; the list comes from scripts/emoji.py).
 pub const EMOJI: &str = include_str!("emoji.txt");
 
@@ -217,5 +262,9 @@ mod tests {
         assert_eq!(emoji_index("e:\u{2764}\u{fe0f}"), Some(0));
         assert_eq!(EMOJI.lines().count(), 40);
         assert_eq!(emoji_index("s:x"), None);
+        assert_eq!(plain_stickers("ok \u{E000}aga\u{E001}!"), "ok aga!");
+        assert_eq!(plain_stickers("\u{E000}nope_x\u{E001}"), "[стикер]");
+        let ty = typing_event(&me, &friend.public_hex(), 9000).unwrap();
+        assert_eq!(decode(&friend, &ty).unwrap().payload, Payload::Typing);
     }
 }

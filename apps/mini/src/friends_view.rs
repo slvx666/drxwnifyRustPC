@@ -159,6 +159,14 @@ pub fn wire(ui: &MainWindow, app: &App) {
         }
     });
     let (app2, ui_w) = (app.clone(), ui.as_weak());
+    {
+        let app2 = app.clone();
+        ui.on_friend_chat_typing(move || {
+            if let Some(peer) = OPEN.with(|o| o.borrow().clone()) {
+                app2.chat_typing_now(&peer);
+            }
+        });
+    }
     ui.on_friend_chat_send(move |text| {
         let Some(ui) = ui_w.upgrade() else { return };
         let Some(peer) = OPEN.with(|o| o.borrow().clone()) else { return };
@@ -345,8 +353,7 @@ pub fn show(ui: &MainWindow, app: &App) {
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(ui) = ui_w.upgrade()
                         && ui.get_view_friends()
-                        && ui.get_friend_page()
-                        && TAB.with(|t| t.borrow().as_str() == "chat")
+                        && (!ui.get_friend_page() || TAB.with(|t| t.borrow().as_str() == "chat"))
                     {
                         render(&ui, &app3);
                     }
@@ -401,6 +408,7 @@ fn status(d: Option<&FriendData>) -> (String, bool) {
 }
 
 fn render(ui: &MainWindow, app: &App) {
+    redraw_when_typing_ends(ui, app);
     let Some(f) = app.friends() else { return };
     let st: FriendsState = f.state().borrow().clone();
     let me = f.me();
@@ -431,9 +439,17 @@ fn render(ui: &MainWindow, app: &App) {
 
     let mut friends = st.friends.clone();
     let t = now_ms();
+    let previews: std::collections::HashMap<String, drx_app::chats::ChatPreview> =
+        app.chat_previews().into_iter().map(|p| (p.peer.clone(), p)).collect();
+    // Unread chats first, then who plays now, then the most recent listeners.
     friends.sort_by_key(|fr| {
         let n = st.data.get(&fr.pubkey).and_then(|d| d.now.as_ref());
-        (std::cmp::Reverse(n.is_some_and(|n| n.is_live(t))), std::cmp::Reverse(n.map_or(0, |n| n.at)))
+        let unread = previews.get(&fr.pubkey).is_some_and(|p| p.unread > 0);
+        (
+            std::cmp::Reverse(unread),
+            std::cmp::Reverse(n.is_some_and(|n| n.is_live(t))),
+            std::cmp::Reverse(n.map_or(0, |n| n.at)),
+        )
     });
     let cards: Vec<FriendCardItem> = friends
         .iter()
@@ -465,6 +481,12 @@ fn render(ui: &MainWindow, app: &App) {
                 track_artist: now.map(|n| n.track.artist.clone()).unwrap_or_default().into(),
                 has_cover: cover.is_some(),
                 cover: cover.unwrap_or_default(),
+                preview: if app.chat_typing(&fr.pubkey) {
+                    "печатает…".into()
+                } else {
+                    previews.get(&fr.pubkey).map(preview_line).unwrap_or_default().into()
+                },
+                unread: previews.get(&fr.pubkey).map_or(0, |p| p.unread.min(999) as i32),
             }
         })
         .collect();
@@ -484,8 +506,11 @@ fn render(ui: &MainWindow, app: &App) {
     let along = app.listening_along().as_deref() == Some(p.as_str());
     ui.set_friend_along(along);
     ui.set_friend_can_along(d.and_then(|d| d.now.as_ref()).is_some_and(|n| n.is_live(t) && n.listen_along));
+    let typing = app.chat_typing(&p);
+    ui.set_friend_typing(typing);
     ui.set_friend_status(
         match d.and_then(|d| d.now.as_ref()) {
+            _ if typing => "печатает…".to_string(),
             Some(n) if along => format!("слушаю вместе: {} — {}", n.track.title, n.track.artist),
             Some(n) if n.is_live(t) => format!("слушает: {} — {}", n.track.title, n.track.artist),
             Some(n) => format!("последний трек {}", ago(n.at)),
@@ -567,7 +592,7 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
             ChatItem {
                 id: m.id.clone().into(),
                 mine: m.mine,
-                text: m.text.clone().into(),
+                text: drx_social::chat::plain_stickers(&m.text).into(),
                 time: clock(m.ts).into(),
                 edited: m.edited,
                 state: m.state as i32,
@@ -585,6 +610,36 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
     CHAT_ROWS.with(|c| *c.borrow_mut() = rows.iter().map(|m| (m.id.clone(), m.mine, m.text.clone())).collect());
     CHAT_MUSIC.with(|c| *c.borrow_mut() = rows.into_iter().map(|m| m.music).collect());
     ui.set_friend_chat(ModelRc::new(VecModel::from(items)));
+}
+
+/// While someone is typing, one more redraw once their «печатает…» has run out.
+fn redraw_when_typing_ends(ui: &MainWindow, app: &App) {
+    thread_local! { static WAITING: RefCell<bool> = const { RefCell::new(false) }; }
+    let typing = app.friends_state().is_some_and(|rx| rx.borrow().friends.iter().any(|f| app.chat_typing(&f.pubkey)));
+    if !typing || WAITING.with(|w| std::mem::replace(&mut *w.borrow_mut(), true)) {
+        return;
+    }
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    slint::Timer::single_shot(std::time::Duration::from_millis(6_500), move || {
+        WAITING.with(|w| *w.borrow_mut() = false);
+        if let Some(ui) = ui_w.upgrade()
+            && ui.get_view_friends()
+        {
+            render(&ui, &app2);
+        }
+    });
+}
+
+/// «Вы: текст · 14:51» — the friends list's line for a chat, as ChatHub.preview (one line: newlines become spaces).
+fn preview_line(p: &drx_app::chats::ChatPreview) -> String {
+    let text: String = drx_social::chat::plain_stickers(&p.text).split_whitespace().collect::<Vec<_>>().join(" ");
+    let body = match (&p.music, text.is_empty()) {
+        (Some(m), false) => format!("♪ {m} · {text}"),
+        (Some(m), true) => format!("♪ {m}"),
+        (None, false) => text,
+        (None, true) => "стикер".into(),
+    };
+    format!("{}{} · {}", if p.mine { "Вы: " } else { "" }, body, clock(p.ts))
 }
 
 /// Reactions grouped by key, in the order first put: «❤️ 2», mine marked.

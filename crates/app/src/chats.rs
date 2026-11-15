@@ -15,6 +15,18 @@ use std::time::Duration;
 const FIRST_LOOK_S: i64 = 30 * 86_400;
 const OVERLAP_S: i64 = 600;
 
+/// The last word of a conversation for the friends list.
+#[derive(Debug, Clone)]
+pub struct ChatPreview {
+    pub peer: String,
+    pub text: String,
+    pub ts: i64,
+    pub mine: bool,
+    /// The music the last message shares, «Исполнитель — Название» (ChatMusic.label); its text may be empty.
+    pub music: Option<String>,
+    pub unread: i64,
+}
+
 /// One message as the chat shows it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChatRow {
@@ -68,7 +80,15 @@ pub(crate) struct ChatStore {
     /// Bumped on every change; the UI redraws when it moves.
     pub version: tokio::sync::watch::Sender<u64>,
     live: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Friends typing to me now: peer → until when (ms).
+    typing: Mutex<std::collections::HashMap<String, i64>>,
+    /// When I last told a friend I'm typing (ms): at most one signal per few seconds.
+    typing_sent: Mutex<i64>,
 }
+
+/// How long «печатает…» stays after a signal, and how often mine goes out (ChatHub TYPING_SHOWN_MS / EVERY_MS).
+const TYPING_SHOWN_MS: i64 = 6_000;
+const TYPING_EVERY_MS: i64 = 4_000;
 
 fn now_ms() -> i64 {
     crate::songs::now_ms()
@@ -95,6 +115,8 @@ impl ChatStore {
             db: Mutex::new(c),
             version: tokio::sync::watch::channel(0).0,
             live: Mutex::default(),
+            typing: Mutex::default(),
+            typing_sent: Mutex::new(0),
         })
     }
 
@@ -125,6 +147,21 @@ impl ChatStore {
 
     /// Applies one decoded word (ChatHub.apply). True when something changed.
     fn apply(&self, me: &str, w: &ChatWord) -> bool {
+        match &w.payload {
+            // Only a fresh signal from the friend; relays don't keep these, but an old one is ignored anyway.
+            Payload::Typing => {
+                if w.mine || now_ms() / 1000 - w.created_at > 10 {
+                    return false;
+                }
+                self.typing.lock().expect("typing").insert(w.peer.clone(), now_ms() + TYPING_SHOWN_MS);
+                return true;
+            }
+            // They wrote, so they aren't typing any more.
+            Payload::Message { .. } if !w.mine => {
+                self.typing.lock().expect("typing").remove(&w.peer);
+            }
+            _ => {}
+        }
         let c = self.db.lock().expect("chat db");
         let state = if w.mine { 1 } else { 3 };
         let r = match &w.payload {
@@ -284,23 +321,37 @@ impl App {
         }));
     }
 
-    /// Conversations, newest first: (peer, last message text, its time, unread count).
-    pub fn chat_previews(&self) -> Vec<(String, String, i64, i64)> {
+    /// Conversations, newest first. Unread: the friend's messages not read here, newer than my last answer (an
+    /// answer from any device means I saw what came before it, even when the phone sends no read receipts).
+    pub fn chat_previews(&self) -> Vec<ChatPreview> {
         let (Some(store), Some(f)) = (self.chat_store(), self.friends()) else { return Vec::new() };
         let me = f.me();
         let c = store.db.lock().expect("chat db");
         let Ok(mut st) = c.prepare(
-            "SELECT m.peer, m.text, m.ts, (SELECT count(*) FROM message u WHERE u.owner = m.owner AND u.peer = m.peer
-                 AND u.mine = 0 AND u.read = 0 AND u.deleted = 0)
+            "SELECT m.peer, m.text, m.ts, m.mine, m.music,
+                 (SELECT count(*) FROM message u WHERE u.owner = m.owner AND u.peer = m.peer AND u.mine = 0
+                     AND u.read = 0 AND u.deleted = 0 AND u.ts > coalesce((SELECT max(y.ts) FROM message y
+                         WHERE y.owner = m.owner AND y.peer = m.peer AND y.mine = 1), 0))
              FROM message m WHERE m.owner = ?1 AND m.deleted = 0 AND m.ts = (SELECT max(x.ts) FROM message x
                  WHERE x.owner = m.owner AND x.peer = m.peer AND x.deleted = 0)
              GROUP BY m.peer ORDER BY m.ts DESC",
         ) else {
             return Vec::new();
         };
-        st.query_map([&me], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
-            .map(|it| it.flatten().collect())
-            .unwrap_or_default()
+        st.query_map([&me], |r| {
+            Ok(ChatPreview {
+                peer: r.get(0)?,
+                text: r.get(1)?,
+                ts: r.get(2)?,
+                mine: r.get(3)?,
+                music: r.get::<_, Option<String>>(4)?.as_deref().and_then(ChatMusic::parse).map(|m| {
+                    if m.by.trim().is_empty() { m.title } else { format!("{} — {}", m.by, m.title) }
+                }),
+                unread: r.get(5)?,
+            })
+        })
+        .map(|it| it.flatten().collect())
+        .unwrap_or_default()
     }
 
     /// A conversation, oldest first (the newest `limit`).
@@ -387,6 +438,34 @@ impl App {
                 if let Some(e) = chat::read_event(&keys, &peer, newest) {
                     pool.publish(&e, Duration::from_secs(10)).await;
                 }
+            });
+        }
+    }
+
+    /// The friend is typing to me now (a signal in the last few seconds).
+    pub fn chat_typing(&self, peer: &str) -> bool {
+        self.chat_store()
+            .and_then(|s| s.typing.lock().expect("typing").get(peer).copied())
+            .is_some_and(|until| until > now_ms())
+    }
+
+    /// The text field changed: the friend sees «печатает…» (when read receipts are on, as on the phone).
+    pub fn chat_typing_now(&self, peer: &str) {
+        let (Some(store), Some(f)) = (self.chat_store(), self.friends()) else { return };
+        if !crate::social::may_publish_pub() || !f.privacy().read_receipts {
+            return;
+        }
+        {
+            let mut sent = store.typing_sent.lock().expect("typing sent");
+            if now_ms() - *sent < TYPING_EVERY_MS {
+                return;
+            }
+            *sent = now_ms();
+        }
+        if let Some(e) = chat::typing_event(&f.keys(), peer, now_ms()) {
+            let pool = f.pool();
+            self.runtime.spawn(async move {
+                pool.publish(&e, Duration::from_secs(10)).await;
             });
         }
     }

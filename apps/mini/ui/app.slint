@@ -83,6 +83,8 @@ export struct FriendCardItem {
     track-artist: string,
     cover: image,
     has-cover: bool,
+    preview: string, // the chat's last message, «Вы: …» for mine, with its time; empty without a chat
+    unread: int,     // the friend's messages not read yet
 }
 
 export struct FriendRequestItem {
@@ -2307,7 +2309,9 @@ component FriendsView inherits Rectangle {
     in property <bool> chat-editing;
     in property <bool> f-can-along; // the friend plays something and lets others listen along
     in property <bool> f-along; // this app follows them now
+    in property <bool> f-typing; // they are typing to me
     callback chat-send(string);
+    callback chat-typing(); // the field changed: the friend sees «печатает…»
     callback chat-play(int);
     callback chat-react(int, string);
     callback chat-menu(int, length, length);
@@ -2444,11 +2448,30 @@ component FriendsView inherits Rectangle {
                             HorizontalLayout {
                                 spacing: 8px;
                                 Text { text: c.name; font-family: Theme.body-font; font-weight: 800; font-size: 16px; color: Theme.text; overflow: elide; }
+                                if c.unread > 0: Middle {
+                                    Rectangle {
+                                        height: 20px;
+                                        width: max(20px, ub.preferred-width + 12px);
+                                        border-radius: 10px;
+                                        background: Theme.accent;
+                                        ub := Text { text: c.unread > 99 ? "99+" : c.unread; font-family: Theme.body-font; font-weight: 700; font-size: 12px; color: Theme.on-accent; }
+                                    }
+                                }
                                 if c.developer: Text { text: "разработчик"; font-family: Theme.mono-font; font-size: 11px; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 0; }
                             }
                             Text { text: c.status; font-family: Theme.mono-font; font-size: 12px; color: c.live ? Theme.accent : Theme.mute; overflow: elide; }
                         }
-                        Rectangle { horizontal-stretch: 1; }
+                        // The chat's last message between the person and what they play.
+                        Text {
+                            horizontal-stretch: 1;
+                            text: c.preview;
+                            font-family: Theme.body-font;
+                            font-weight: c.unread > 0 ? 600 : 500;
+                            font-size: 14px;
+                            color: c.unread > 0 ? Theme.text : Theme.dim;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
                         if c.has-track: Rectangle {
                             width: min(380px, max(200px, root.width * 0.4));
                             border-radius: 10px;
@@ -2498,7 +2521,7 @@ component FriendsView inherits Rectangle {
                 spacing: 4px;
                 horizontal-stretch: 1;
                 Text { text: root.f-name; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
-                Text { text: root.f-status; font-family: Theme.mono-font; font-size: 13px; color: root.f-along ? Theme.accent : Theme.mute; overflow: elide; }
+                Text { text: root.f-status; font-family: Theme.mono-font; font-size: 13px; color: root.f-along || root.f-typing ? Theme.accent : Theme.mute; overflow: elide; }
             }
             if root.f-along || root.f-can-along: Middle {
                 Pill { label: root.f-along ? "Перестать слушать" : "Слушать вместе"; primary: !root.f-along; clicked => { root.along(); } }
@@ -2589,6 +2612,7 @@ component FriendsView inherits Rectangle {
                     vertical-alignment: center;
                     single-line: true;
                     accepted => { root.chat-send(self.text); }
+                    edited => { if self.text != "" { root.chat-typing(); } }
                 }
                 IconButton {
                     x: parent.width - self.width - 7px;
@@ -2833,7 +2857,9 @@ export component MainWindow inherits Window {
     in property <bool> friend-chat-editing;
     in property <bool> friend-can-along;
     in property <bool> friend-along;
+    in property <bool> friend-typing;
     callback friend-chat-send(string);
+    callback friend-chat-typing();
     callback friend-chat-play(int);
     callback friend-chat-action(int, string); // «r:<key>» react, «edit», «del», «del-both», «cancel-edit»
     callback friend-toggle-along();
@@ -3082,10 +3108,12 @@ export component MainWindow inherits Window {
                         f-chat: root.friend-chat;
                         chat-text <=> root.friend-chat-text;
                         chat-send(t) => { root.friend-chat-send(t); }
+                        chat-typing => { root.friend-chat-typing(); }
                         chat-play(i) => { root.friend-chat-play(i); }
                         chat-editing: root.friend-chat-editing;
                         f-can-along: root.friend-can-along;
                         f-along: root.friend-along;
+                        f-typing: root.friend-typing;
                         chat-react(i, k) => { root.friend-chat-action(i, "r:" + k); }
                         chat-cancel-edit => { root.friend-chat-action(-1, "cancel-edit"); }
                         chat-menu(i, x, y) => {
