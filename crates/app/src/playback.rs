@@ -710,13 +710,7 @@ impl Playback {
     }
 }
 
-/// YouTube video ids are 11 characters of `[A-Za-z0-9_-]` (library songs from YouTube Music use them as ids).
-fn is_youtube_video_id(id: &str) -> bool {
-    id.len() == 11
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-}
+use crate::songs::is_youtube_video_id;
 
 #[cfg(test)]
 mod order_tests {

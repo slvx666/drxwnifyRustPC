@@ -58,7 +58,7 @@ fn err(e: impl std::fmt::Display) -> AppError {
 }
 
 impl App {
-    fn prefs_now(&self) -> drx_core::prefs::Prefs {
+    pub(crate) fn prefs_now(&self) -> drx_core::prefs::Prefs {
         std::fs::read(self.inner.profile.prefs_pb())
             .ok()
             .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())

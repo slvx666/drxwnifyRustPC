@@ -96,6 +96,15 @@ fn letter_fold(c: char, out: &mut String) {
     out.push_str(s);
 }
 
+/// Lower case, special letters folded (ø → o, ß → ss…), accents dropped (NFKD without marks). Nothing removed.
+pub fn fold_letters(text: &str) -> String {
+    let mut folded = String::with_capacity(text.len());
+    for c in text.to_lowercase().chars() {
+        letter_fold(c, &mut folded);
+    }
+    folded.nfkd().filter(|c| !is_combining_mark(*c)).collect()
+}
+
 /// SpotifyMapper.normalizeTitle: drop credits, square brackets, (remaster)/(remix); fold letters; NFKD without
 /// marks; keep letters and digits of any script; everything else becomes a space.
 pub fn normalize(title: &str) -> String {

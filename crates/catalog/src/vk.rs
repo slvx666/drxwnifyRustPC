@@ -561,6 +561,66 @@ impl Vk {
         Ok(all)
     }
 
+    /// The user's own id (owner of «Моя музыка»).
+    pub async fn my_id(&self) -> Result<i64> {
+        self.owner().await
+    }
+
+    /// Adds a track to «Моя музыка», as VK's «+» (VkAudioProvider.addTrack). `full_id` is
+    /// `owner_audio[_key]`; returns the address (owner, id) of the user's copy.
+    pub async fn add_track(&self, full_id: &str) -> Result<(i64, i64)> {
+        let parts: Vec<&str> = full_id.split('_').collect();
+        if parts.len() < 2 {
+            return Err(VkError::Api {
+                code: 0,
+                message: "bad VK track id".into(),
+            });
+        }
+        let mut params = vec![
+            ("owner_id", parts[0].to_string()),
+            ("audio_id", parts[1].to_string()),
+        ];
+        if let Some(k) = parts.get(2) {
+            params.push(("access_key", k.to_string()));
+        }
+        let v = self.call("audio.add", &params).await?;
+        let copy = v.get("response").and_then(Value::as_i64).unwrap_or(0);
+        Ok((self.owner().await?, copy))
+    }
+
+    /// Removes a track from «Моя музыка» by the address of the user's copy.
+    pub async fn delete_track(&self, owner: i64, audio_id: i64) -> Result<()> {
+        self.call(
+            "audio.delete",
+            &[("owner_id", owner.to_string()), ("audio_id", audio_id.to_string())],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Adds an album or playlist to the user's list (`audio.followPlaylist`); returns the copy's address.
+    pub async fn follow_playlist(&self, owner: i64, playlist_id: i64, access_key: Option<&str>) -> Result<(i64, i64)> {
+        let mut params = vec![("owner_id", owner.to_string()), ("playlist_id", playlist_id.to_string())];
+        if let Some(k) = access_key {
+            params.push(("access_key", k.to_string()));
+        }
+        let v = self.call("audio.followPlaylist", &params).await?;
+        let r = v.get("response");
+        let o = r.and_then(|r| r.get("owner_id")).and_then(Value::as_i64).unwrap_or(0);
+        let p = r.and_then(|r| r.get("playlist_id")).and_then(Value::as_i64).unwrap_or(0);
+        Ok((o, p))
+    }
+
+    /// Removes the user's copy of an album or playlist (`audio.deletePlaylist`).
+    pub async fn delete_playlist(&self, owner: i64, playlist_id: i64) -> Result<()> {
+        self.call(
+            "audio.deletePlaylist",
+            &[("owner_id", owner.to_string()), ("playlist_id", playlist_id.to_string())],
+        )
+        .await?;
+        Ok(())
+    }
+
     /// Every track of an album or playlist.
     pub async fn playlist_tracks(
         &self,

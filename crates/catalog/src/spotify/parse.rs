@@ -117,6 +117,20 @@ pub fn liked(v: &Value, offset: u32) -> Option<Page<Track>> {
     })
 }
 
+/// Ids of one kind ("album", "artist") in a `libraryV3` page, with the page's total.
+pub fn library_ids(v: &Value, kind: &str) -> Option<(Vec<String>, u32)> {
+    let lib = path(v, &["data", "me", "libraryV3"])?;
+    let prefix = format!("spotify:{kind}:");
+    let ids = arr(lib, "items")
+        .iter()
+        .filter_map(|e| {
+            let uri = s(obj(e, "item")?, "_uri")?;
+            uri.strip_prefix(prefix.as_str()).map(str::to_string)
+        })
+        .collect();
+    Some((ids, i(lib, "totalCount").unwrap_or(0) as u32))
+}
+
 pub fn library_playlists(v: &Value, offset: u32) -> Option<Page<Playlist>> {
     let lib = path(v, &["data", "me", "libraryV3"])?;
     let items = arr(lib, "items")

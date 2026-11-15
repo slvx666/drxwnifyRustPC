@@ -3,10 +3,13 @@
 
 mod accounts;
 pub mod edition;
+mod history;
 mod home;
+pub mod likes;
 pub mod lists;
 pub mod playback;
 mod search;
+pub mod songs;
 mod stats;
 
 pub use accounts::AccountState;
@@ -166,6 +169,8 @@ struct Inner {
     home_lock: tokio::sync::Mutex<()>,
     clients: accounts::Clients,
     images: drx_core::images::Images,
+    /// One writer at a time for the Android shared-prefs files (cross_catalog, vk_saved_tracks).
+    shared_lock: Mutex<()>,
 }
 
 /// The running core. Cheap to clone; UIs call the async methods through [`App::runtime`].
@@ -206,6 +211,7 @@ impl App {
             home_lock: tokio::sync::Mutex::new(()),
             clients: accounts::Clients::default(),
             images,
+            shared_lock: Mutex::new(()),
             lists: lists::Lists::default(),
             profile,
             edition,
@@ -220,6 +226,7 @@ impl App {
         app.watch_tables();
         app.install_providers();
         app.restore_shuffle_repeat();
+        app.start_history();
         let a = app.clone();
         app.runtime.spawn(async move {
             let _ = a.refresh_state().await;
@@ -1638,5 +1645,53 @@ mod live_like_report {
             distinct.len() - both,
             account.len() - both
         );
+    }
+}
+
+#[cfg(test)]
+mod live_likes {
+    use super::*;
+
+    /// Like and unlike one track on Spotify and Yandex (net nothing), checking the accounts' first liked page.
+    /// DRX_TEST_PROFILE = a copy of an imported profile; DRX_LIVE_WRITES=1 to allow account writes. Not run in CI.
+    #[test]
+    fn like_round_trip_on_accounts() {
+        let (Ok(dir), Ok(_)) = (
+            std::env::var("DRX_TEST_PROFILE"),
+            std::env::var("DRX_LIVE_WRITES"),
+        ) else {
+            return;
+        };
+        let app = App::start(Profile::at(dir), EditionProfile::mini()).unwrap();
+        let rt = app.runtime();
+        if let Some(sp) = app.spotify() {
+            let liked: std::collections::HashSet<String> =
+                rt.block_on(sp.liked_songs(0, 50)).unwrap().items.into_iter().map(|t| t.id).collect();
+            let found = rt.block_on(sp.search_tracks("Iglooghost Clear Tamei", 10)).unwrap();
+            let t = found.into_iter().find(|t| !liked.contains(&t.id)).expect("a track not liked");
+            let uri = vec![format!("spotify:track:{}", t.id)];
+            rt.block_on(sp.set_in_library(&uri, true)).unwrap();
+            let after: Vec<String> = rt.block_on(sp.liked_songs(0, 5)).unwrap().items.into_iter().map(|t| t.id).collect();
+            rt.block_on(sp.set_in_library(&uri, false)).unwrap();
+            let gone: Vec<String> = rt.block_on(sp.liked_songs(0, 5)).unwrap().items.into_iter().map(|t| t.id).collect();
+            eprintln!("spotify: liked first={} after unlike present={}", after.first() == Some(&t.id), gone.contains(&t.id));
+            assert_eq!(after.first(), Some(&t.id));
+            assert!(!gone.contains(&t.id));
+        }
+        if let Some(y) = app.yandex() {
+            let found = rt.block_on(y.search("Iglooghost Clear Tamei", 10)).unwrap();
+            let liked: std::collections::HashSet<String> =
+                rt.block_on(y.liked_songs(0, 50)).unwrap().items.into_iter().map(|t| t.id).collect();
+            let t = found.into_iter().find(|t| !liked.contains(&t.id)).expect("a track not liked");
+            rt.block_on(y.set_liked("track", &t.id, true)).unwrap();
+            let after: std::collections::HashSet<String> =
+                rt.block_on(y.liked_songs(0, 50)).unwrap().items.into_iter().map(|t| t.id).collect();
+            rt.block_on(y.set_liked("track", &t.id, false)).unwrap();
+            let gone: std::collections::HashSet<String> =
+                rt.block_on(y.liked_songs(0, 50)).unwrap().items.into_iter().map(|t| t.id).collect();
+            eprintln!("yandex: liked={} after unlike present={}", after.contains(&t.id), gone.contains(&t.id));
+            assert!(after.contains(&t.id));
+            assert!(!gone.contains(&t.id));
+        }
     }
 }

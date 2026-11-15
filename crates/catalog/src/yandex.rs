@@ -253,6 +253,40 @@ impl Yandex {
         Ok(me.id)
     }
 
+    /// Likes or unlikes a track, album or artist on the account (`users/{uid}/likes/{kind}s/add-multiple|remove`,
+    /// YandexMusic.likeAction). `kind`: "track", "album", "artist"; `id` with or without the `ym_` prefix.
+    pub async fn set_liked(&self, kind: &str, id: &str, liked: bool) -> Result<()> {
+        let uid = self.uid().await?;
+        let action = if liked { "add-multiple" } else { "remove" };
+        let raw = id.strip_prefix(PREFIX).unwrap_or(id);
+        let field = format!("{kind}-ids");
+        self.post_form(
+            &format!("users/{uid}/likes/{kind}s/{action}"),
+            &[(field.as_str(), raw)],
+            false,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Ids (`ym_…`) of the liked albums or artists (`kind`: "albums", "artists").
+    pub async fn liked_ids(&self, kind: &str) -> Result<std::collections::HashSet<String>> {
+        let uid = self.uid().await?;
+        let v = self.get(&format!("users/{uid}/likes/{kind}"), &[], false).await?;
+        let one = if kind == "artists" { "artist" } else { "album" };
+        Ok(v.as_array()
+            .map(|a| a.as_slice())
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(|o| {
+                let inner = o.get(one).unwrap_or(o);
+                let id = inner.get("id")?;
+                let raw = id.as_i64().map(|n| n.to_string()).or_else(|| id.as_str().map(str::to_string))?;
+                Some(format!("{PREFIX}{raw}"))
+            })
+            .collect())
+    }
+
     pub async fn account(&self) -> Result<User> {
         let v = self.get("account/status", &[], false).await?;
         let a = v

@@ -259,6 +259,15 @@ impl Spotify {
         parse::user(&v).ok_or(SpotifyError::Shape("profileAttributes"))
     }
 
+    /// Puts items (`spotify:track:…`, `spotify:album:…`, `spotify:artist:…` URIs) into the account's library or takes
+    /// them out: the web player's own `addToLibrary` / `removeFromLibrary` (REST /me/tracks and /me/following refuse
+    /// the web-player token on many accounts — Spotify.kt).
+    pub async fn set_in_library(&self, uris: &[String], saved: bool) -> Result<()> {
+        let op = if saved { "addToLibrary" } else { "removeFromLibrary" };
+        self.graphql(op, json!({ "libraryItemUris": uris })).await?;
+        Ok(())
+    }
+
     /// Liked songs, newest first.
     pub async fn liked_songs(&self, offset: u32, limit: u32) -> Result<Page<Track>> {
         let v = self
@@ -280,6 +289,30 @@ impl Spotify {
         });
         let v = self.graphql("libraryV3", vars).await?;
         parse::library_playlists(&v, offset).ok_or(SpotifyError::Shape("libraryV3"))
+    }
+
+    /// Every saved album or followed artist id (`filter`: "Albums" or "Artists"), up to 5000.
+    pub async fn library_ids(&self, filter: &str) -> Result<std::collections::HashSet<String>> {
+        let kind = if filter == "Artists" { "artist" } else { "album" };
+        let mut out = std::collections::HashSet::new();
+        let mut offset = 0u32;
+        while offset < 5000 {
+            let vars = json!({
+                "filters": [filter], "order": null, "textFilter": "",
+                "features": ["LIKED_SONGS", "YOUR_EPISODES_V2", "PRERELEASES", "EVENTS"],
+                "limit": 50, "offset": offset, "flatten": false, "expandedFolders": [],
+                "folderUri": null, "includeFoldersWhenFlattening": true
+            });
+            let v = self.graphql("libraryV3", vars).await?;
+            let (ids, total) = parse::library_ids(&v, kind).ok_or(SpotifyError::Shape("libraryV3"))?;
+            let n = ids.len();
+            out.extend(ids);
+            offset += 50;
+            if n == 0 || offset >= total {
+                break;
+            }
+        }
+        Ok(out)
     }
 
     pub async fn playlist_tracks(
