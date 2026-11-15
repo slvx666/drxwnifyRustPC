@@ -172,7 +172,7 @@ export struct LibItem {
     thumb: string, // the cover's URL (the page heading shows it big)
 }
 
-global Grid {
+export global Grid {
     out property <length> gutter: 12px;      // window edge, top bar to surface
     out property <length> pad: 16px;         // inside a section
     out property <length> gap: 12px;         // between items in a row
@@ -182,8 +182,8 @@ global Grid {
     // rows and the player bar at most 5 px. Square themes stay square. Mirrored in main.rs (baked corners).
     out property <length> cover-radius: round(Theme.cover-radius * 2 / 3 / 1px) * 1px;
     out property <length> row-cover-radius: min(5px, round(Theme.cover-radius * 2 / 3 / 1px) * 1px);
-    out property <length> lib-width: 280px;
-    out property <length> side-width: 320px;
+    in-out property <length> lib-width: 320px; // dragged by the owner (saved), see Splitter
+    in-out property <length> side-width: 340px;
     out property <length> top-height: 64px;
     out property <length> bar-height: 84px;
     out property <length> control: 40px;     // top bar controls
@@ -237,9 +237,11 @@ component Link {
     in property <string> text;
     in property <bool> enabled: true;
     in property <color> color: Theme.dim;
-    in property <length> font-size: 12px;
+    in property <length> font-size: 14px;
     in property <int> font-weight: 400;
     in property <string> font-family: Theme.body-font;
+    in property <bool> underline: true; // on hover, as Spotify's links
+    out property <bool> hovered: ta.has-hover;
     callback clicked();
     min-width: 0;
     preferred-width: t.preferred-width;
@@ -255,6 +257,13 @@ component Link {
         font-family: root.font-family;
         overflow: elide;
         vertical-alignment: center;
+    }
+    if root.enabled && root.underline && ta.has-hover: Rectangle {
+        x: 0;
+        y: (root.height + root.font-size) / 2 - 1px;
+        width: min(t.preferred-width, root.width);
+        height: 1px;
+        background: t.color;
     }
     ta := TouchArea {
         enabled: root.enabled;
@@ -272,9 +281,7 @@ component Pill inherits Rectangle {
     height: 34px;
     border-radius: min(Theme.chip-radius, 17px);
     background: root.primary ? (pa.has-hover ? Theme.accent2 : Theme.accent) : (pa.has-hover ? Theme.fill-hover : Theme.fill);
-    border-color: root.primary ? transparent : Theme.panel-border;
-    border-width: 1px;
-    pl-text := Text { text: root.label; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: root.primary ? Theme.on-accent : Theme.text; }
+    pl-text := Text { text: root.label; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: root.primary ? Theme.on-accent : Theme.text; }
     pa := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
@@ -290,7 +297,7 @@ component Chip inherits Rectangle {
         padding-right: 12px;
         Text {
             text: label;
-            font-size: 12px;
+            font-size: 14px;
             font-family: Theme.body-font;
             color: selected ? Theme.on-accent : Theme.dim;
             vertical-alignment: center;
@@ -322,7 +329,7 @@ component Cover inherits Rectangle {
 component SectionTitle inherits Text {
     font-family: Theme.heading-font;
     font-weight: 700;
-    font-size: 15px;
+    font-size: 16px;
     color: Theme.text;
     vertical-alignment: center;
 }
@@ -330,7 +337,7 @@ component SectionTitle inherits Text {
 component Caption inherits Text {
     font-family: Theme.body-font;
     font-weight: 700;
-    font-size: 11px;
+    font-size: 12px;
     color: Theme.mute;
     letter-spacing: 1.5px;
 }
@@ -340,9 +347,30 @@ component HLine inherits Rectangle {
     background: Theme.panel-border;
 }
 
-component VLine inherits Rectangle {
+// The line between two columns that drags the side one wider or narrower. `sign` is +1 when the column is on the
+// left of the line, -1 on the right. Each move adds what the pointer went past the line (the line follows it).
+component Splitter inherits Rectangle {
+    in property <length> current;
+    in property <length> min-w;
+    in property <length> max-w;
+    in property <int> sign: 1;
+    callback resize(length);
+    callback done();
     width: 1px;
-    background: Theme.panel-border;
+    background: ta.pressed || ta.has-hover ? Theme.dim : Theme.panel-border;
+    ta := TouchArea {
+        x: -4px;
+        width: 9px;
+        mouse-cursor: col-resize;
+        moved => {
+            if self.pressed {
+                root.resize(clamp(root.current + root.sign * (self.mouse-x - self.pressed-x), root.min-w, root.max-w));
+            }
+        }
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.up { root.done(); }
+        }
+    }
 }
 
 // Static vector backdrop: soft mist blobs in the theme colours, drawn once (no animation in Mini).
@@ -537,7 +565,7 @@ component TopBar inherits Rectangle {
                                 height: 100%;
                                 text <=> root.search-text;
                                 font-family: Theme.body-font;
-                                font-size: 14px;
+                                font-size: 15px;
                                 color: Theme.text;
                                 vertical-alignment: center;
                                 accepted => { root.search(self.text); }
@@ -552,12 +580,12 @@ component TopBar inherits Rectangle {
                             visible: root.search-text == "";
                             text: "Что хочешь включить?";
                             font-family: Theme.body-font;
-                            font-size: 14px;
+                            font-size: 15px;
                             color: Theme.mute;
                             vertical-alignment: center;
                         }
                     }
-                    Text { text: "Ctrl K"; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; }
+                    Text { text: "Ctrl K"; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; }
                 }
             }
         }
@@ -583,7 +611,7 @@ component MenuItem inherits Rectangle {
         padding-right: 10px;
         spacing: 8px;
         Middle { Icon { icon: root.icon != "" ? root.icon : (root.checked ? Icons.check : ""); size: 16px; color: root.icon != "" ? (ta.has-hover ? Theme.text : Theme.dim) : Theme.accent; } }
-        Text { text: root.label; font-family: Theme.body-font; font-size: 13px; color: root.checked || (root.icon != "" && ta.has-hover) ? Theme.text : Theme.dim; vertical-alignment: center; }
+        Text { text: root.label; font-family: Theme.body-font; font-size: 14px; color: root.checked || (root.icon != "" && ta.has-hover) ? Theme.text : Theme.dim; vertical-alignment: center; }
     }
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
@@ -642,7 +670,7 @@ component LibraryPanel inherits VerticalLayout {
                     height: 100%;
                     text <=> root.query;
                     font-family: Theme.body-font;
-                    font-size: 13px;
+                    font-size: 14px;
                     color: Theme.text;
                     vertical-alignment: center;
                     edited => { root.query-changed(self.text); }
@@ -654,7 +682,7 @@ component LibraryPanel inherits VerticalLayout {
                     height: 100%;
                     text: "Поиск в медиатеке";
                     font-family: Theme.body-font;
-                    font-size: 13px;
+                    font-size: 14px;
                     color: Theme.mute;
                     vertical-alignment: center;
                 }
@@ -720,8 +748,8 @@ component LibraryPanel inherits VerticalLayout {
                     VerticalLayout {
                         alignment: center;
                         spacing: 2px;
-                        Text { text: item.title; font-family: Theme.body-font; font-size: 14px; color: Theme.text; overflow: elide; }
-                        Text { text: item.subtitle; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; overflow: elide; }
+                        Text { text: item.title; font-family: Theme.body-font; font-size: 15px; color: Theme.text; overflow: elide; }
+                        Text { text: item.subtitle; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; overflow: elide; }
                     }
                 }
                 ta := TouchArea { clicked => { root.open(item); } }
@@ -737,11 +765,14 @@ component SongRow inherits Rectangle {
     in property <bool> hide-duration; // the remove button stands where the time is
     callback play();
     callback open-artist(string);
+    callback open-album(string);
     callback like-song(string);
     callback song-menu(string, int, length, length);
     height: Grid.row;
     border-radius: Grid.item-radius;
-    background: current ? Theme.fill-hover : (ta.has-hover || hot ? Theme.fill : transparent);
+    // The pointer is somewhere on the row (the areas on top take the hover from the row's own).
+    property <bool> row-hot: ta.has-hover || hot || pa.has-hover || title.hovered || artist.hovered || hta.has-hover;
+    background: current ? Theme.fill-hover : (root.row-hot ? Theme.fill : transparent);
     // Under the content, so the artist link on top gets its own clicks. A right click opens the track menu.
     ta := TouchArea {
         double-clicked => { root.play(); }
@@ -755,22 +786,37 @@ component SongRow inherits Rectangle {
         padding-left: 8px;
         padding-right: 12px;
         spacing: Grid.gap;
-        Text { width: 28px; text: song.index; font-family: Theme.mono-font; font-size: 12px; color: current ? Theme.accent : Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
+        // The number; a play button over it while the row is hovered (pc/ TrackRow, Spotify).
+        Rectangle {
+            width: 28px;
+            if !root.row-hot: Text { width: 100%; height: 100%; text: song.index; font-family: Theme.mono-font; font-size: 13px; color: current ? Theme.accent : Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
+            if root.row-hot: Icon { x: parent.width - self.width; icon: Icons.play; size: 16px; color: pa.has-hover ? Theme.text : (current ? Theme.accent : Theme.dim); }
+            pa := TouchArea { mouse-cursor: pointer; clicked => { root.play(); } }
+        }
         Middle { Cover { size: 44px; source: song.cover; has-source: song.has-cover; radius: Grid.row-cover-radius; } }
         VerticalLayout {
             alignment: center;
             spacing: 2px;
-            Text { text: song.title; font-family: Theme.body-font; font-size: 15px; color: current ? Theme.accent : Theme.text; overflow: elide; }
             HorizontalLayout {
                 alignment: start;
-                Link { text: song.artists; enabled: song.artist-id != ""; clicked => { root.open-artist(song.artist-id); } }
+                title := Link {
+                    text: song.title;
+                    font-size: 16px;
+                    color: current ? Theme.accent : Theme.text;
+                    enabled: song.album-id != "";
+                    clicked => { root.open-album(song.album-id); }
+                }
+            }
+            HorizontalLayout {
+                alignment: start;
+                artist := Link { text: song.artists; enabled: song.artist-id != ""; clicked => { root.open-artist(song.artist-id); } }
             }
         }
-        if song.plays != "": Text { width: 96px; text: song.plays; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
+        if song.plays != "": Text { width: 96px; text: song.plays; font-family: Theme.mono-font; font-size: 13px; color: Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
         // The heart (pc/ TrackRow): filled when liked, an outline while the row is hovered; a click flips it.
         heart := Rectangle {
             width: 28px;
-            property <bool> show: song.liked || ta.has-hover || root.hot || hta.has-hover;
+            property <bool> show: song.liked || root.row-hot;
             Icon {
                 icon: heart.show ? (song.liked ? Icons.heart-filled : Icons.heart) : "";
                 color: song.liked ? Theme.accent : (hta.has-hover ? Theme.text : Theme.mute);
@@ -778,7 +824,7 @@ component SongRow inherits Rectangle {
             }
             hta := TouchArea { mouse-cursor: pointer; clicked => { root.like-song(song.id); } }
         }
-        Text { width: 40px; text: song.duration; font-family: Theme.mono-font; font-size: 12px; color: root.hide-duration ? transparent : Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
+        Text { width: 46px; text: song.duration; font-family: Theme.mono-font; font-size: 13px; color: root.hide-duration ? transparent : Theme.mute; vertical-alignment: center; horizontal-alignment: right; }
     }
 }
 
@@ -817,8 +863,8 @@ component SettingRow inherits HorizontalLayout {
         horizontal-stretch: 1;
         alignment: center;
         spacing: 2px;
-        Text { text: root.label; font-family: Theme.body-font; font-size: 14px; color: Theme.text; overflow: elide; }
-        if root.hint != "": Text { text: root.hint; font-family: Theme.body-font; font-size: 12px; color: Theme.mute; overflow: elide; }
+        Text { text: root.label; font-family: Theme.body-font; font-size: 15px; color: Theme.text; overflow: elide; }
+        if root.hint != "": Text { text: root.hint; font-family: Theme.body-font; font-size: 14px; color: Theme.mute; overflow: elide; }
     }
     @children
 }
@@ -852,7 +898,7 @@ component SettingsPage inherits Flickable {
         Caption { text: "АККАУНТЫ"; }
         Text {
             text: "Основной аккаунт отвечает за поиск, главную и страницы исполнителей. Остальные можно показать в медиатеке.";
-            font-family: Theme.body-font; font-size: 12px; color: Theme.mute; wrap: word-wrap;
+            font-family: Theme.body-font; font-size: 14px; color: Theme.mute; wrap: word-wrap;
         }
         for a in root.accounts: Rectangle {
             border-radius: Grid.item-radius;
@@ -867,10 +913,10 @@ component SettingsPage inherits Flickable {
                     horizontal-stretch: 1;
                     alignment: center;
                     spacing: 2px;
-                    Text { text: a.label; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.text; }
+                    Text { text: a.label; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.text; }
                     Text {
                         text: !a.linked ? "Не подключён: войдите на телефоне и перенесите резервную копию" : (a.main ? "Основной аккаунт" : "Подключён");
-                        font-family: Theme.body-font; font-size: 12px; color: a.main ? Theme.accent : Theme.mute; overflow: elide;
+                        font-family: Theme.body-font; font-size: 14px; color: a.main ? Theme.accent : Theme.mute; overflow: elide;
                     }
                 }
                 if a.linked && !a.main: Middle {
@@ -882,14 +928,14 @@ component SettingsPage inherits Flickable {
                         background: mta.has-hover ? Theme.fill-hover : transparent;
                         border-color: Theme.panel-border;
                         border-width: 1px;
-                        mt := Text { text: "Сделать основным"; font-family: Theme.body-font; font-size: 12px; color: Theme.text; }
+                        mt := Text { text: "Сделать основным"; font-family: Theme.body-font; font-size: 14px; color: Theme.text; }
                         mta := TouchArea { mouse-cursor: pointer; clicked => { root.set-main(a.key); } }
                     }
                 }
                 if a.linked: HorizontalLayout {
                     horizontal-stretch: 0;
                     spacing: 8px;
-                    Text { text: "В медиатеке"; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; vertical-alignment: center; }
+                    Text { text: "В медиатеке"; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; vertical-alignment: center; }
                     Middle { Toggle { on: a.tab; enabled: !a.main; toggled(v) => { root.set-tab(a.key, v); } } }
                 }
             }
@@ -927,7 +973,7 @@ component SettingsPage inherits Flickable {
                     kc := Text {
                         text: root.recording == hk.id ? "Нажмите сочетание…" : (hk.combo == "" ? "выключено" : hk.combo);
                         font-family: Theme.mono-font;
-                        font-size: 12px;
+                        font-size: 14px;
                         color: root.recording == hk.id ? Theme.accent : (hk.combo == "" ? Theme.mute : Theme.text);
                     }
                     kca := TouchArea {
@@ -958,7 +1004,7 @@ component SettingsPage inherits Flickable {
         Text {
             text: "Нажмите на сочетание, чтобы задать своё: зажмите Ctrl, Alt или Shift (лучше два-три сразу) и клавишу. Esc — отмена.";
             font-family: Theme.body-font;
-            font-size: 12px;
+            font-size: 14px;
             color: Theme.mute;
             wrap: word-wrap;
         }
@@ -986,7 +1032,7 @@ component SettingsPage inherits Flickable {
                             background: t.accent;
                         }
                     }
-                    Text { text: t.name; font-family: Theme.body-font; font-size: 12px; color: t.selected ? Theme.accent : Theme.text; horizontal-alignment: center; overflow: elide; }
+                    Text { text: t.name; font-family: Theme.body-font; font-size: 14px; color: t.selected ? Theme.accent : Theme.text; horizontal-alignment: center; overflow: elide; }
                 }
                 tta := TouchArea { mouse-cursor: pointer; clicked => { root.set-theme(t.id); } }
             }
@@ -1011,8 +1057,8 @@ component CardStrip inherits Flickable {
             spacing: 4px;
             alignment: start;
             Cover { size: 144px; source: card.cover; has-source: card.has-cover; radius: root.round ? 72px : Grid.cover-radius; }
-            Text { text: card.title; font-family: Theme.body-font; font-size: 13px; color: cta.has-hover ? Theme.accent : Theme.text; overflow: elide; horizontal-alignment: root.round ? center : left; }
-            Text { text: card.subtitle; font-family: Theme.body-font; font-size: 11px; color: Theme.mute; overflow: elide; horizontal-alignment: root.round ? center : left; }
+            Text { text: card.title; font-family: Theme.body-font; font-size: 14px; color: cta.has-hover ? Theme.accent : Theme.text; overflow: elide; horizontal-alignment: root.round ? center : left; }
+            Text { text: card.subtitle; font-family: Theme.body-font; font-size: 12px; color: Theme.mute; overflow: elide; horizontal-alignment: root.round ? center : left; }
         }
         cta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(ci); } }
     }
@@ -1045,6 +1091,7 @@ component SearchPage inherits Flickable {
     callback play(int);
     callback top();
     callback more();
+    callback open-album(string);
     callback open-artist(string);
     callback like-song(string);
     callback song-menu(string, int, length, length);
@@ -1065,7 +1112,7 @@ component SearchPage inherits Flickable {
         if root.state != "": Text {
             x: Grid.pad + 4px;
             text: root.state == "loading" ? "Ищу…" : (root.state == "empty" ? "Ничего не нашлось" : root.state);
-            font-family: Theme.body-font; font-size: 14px; color: Theme.dim;
+            font-family: Theme.body-font; font-size: 15px; color: Theme.dim;
         }
         if root.state == "" && root.tracks.length > 0: HorizontalLayout {
             padding-left: Grid.pad + 4px;
@@ -1087,7 +1134,7 @@ component SearchPage inherits Flickable {
                         Cover { size: 104px; source: root.top-cover; has-source: root.top-has-cover; radius: root.top-kind == "artist" ? 52px : Grid.cover-radius; }
                         Rectangle { height: 6px; }
                         Text { text: root.top-title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 24px; color: Theme.text; overflow: elide; }
-                        Text { text: root.top-sub; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+                        Text { text: root.top-sub; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; overflow: elide; }
                     }
                     tta := TouchArea { mouse-cursor: pointer; clicked => { root.top(); } }
                 }
@@ -1100,7 +1147,7 @@ component SearchPage inherits Flickable {
                     Text { horizontal-stretch: 1; text: "Треки"; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; vertical-alignment: center; }
                     if root.tracks-total > 4: Link {
                         text: root.expanded ? "Свернуть" : "Все треки · " + root.tracks-total;
-                        font-size: 13px;
+                        font-size: 14px;
                         clicked => { root.more(); }
                     }
                 }
@@ -1109,6 +1156,7 @@ component SearchPage inherits Flickable {
                     current: root.now-id != "" && t.id == root.now-id;
                     play => { root.play(i); }
                     open-artist(id) => { root.open-artist(id); }
+                    open-album(id) => { root.open-album(id); }
                     like-song(id) => { root.like-song(id); }
                     song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
                 }
@@ -1162,7 +1210,7 @@ component ArtistView inherits Flickable {
                 Text { horizontal-stretch: 1; text: "Популярные треки"; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; vertical-alignment: center; }
                 if root.tracks-total > 5: Link {
                     text: root.expanded ? "Свернуть" : "Показать все · " + root.tracks-total;
-                    font-size: 13px;
+                    font-size: 14px;
                     clicked => { root.more(); }
                 }
             }
@@ -1175,6 +1223,7 @@ component ArtistView inherits Flickable {
                         current: root.now-id != "" && t.id == root.now-id;
                         play => { root.play(i); }
                         open-artist(id) => { root.open-artist(id); }
+                        open-album(id) => { root.open-album(id); }
                         like-song(id) => { root.like-song(id); }
                         song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
                     }
@@ -1210,6 +1259,7 @@ component HistoryView inherits HorizontalLayout {
     in property <string> now-id;
     callback play(int);
     callback remove(int);
+    callback open-album(string);
     callback open-artist(string);
     callback like-song(string);
     callback song-menu(string, int, length, length);
@@ -1236,6 +1286,7 @@ component HistoryView inherits HorizontalLayout {
                     hide-duration: hover.has-hover;
                     play => { root.play(it.index); }
                     open-artist(id) => { root.open-artist(id); }
+                    open-album(id) => { root.open-album(id); }
                     like-song(id) => { root.like-song(id); }
                     song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
                 }
@@ -1302,14 +1353,14 @@ component StatsView inherits Flickable {
                     spacing: 2px;
                     alignment: center;
                     Text { text: t.value; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 24px; color: Theme.text; overflow: elide; }
-                    Text { text: t.label; font-family: Theme.body-font; font-size: 12px; color: Theme.mute; overflow: elide; }
+                    Text { text: t.label; font-family: Theme.body-font; font-size: 14px; color: Theme.mute; overflow: elide; }
                 }
             }
         }
         if root.note != "": Text {
             x: Grid.pad + 4px;
             text: root.note;
-            font-family: Theme.body-font; font-size: 12px; color: Theme.mute;
+            font-family: Theme.body-font; font-size: 14px; color: Theme.mute;
         }
         if root.tracks.length > 0: VerticalLayout {
             spacing: 4px;
@@ -1320,7 +1371,7 @@ component StatsView inherits Flickable {
                 Text { horizontal-stretch: 1; text: "Топ треков"; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; vertical-alignment: center; }
                 if root.tracks-total > 10: Link {
                     text: root.expanded ? "Свернуть" : "Показать все · " + root.tracks-total;
-                    font-size: 13px;
+                    font-size: 14px;
                     clicked => { root.more(); }
                 }
             }
@@ -1333,6 +1384,7 @@ component StatsView inherits Flickable {
                         current: root.now-id != "" && t.id == root.now-id;
                         play => { root.play(i); }
                         open-artist(id) => { root.open-artist(id); }
+                        open-album(id) => { root.open-album(id); }
                         like-song(id) => { root.like-song(id); }
                         song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
                     }
@@ -1468,7 +1520,7 @@ component MainArea inherits VerticalLayout {
             spacing: 4px;
             if root.kind-label != "": Caption { text: root.kind-label; }
             Text { text: title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
-            Text { text: subtitle; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+            Text { text: subtitle; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; overflow: elide; }
             if root.can-play || root.can-edit: HorizontalLayout {
                 padding-top: 6px;
                 spacing: Grid.gap;
@@ -1483,7 +1535,7 @@ component MainArea inherits VerticalLayout {
                         padding-right: 18px;
                         spacing: 6px;
                         Middle { Icon { icon: Icons.play; size: 16px; color: Theme.on-accent; } }
-                        pl := Text { text: "Слушать"; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.on-accent; vertical-alignment: center; }
+                        pl := Text { text: "Слушать"; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.on-accent; vertical-alignment: center; }
                     }
                     pa := TouchArea { mouse-cursor: pointer; clicked => { root.play-all(); } }
                 }
@@ -1492,14 +1544,12 @@ component MainArea inherits VerticalLayout {
                     height: 38px;
                     border-radius: min(Theme.chip-radius, 19px);
                     background: sa.has-hover ? Theme.fill-hover : Theme.fill;
-                    border-color: Theme.panel-border;
-                    border-width: 1px;
                     HorizontalLayout {
                         padding-left: 14px;
                         padding-right: 18px;
                         spacing: 6px;
                         Middle { Icon { icon: Icons.shuffle; size: 16px; color: Theme.text; } }
-                        sl := Text { text: "Перемешать"; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.text; vertical-alignment: center; }
+                        sl := Text { text: "Перемешать"; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.text; vertical-alignment: center; }
                     }
                     sa := TouchArea { mouse-cursor: pointer; clicked => { root.shuffle-all(); } }
                 }
@@ -1509,8 +1559,6 @@ component MainArea inherits VerticalLayout {
                     height: 38px;
                     border-radius: min(Theme.chip-radius, 19px);
                     background: va.has-hover ? Theme.fill-hover : Theme.fill;
-                    border-color: Theme.panel-border;
-                    border-width: 1px;
                     Icon { icon: root.saved ? Icons.heart-filled : Icons.heart; size: 17px; color: root.saved ? Theme.accent : Theme.text; }
                     va := TouchArea { mouse-cursor: pointer; clicked => { root.toggle-save(); } }
                 }
@@ -1519,8 +1567,6 @@ component MainArea inherits VerticalLayout {
                     height: 38px;
                     border-radius: min(Theme.chip-radius, 19px);
                     background: rna.has-hover ? Theme.fill-hover : Theme.fill;
-                    border-color: Theme.panel-border;
-                    border-width: 1px;
                     Icon { icon: Icons.pencil; size: 17px; color: Theme.text; }
                     rna := TouchArea { mouse-cursor: pointer; clicked => { root.rename-list(); } }
                 }
@@ -1529,8 +1575,6 @@ component MainArea inherits VerticalLayout {
                     height: 38px;
                     border-radius: min(Theme.chip-radius, 19px);
                     background: dla.has-hover ? Theme.fill-hover : Theme.fill;
-                    border-color: Theme.panel-border;
-                    border-width: 1px;
                     Icon { icon: Icons.trash; size: 17px; color: Theme.text; }
                     dla := TouchArea { mouse-cursor: pointer; clicked => { root.delete-list(); } }
                 }
@@ -1555,8 +1599,8 @@ component MainArea inherits VerticalLayout {
                     spacing: 4px;
                     alignment: start;
                     Cover { size: 128px; source: r.cover; has-source: r.has-cover; }
-                    Text { text: r.title; font-family: Theme.body-font; font-size: 13px; color: rta.has-hover ? Theme.accent : Theme.text; overflow: elide; }
-                    Text { text: r.subtitle; font-family: Theme.body-font; font-size: 11px; color: Theme.mute; overflow: elide; }
+                    Text { text: r.title; font-family: Theme.body-font; font-size: 14px; color: rta.has-hover ? Theme.accent : Theme.text; overflow: elide; }
+                    Text { text: r.subtitle; font-family: Theme.body-font; font-size: 12px; color: Theme.mute; overflow: elide; }
                 }
                 rta := TouchArea { mouse-cursor: pointer; clicked => { root.open-album(r.id); } }
             }
@@ -1566,7 +1610,7 @@ component MainArea inherits VerticalLayout {
         alignment: center;
         spacing: Grid.gap;
         Text { text: "Медиатека пуста"; font-family: Theme.heading-font; font-weight: 700; font-size: 20px; color: Theme.text; horizontal-alignment: center; }
-        Text { text: "Перенеси всё с телефона: резервная копия Drxwnify для Android (.backup)"; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; horizontal-alignment: center; }
+        Text { text: "Перенеси всё с телефона: резервная копия Drxwnify для Android (.backup)"; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; horizontal-alignment: center; }
         HorizontalLayout {
             alignment: center;
             padding-top: 4px;
@@ -1575,7 +1619,7 @@ component MainArea inherits VerticalLayout {
                 height: 44px;
                 border-radius: min(Theme.chip-radius, 22px);
                 background: ta.has-hover ? Theme.accent2 : Theme.accent;
-                Text { text: "Импортировать резервную копию"; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.on-accent; }
+                Text { text: "Импортировать резервную копию"; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.on-accent; }
                 ta := TouchArea { clicked => { root.import-backup(); } }
             }
         }
@@ -1586,6 +1630,7 @@ component MainArea inherits VerticalLayout {
         now-id: root.now-id;
         play(i) => { root.h-play(i); }
         remove(e) => { root.h-remove(e); }
+        open-album(id) => { root.open-album(id); }
         open-artist(id) => { root.open-artist(id); }
         like-song(id) => { root.like-song(id); }
         song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
@@ -1646,6 +1691,7 @@ component MainArea inherits VerticalLayout {
         play(i) => { root.s-play(i); }
         top => { root.s-top(); }
         more => { root.s-more(); }
+        open-album(id) => { root.open-album(id); }
         open-artist(id) => { root.open-artist(id); }
         like-song(id) => { root.like-song(id); }
         song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
@@ -1701,7 +1747,7 @@ component MainArea inherits VerticalLayout {
                 if sec.label != "": Text {
                     text: sec.label;
                     font-family: Theme.body-font;
-                    font-size: 13px;
+                    font-size: 14px;
                     color: Theme.mute;
                     vertical-alignment: center;
                 }
@@ -1734,8 +1780,8 @@ component MainArea inherits VerticalLayout {
                                 Icon { icon: Icons.play; size: 18px; color: Theme.on-accent; }
                             }
                         }
-                        Text { text: card.title; font-family: Theme.body-font; font-size: 13px; color: cb.playing || cta.has-hover ? Theme.accent : Theme.text; overflow: elide; }
-                        Text { text: card.subtitle; font-family: Theme.body-font; font-size: 11px; color: Theme.mute; overflow: elide; }
+                        Text { text: card.title; font-family: Theme.body-font; font-size: 14px; color: cb.playing || cta.has-hover ? Theme.accent : Theme.text; overflow: elide; }
+                        Text { text: card.subtitle; font-family: Theme.body-font; font-size: 12px; color: Theme.mute; overflow: elide; }
                     }
                     cta := TouchArea {
                         mouse-cursor: pointer;
@@ -1757,6 +1803,7 @@ component MainArea inherits VerticalLayout {
                 current: root.now-id != "" && song.id == root.now-id;
                 play => { root.play(song.index - 1); }
                 open-artist(id) => { root.open-artist(id); }
+                open-album(id) => { root.open-album(id); }
                 like-song(id) => { root.like-song(id); }
                 song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
             }
@@ -1802,11 +1849,11 @@ component RightPanel inherits VerticalLayout {
             Text { text: title == "" ? "Ничего не играет" : title; font-family: Theme.heading-font; font-weight: 700; font-size: 20px; color: Theme.text; overflow: elide; }
             if artists != "": HorizontalLayout {
                 alignment: start;
-                Link { text: artists; font-size: 13px; enabled: root.artist-id != ""; clicked => { root.open-artist(root.artist-id); } }
+                Link { text: artists; font-size: 14px; enabled: root.artist-id != ""; clicked => { root.open-artist(root.artist-id); } }
             }
             if info != "": HorizontalLayout {
                 alignment: start;
-                Link { text: info; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; enabled: root.album-id != ""; clicked => { root.open-album(root.album-id); } }
+                Link { text: info; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; enabled: root.album-id != ""; clicked => { root.open-album(root.album-id); } }
             }
         }
         if root.can-like: VerticalLayout {
@@ -1830,29 +1877,78 @@ component RightPanel inherits VerticalLayout {
             spacing: Grid.gap;
             HLine { }
             Caption { text: "ДАЛЕЕ"; }
-            if root.upcoming.length == 0: Text { text: "Очередь пуста"; font-family: Theme.body-font; font-size: 13px; color: Theme.mute; }
+            if root.upcoming.length == 0: Text { text: "Очередь пуста"; font-family: Theme.body-font; font-size: 14px; color: Theme.mute; }
             // The core sends the next three tracks.
             for q in root.upcoming: VerticalLayout {
                 spacing: 2px;
-                Text { text: q.title; font-family: Theme.body-font; font-size: 13px; color: Theme.text; overflow: elide; }
-                Text { text: q.artists; font-family: Theme.body-font; font-size: 11px; color: Theme.dim; overflow: elide; }
+                Text { text: q.title; font-family: Theme.body-font; font-size: 14px; color: Theme.text; overflow: elide; }
+                Text { text: q.artists; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
             }
             if root.has-lyrics: HLine { }
             if root.has-lyrics: Caption { text: "ТЕКСТ"; }
-            if root.has-lyrics: Text { text: root.lyric-now == "" ? "…" : root.lyric-now; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.accent; wrap: word-wrap; }
-            if root.has-lyrics && root.lyric-next != "": Text { text: root.lyric-next; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; wrap: word-wrap; }
+            if root.has-lyrics: Text { text: root.lyric-now == "" ? "…" : root.lyric-now; font-family: Theme.body-font; font-weight: 700; font-size: 16px; color: Theme.accent; wrap: word-wrap; }
+            if root.has-lyrics && root.lyric-next != "": Text { text: root.lyric-next; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; wrap: word-wrap; }
         }
     }
 }
 
 component Slider inherits Rectangle {
     in property <float> value; // 0..1
-    in property <color> fill: Theme.accent;
+    in property <color> fill: Theme.text; // at rest
+    in property <float> total-s; // > 0: the time under the pointer shows above it (the seek bar)
+    in property <bool> live; // picks while dragging (volume), otherwise on release (seek)
     callback picked(float);
     height: 16px;
+    property <bool> hot: ta.has-hover || ta.pressed;
+    property <float> at: clamp(ta.mouse-x / max(1px, self.width), 0, 1);
+    property <float> shown: ta.pressed ? root.at : clamp(root.value, 0, 1);
+    property <int> tip-s: floor(root.total-s * root.at);
+    property <int> tip-m: floor(root.tip-s / 60);
     Rectangle { y: (parent.height - 4px) / 2; height: 4px; border-radius: 2px; background: Theme.fill-hover; }
-    Rectangle { x: 0; y: (parent.height - 4px) / 2; height: 4px; width: parent.width * clamp(root.value, 0, 1); border-radius: 2px; background: root.fill; }
-    ta := TouchArea { clicked => { root.picked(clamp(self.mouse-x / self.width, 0, 1)); } }
+    Rectangle {
+        x: 0;
+        y: (parent.height - 4px) / 2;
+        height: 4px;
+        width: parent.width * root.shown;
+        border-radius: 2px;
+        background: root.hot ? Theme.accent : root.fill;
+    }
+    if root.hot: Rectangle {
+        x: parent.width * root.shown - 6px;
+        y: (parent.height - 12px) / 2;
+        width: 12px;
+        height: 12px;
+        border-radius: 6px;
+        background: Theme.text;
+        drop-shadow-blur: 4px;
+        drop-shadow-color: #00000080;
+    }
+    if root.hot && root.total-s > 0: Rectangle {
+        property <length> w: tip.preferred-width + 16px;
+        x: clamp(ta.mouse-x - self.w / 2, -24px, root.width - self.w + 24px);
+        y: -30px;
+        width: self.w;
+        height: 26px;
+        border-radius: 5px;
+        background: Theme.menu;
+        border-color: Theme.panel-border;
+        border-width: 1px;
+        tip := Text {
+            text: root.tip-m + ":" + (root.tip-s - root.tip-m * 60 < 10 ? "0" : "") + (root.tip-s - root.tip-m * 60);
+            font-family: Theme.body-font;
+            font-size: 14px;
+            color: Theme.text;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        moved => {
+            if self.pressed && root.live { root.picked(root.at); }
+        }
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.up && e.button == PointerEventButton.left { root.picked(root.at); }
+        }
+    }
 }
 
 // Player bar: three sections as wide as the columns above (library | content | now playing).
@@ -1872,6 +1968,7 @@ component PlayerBar inherits HorizontalLayout {
     in property <float> progress; // 0..1
     in property <string> position;
     in property <string> duration;
+    in property <float> total-s;
     in-out property <float> volume: 0.8;
     callback toggle();
     callback next();
@@ -1894,7 +1991,7 @@ component PlayerBar inherits HorizontalLayout {
         VerticalLayout {
             alignment: center;
             spacing: 2px;
-            Text { text: title == "" ? "Ничего не играет" : title; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: title == "" ? Theme.mute : Theme.text; overflow: elide; }
+            Text { text: title == "" ? "Ничего не играет" : title; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: title == "" ? Theme.mute : Theme.text; overflow: elide; }
             if artists != "": HorizontalLayout {
                 alignment: start;
                 Link { text: artists; enabled: root.artist-id != ""; clicked => { root.open-artist(root.artist-id); } }
@@ -1937,9 +2034,9 @@ component PlayerBar inherits HorizontalLayout {
         }
         HorizontalLayout {
             spacing: 8px;
-            Text { text: position; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; width: 40px; horizontal-alignment: right; }
-            Slider { value: root.progress; picked(f) => { root.seek(f); } }
-            Text { text: duration; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; width: 40px; }
+            Text { text: position; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; width: 46px; horizontal-alignment: right; }
+            Slider { value: root.progress; total-s: root.total-s; picked(f) => { root.seek(f); } }
+            Text { text: duration; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; vertical-alignment: center; width: 46px; }
         }
     }
     HorizontalLayout {
@@ -1955,7 +2052,7 @@ component PlayerBar inherits HorizontalLayout {
             Slider {
                 width: 96px;
                 value: root.volume;
-                fill: Theme.text;
+                live: true;
                 picked(v) => { root.volume = v; root.volume-changed(v); }
             }
         }
@@ -1993,7 +2090,7 @@ component ChatBubble inherits Rectangle {
             }
         }
     }
-    probe := Text { visible: false; text: root.m.text; font-family: Theme.body-font; font-size: 14px; }
+    probe := Text { visible: false; text: root.m.text; font-family: Theme.body-font; font-size: 15px; }
     property <length> text-w: min(root.max-w - 24px, probe.preferred-width + 1px);
     property <length> inner-w: max(root.m.has-music ? root.max-w - 24px : 0px, max(root.text-w, meta.preferred-width));
     width: root.inner-w + 24px;
@@ -2014,8 +2111,8 @@ component ChatBubble inherits Rectangle {
                 alignment: center;
                 spacing: 2px;
                 horizontal-stretch: 1;
-                Text { text: root.m.music-title; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.text; overflow: elide; }
-                Text { text: root.m.music-by; font-family: Theme.body-font; font-size: 11px; color: Theme.dim; overflow: elide; }
+                Text { text: root.m.music-title; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.text; overflow: elide; }
+                Text { text: root.m.music-by; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
             }
             Middle { IconButton { icon: root.m.music-kind == "track" ? Icons.play : Icons.chevron-right; size: 32px; icon-size: 16px; filled: true; clicked => { root.play(); } } }
         }
@@ -2023,14 +2120,14 @@ component ChatBubble inherits Rectangle {
             text: root.m.text;
             wrap: word-wrap;
             font-family: Theme.body-font;
-            font-size: 14px;
+            font-size: 15px;
             color: Theme.text;
         }
         meta := HorizontalLayout {
             spacing: 6px;
             alignment: start;
-            Text { text: root.m.time; font-family: Theme.mono-font; font-size: 10px; color: Theme.mute; vertical-alignment: center; }
-            if root.m.edited: Text { text: "изменено"; font-family: Theme.mono-font; font-size: 10px; color: Theme.mute; vertical-alignment: center; }
+            Text { text: root.m.time; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; }
+            if root.m.edited: Text { text: "изменено"; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; }
             if root.m.mine: Middle {
                 Icon {
                     size: 12px;
@@ -2038,7 +2135,7 @@ component ChatBubble inherits Rectangle {
                     color: root.m.state == 2 ? #E5484D : (root.m.read ? Theme.accent : Theme.mute);
                 }
             }
-            if root.m.mine && root.m.state == 2: Text { text: "не отправлено"; font-family: Theme.mono-font; font-size: 10px; color: #E5484D; vertical-alignment: center; }
+            if root.m.mine && root.m.state == 2: Text { text: "не отправлено"; font-family: Theme.mono-font; font-size: 11px; color: #E5484D; vertical-alignment: center; }
             Rectangle { width: 4px; }
             for r in root.m.reactions: Rectangle {
                 height: 22px;
@@ -2054,7 +2151,7 @@ component ChatBubble inherits Rectangle {
                     if r.pic < 0 || r.count > 1: Text {
                         text: r.pic < 0 ? (r.count > 1 ? r.label + " " + r.count : r.label) : r.count;
                         font-family: Theme.mono-font;
-                        font-size: 11px;
+                        font-size: 12px;
                         color: Theme.text;
                         vertical-alignment: center;
                     }
@@ -2119,6 +2216,7 @@ component FriendsView inherits Rectangle {
     callback accept(string);
     callback dismiss(string);
     callback open-artist(string);
+    callback open-album(string);
     callback like-song(string);
     callback song-menu(string, int, length, length);
     if !root.available: VerticalLayout {
@@ -2128,7 +2226,7 @@ component FriendsView inherits Rectangle {
         Text { text: "Друзья"; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; }
         Text {
             text: "Кто что слушает, история и любимые друзей — через Nostr, без своего сервера. Профиль приходит с телефона: импортируйте резервную копию.";
-            font-family: Theme.body-font; font-size: 13px; color: Theme.dim; wrap: word-wrap;
+            font-family: Theme.body-font; font-size: 14px; color: Theme.dim; wrap: word-wrap;
         }
     }
     if root.available && !root.page: Flickable {
@@ -2146,8 +2244,8 @@ component FriendsView inherits Rectangle {
                     spacing: 4px;
                     horizontal-stretch: 1;
                     Text { text: root.me-name == "" ? "Мой профиль" : root.me-name; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
-                    Text { text: root.me-code; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; }
-                    Text { text: "Профиль с телефона: имя, аватар и любимые ведёт телефон, отсюда друзья видят, что играет на ПК"; font-family: Theme.body-font; font-size: 11px; color: Theme.mute; wrap: word-wrap; }
+                    Text { text: root.me-code; font-family: Theme.mono-font; font-size: 13px; color: Theme.mute; }
+                    Text { text: "Профиль с телефона: имя, аватар и любимые ведёт телефон, отсюда друзья видят, что играет на ПК"; font-family: Theme.body-font; font-size: 12px; color: Theme.mute; wrap: word-wrap; }
                 }
                 Middle { Pill { label: "Мой код"; clicked => { root.copy-code(); } } }
                 Middle { Pill { label: "Ссылка"; clicked => { root.copy-link(); } } }
@@ -2167,7 +2265,7 @@ component FriendsView inherits Rectangle {
                         height: parent.height;
                         text: "Код друга (npub…) или ссылка-приглашение";
                         font-family: Theme.body-font;
-                        font-size: 13px;
+                        font-size: 14px;
                         color: Theme.mute;
                         vertical-alignment: center;
                     }
@@ -2177,7 +2275,7 @@ component FriendsView inherits Rectangle {
                         height: parent.height;
                         text <=> root.add-text;
                         font-family: Theme.body-font;
-                        font-size: 13px;
+                        font-size: 14px;
                         color: Theme.text;
                         vertical-alignment: center;
                         single-line: true;
@@ -2193,8 +2291,8 @@ component FriendsView inherits Rectangle {
                 VerticalLayout {
                     alignment: center;
                     horizontal-stretch: 1;
-                    Text { text: r.name == "" ? "Без имени" : r.name; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.text; }
-                    Text { text: "хочет дружить · " + r.when; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; }
+                    Text { text: r.name == "" ? "Без имени" : r.name; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.text; }
+                    Text { text: "хочет дружить · " + r.when; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; }
                 }
                 Middle { Pill { label: "Принять"; primary: true; clicked => { root.accept(r.pubkey); } } }
                 Middle { Pill { label: "Скрыть"; clicked => { root.dismiss(r.pubkey); } } }
@@ -2231,10 +2329,10 @@ component FriendsView inherits Rectangle {
                             width: max(160px, min(260px, root.width * 0.3));
                             HorizontalLayout {
                                 spacing: 8px;
-                                Text { text: c.name; font-family: Theme.body-font; font-weight: 800; font-size: 15px; color: Theme.text; overflow: elide; }
-                                if c.developer: Text { text: "разработчик"; font-family: Theme.mono-font; font-size: 10px; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 0; }
+                                Text { text: c.name; font-family: Theme.body-font; font-weight: 800; font-size: 16px; color: Theme.text; overflow: elide; }
+                                if c.developer: Text { text: "разработчик"; font-family: Theme.mono-font; font-size: 11px; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 0; }
                             }
-                            Text { text: c.status; font-family: Theme.mono-font; font-size: 11px; color: c.live ? Theme.accent : Theme.mute; overflow: elide; }
+                            Text { text: c.status; font-family: Theme.mono-font; font-size: 12px; color: c.live ? Theme.accent : Theme.mute; overflow: elide; }
                         }
                         Rectangle { horizontal-stretch: 1; }
                         if c.has-track: Rectangle {
@@ -2262,8 +2360,8 @@ component FriendsView inherits Rectangle {
                                     alignment: center;
                                     spacing: 2px;
                                     horizontal-stretch: 1;
-                                    Text { text: c.track-title; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.text; overflow: elide; }
-                                    Text { text: c.track-artist; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
+                                    Text { text: c.track-title; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.text; overflow: elide; }
+                                    Text { text: c.track-artist; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; overflow: elide; }
                                 }
                             }
                         }
@@ -2286,7 +2384,7 @@ component FriendsView inherits Rectangle {
                 spacing: 4px;
                 horizontal-stretch: 1;
                 Text { text: root.f-name; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
-                Text { text: root.f-status; font-family: Theme.mono-font; font-size: 12px; color: root.f-along ? Theme.accent : Theme.mute; overflow: elide; }
+                Text { text: root.f-status; font-family: Theme.mono-font; font-size: 13px; color: root.f-along ? Theme.accent : Theme.mute; overflow: elide; }
             }
             if root.f-along || root.f-can-along: Middle {
                 Pill { label: root.f-along ? "Перестать слушать" : "Слушать вместе"; primary: !root.f-along; clicked => { root.along(); } }
@@ -2335,8 +2433,8 @@ component FriendsView inherits Rectangle {
                 alignment: center;
                 spacing: 6px;
                 HorizontalLayout { alignment: center; Icon { icon: Icons.message; size: 32px; color: Theme.dim; } }
-                Text { text: "В чате пока тихо"; horizontal-alignment: center; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.text; }
-                Text { text: "Напиши " + root.f-name + " первое сообщение!"; horizontal-alignment: center; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; }
+                Text { text: "В чате пока тихо"; horizontal-alignment: center; font-family: Theme.body-font; font-weight: 700; font-size: 16px; color: Theme.text; }
+                Text { text: "Напиши " + root.f-name + " первое сообщение!"; horizontal-alignment: center; font-family: Theme.mono-font; font-size: 13px; color: Theme.mute; }
             }
         }
         if root.f-tab == "chat" && root.chat-editing: HorizontalLayout {
@@ -2344,7 +2442,7 @@ component FriendsView inherits Rectangle {
             padding-right: Grid.pad;
             spacing: 8px;
             Middle { Icon { icon: Icons.pencil; size: 14px; color: Theme.accent; } }
-            Text { text: "Изменение сообщения"; font-family: Theme.body-font; font-weight: 700; font-size: 12px; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; }
+            Text { text: "Изменение сообщения"; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 1; }
             Middle { IconButton { icon: Icons.x; size: 24px; icon-size: 13px; clicked => { root.chat-cancel-edit(); } } }
         }
         if root.f-tab == "chat": HorizontalLayout {
@@ -2362,7 +2460,7 @@ component FriendsView inherits Rectangle {
                     height: parent.height;
                     text: "Написать сообщение…";
                     font-family: Theme.mono-font;
-                    font-size: 12px;
+                    font-size: 14px;
                     color: Theme.mute;
                     vertical-alignment: center;
                 }
@@ -2372,7 +2470,7 @@ component FriendsView inherits Rectangle {
                     height: parent.height;
                     text <=> root.chat-text;
                     font-family: Theme.body-font;
-                    font-size: 14px;
+                    font-size: 15px;
                     color: Theme.text;
                     vertical-alignment: center;
                     single-line: true;
@@ -2394,7 +2492,7 @@ component FriendsView inherits Rectangle {
             x: Grid.pad + 4px;
             text: root.f-empty;
             font-family: Theme.body-font;
-            font-size: 13px;
+            font-size: 14px;
             color: Theme.dim;
         }
         if root.f-tab != "chat": HorizontalLayout {
@@ -2407,6 +2505,7 @@ component FriendsView inherits Rectangle {
                     current: root.now-id != "" && song.id == root.now-id;
                     play => { root.play(i); }
                     open-artist(id) => { root.open-artist(id); }
+                    open-album(id) => { root.open-album(id); }
                     like-song(id) => { root.like-song(id); }
                     song-menu(id, idx, x, y) => { root.song-menu(id, idx, x, y); }
                 }
@@ -2424,6 +2523,7 @@ export component MainWindow inherits Window {
     preferred-height: 900px;
     background: Theme.bg;
     default-font-family: Theme.body-font;
+    default-font-size: 14px; // texts without their own size (owner: 1920x1080 must read easily)
     // No system title bar: the top bar is the title bar (drag, double press, window buttons); edges still resize.
     no-frame: true;
     resize-border-width: root.window-maximized ? 0 : 6px;
@@ -2544,7 +2644,13 @@ export component MainWindow inherits Window {
     in property <float> progress;
     in property <string> position: "0:00";
     in property <string> duration: "0:00";
-    in property <string> toast;
+    in property <float> duration-s; // the same in seconds (the seek bar's hover time)
+    in-out property <string> toast;
+    // The side columns were dragged to new widths (Grid.lib-width / side-width): the app keeps them.
+    callback panels-resized();
+    // A new toast: the app clears it after a few seconds.
+    callback toast-shown(string);
+    changed toast => { if root.toast != "" { root.toast-shown(root.toast); } }
     in-out property <string> search-text;
     in-out property <bool> suggest-open;
     in property <[Suggestion]> suggestions;
@@ -2736,7 +2842,14 @@ export component MainWindow inherits Window {
                         query-changed(q) => { root.lib-query(q); }
                         open(item) => { root.selected-id = item.id; root.open-library(item); }
                     }
-                    VLine { }
+                    Splitter {
+                        current: Grid.lib-width;
+                        min-w: 200px;
+                        max-w: max(200px, min(480px, root.width - Grid.side-width - 480px));
+                        sign: 1;
+                        resize(w) => { Grid.lib-width = w; }
+                        done => { root.panels-resized(); }
+                    }
                     if !root.view-friends: MainArea {
                         horizontal-stretch: 1;
                         title: root.view-title;
@@ -2885,10 +2998,18 @@ export component MainWindow inherits Window {
                         accept(p) => { root.friend-accept(p); }
                         dismiss(p) => { root.friend-dismiss(p); }
                         open-artist(id) => { root.open-artist(id); }
+                        open-album(id) => { root.open-album(id); }
                         like-song(id) => { root.like-song(id); }
                         song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
                     }
-                    VLine { }
+                    Splitter {
+                        current: Grid.side-width;
+                        min-w: 240px;
+                        max-w: max(240px, min(520px, root.width - Grid.lib-width - 480px));
+                        sign: -1;
+                        resize(w) => { Grid.side-width = w; }
+                        done => { root.panels-resized(); }
+                    }
                     RightPanel {
                         width: Grid.side-width;
                         title: root.now-title;
@@ -2931,6 +3052,7 @@ export component MainWindow inherits Window {
                     progress: root.progress;
                     position: root.position;
                     duration: root.duration;
+                    total-s: root.duration-s;
                     toggle => { root.toggle(); }
                     next => { root.next(); }
                     prev => { root.prev(); }
@@ -3050,7 +3172,7 @@ export component MainWindow inherits Window {
                         spacing: 4px;
                         horizontal-stretch: 1;
                         Text { text: root.dialog-title; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; }
-                        if root.dialog-subtitle != "": Text { text: root.dialog-subtitle; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; wrap: word-wrap; }
+                        if root.dialog-subtitle != "": Text { text: root.dialog-subtitle; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; wrap: word-wrap; }
                     }
                     VerticalLayout { alignment: start; IconButton { icon: Icons.x; size: 30px; icon-size: 15px; clicked => { root.dialog-kind = ""; } } }
                 }
@@ -3068,7 +3190,7 @@ export component MainWindow inherits Window {
                             x: 12px;
                             text: root.dialog-kind == "add" ? "Новый плейлист…" : "Название";
                             font-family: Theme.body-font;
-                            font-size: 13px;
+                            font-size: 14px;
                             color: Theme.mute;
                             vertical-alignment: center;
                             height: parent.height;
@@ -3079,7 +3201,7 @@ export component MainWindow inherits Window {
                             height: parent.height;
                             text <=> root.dialog-text;
                             font-family: Theme.body-font;
-                            font-size: 13px;
+                            font-size: 14px;
                             color: Theme.text;
                             vertical-alignment: center;
                             single-line: true;
@@ -3101,7 +3223,7 @@ export component MainWindow inherits Window {
                             padding-right: 18px;
                             spacing: 6px;
                             if root.dialog-kind == "add": Middle { Icon { icon: Icons.plus; size: 16px; color: Theme.on-accent; } }
-                            ok-label := Text { text: root.dialog-kind == "add" ? "Создать" : "Сохранить"; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.on-accent; vertical-alignment: center; }
+                            ok-label := Text { text: root.dialog-kind == "add" ? "Создать" : "Сохранить"; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.on-accent; vertical-alignment: center; }
                         }
                         oka := TouchArea { mouse-cursor: pointer; clicked => { root.dialog-confirm(root.dialog-text); } }
                     }
@@ -3125,8 +3247,8 @@ export component MainWindow inherits Window {
                                 alignment: center;
                                 spacing: 2px;
                                 horizontal-stretch: 1;
-                                Text { text: pl.name; font-family: Theme.body-font; font-weight: 600; font-size: 14px; color: Theme.text; overflow: elide; }
-                                Text { text: pl.count; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; }
+                                Text { text: pl.name; font-family: Theme.body-font; font-weight: 600; font-size: 15px; color: Theme.text; overflow: elide; }
+                                Text { text: pl.count; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; }
                             }
                             Middle { Icon { icon: pl.has-all ? Icons.check : ""; size: 16px; color: Theme.accent; } }
                         }
@@ -3136,7 +3258,7 @@ export component MainWindow inherits Window {
                 if root.dialog-kind == "add" && root.dialog-items.length == 0: Text {
                     text: "Своих плейлистов пока нет — создай первый выше.";
                     font-family: Theme.body-font;
-                    font-size: 13px;
+                    font-size: 14px;
                     color: Theme.dim;
                 }
                 // Delete: what goes, and the two answers.
@@ -3150,7 +3272,7 @@ export component MainWindow inherits Window {
                         background: noa.has-hover ? Theme.fill-hover : Theme.fill;
                         border-color: Theme.panel-border;
                         border-width: 1px;
-                        no-label := Text { text: "Отмена"; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.text; }
+                        no-label := Text { text: "Отмена"; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.text; }
                         noa := TouchArea { mouse-cursor: pointer; clicked => { root.dialog-kind = ""; } }
                     }
                     Rectangle {
@@ -3158,7 +3280,7 @@ export component MainWindow inherits Window {
                         height: 38px;
                         border-radius: min(Theme.chip-radius, 19px);
                         background: yesa.has-hover ? #C93C42 : #E5484D;
-                        yes-label := Text { text: "Удалить"; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: #FFFFFF; }
+                        yes-label := Text { text: "Удалить"; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: #FFFFFF; }
                         yesa := TouchArea { mouse-cursor: pointer; clicked => { root.dialog-confirm(""); } }
                     }
                 }
@@ -3199,7 +3321,7 @@ export component MainWindow inherits Window {
                     padding-right: 4px;
                     spacing: 10px;
                     Middle { Icon { icon: sug.history ? Icons.clock : Icons.search; size: 16px; color: Theme.mute; } }
-                    Text { horizontal-stretch: 1; text: sug.text; font-family: Theme.body-font; font-size: 13px; color: Theme.text; overflow: elide; vertical-alignment: center; }
+                    Text { horizontal-stretch: 1; text: sug.text; font-family: Theme.body-font; font-size: 14px; color: Theme.text; overflow: elide; vertical-alignment: center; }
                     if sug.history: Middle {
                         IconButton { icon: Icons.x; size: 28px; icon-size: 14px; clicked => { root.forget-search(sug.text); } }
                     }
@@ -3209,7 +3331,7 @@ export component MainWindow inherits Window {
                 height: 34px;
                 border-radius: Grid.small-radius;
                 background: cta.has-hover ? Theme.fill-hover : transparent;
-                Text { text: "Очистить историю"; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; }
+                Text { text: "Очистить историю"; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; }
                 cta := TouchArea { mouse-cursor: pointer; clicked => { root.clear-search-history(); } }
             }
         }
@@ -3223,6 +3345,6 @@ export component MainWindow inherits Window {
         background: Theme.menu;
         border-color: Theme.panel-border;
         border-width: 1px;
-        Text { text: root.toast; color: Theme.text; font-size: 13px; }
+        Text { text: root.toast; color: Theme.text; font-size: 14px; }
     }
 }

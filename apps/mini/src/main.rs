@@ -559,6 +559,42 @@ fn main() {
         ui.on_volume_changed(move |v| a.set_volume(v));
     }
 
+    // Side column widths the owner dragged (PC-only keys; the phone ignores them).
+    {
+        let grid = ui.global::<Grid>();
+        if let Some(w) = app.pref_i64("pcLibraryWidth").filter(|w| (200..=480).contains(w)) {
+            grid.set_lib_width(w as f32);
+        }
+        if let Some(w) = app.pref_i64("pcSideWidth").filter(|w| (240..=520).contains(w)) {
+            grid.set_side_width(w as f32);
+        }
+        let (a, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_panels_resized(move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            let grid = ui.global::<Grid>();
+            let _ = a.set_pref("pcLibraryWidth", drx_core::prefs::PrefValue::Int(grid.get_lib_width().round() as i32));
+            let _ = a.set_pref("pcSideWidth", drx_core::prefs::PrefValue::Int(grid.get_side_width().round() as i32));
+        });
+    }
+
+    // A toast stays 4 s after its last change (a newer one starts its own 4 s).
+    {
+        let ui_w = ui.as_weak();
+        let seq = Rc::new(std::cell::Cell::new(0u64));
+        ui.on_toast_shown(move |_| {
+            let n = seq.get() + 1;
+            seq.set(n);
+            let (ui_w, seq) = (ui_w.clone(), seq.clone());
+            slint::Timer::single_shot(std::time::Duration::from_secs(4), move || {
+                if seq.get() == n
+                    && let Some(ui) = ui_w.upgrade()
+                {
+                    ui.set_toast("".into());
+                }
+            });
+        });
+    }
+
     // Now playing → UI. The progress timer runs only while something plays (Mini: no redraws when idle).
     let progress = Rc::new(slint::Timer::default());
     {
@@ -601,6 +637,7 @@ fn main() {
                                 .into(),
                         );
                         ui.set_duration(fmt_time(t.duration_ms as f64 / 1000.0).into());
+                        ui.set_duration_s(t.duration_ms as f32 / 1000.0);
                         let url = t
                             .album
                             .as_ref()
@@ -666,6 +703,7 @@ fn main() {
                         ui.set_position(fmt_time(c.position_s).into());
                         if let Some(d) = c.duration_s.filter(|d| *d > 0.0) {
                             ui.set_duration(fmt_time(d).into());
+                            ui.set_duration_s(d as f32);
                             ui.set_progress((c.position_s / d).clamp(0.0, 1.0) as f32);
                         }
                     },

@@ -1,5 +1,5 @@
 //! Covers and avatars: download once to a disk cache, decode at the size the UI shows, keep a small LRU in memory
-//! bounded by bytes (Mini: 12 MB, Full: 64 MB — EditionProfile.image_cache_bytes).
+//! bounded by bytes (Mini: 32 MB, Full: 64 MB — EditionProfile.image_cache_bytes).
 //!
 //! Yandex cover templates (`…/%%`) are expanded before use; Spotify/VK/YouTube URLs are used as they come.
 

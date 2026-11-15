@@ -5,10 +5,13 @@ use crate::LibItem;
 use drx_app::{App, LibraryEntry, LibraryKind};
 use slint::{Model, ModelNotify, ModelTracker, SharedString};
 use std::cell::RefCell;
+use std::collections::HashSet;
 
 pub struct LazyLibrary {
     app: App,
     entries: RefCell<Vec<LibraryEntry>>,
+    /// Rows drawn without their cover yet; only these redraw when covers arrive (no flicker of the others).
+    missing: RefCell<HashSet<usize>>,
     notify: ModelNotify,
 }
 
@@ -17,17 +20,32 @@ impl LazyLibrary {
         Self {
             app,
             entries: RefCell::default(),
+            missing: RefCell::default(),
             notify: ModelNotify::default(),
         }
     }
 
     pub fn set(&self, entries: Vec<LibraryEntry>) {
         *self.entries.borrow_mut() = entries;
+        self.missing.borrow_mut().clear();
         self.notify.reset();
     }
 
+    /// Covers arrived: redraw the rows still waiting for theirs.
     pub fn refresh_covers(&self) {
-        self.notify.reset();
+        let waiting: Vec<usize> = self.missing.borrow().iter().copied().collect();
+        for row in waiting {
+            let ready = self
+                .entries
+                .borrow()
+                .get(row)
+                .and_then(|e| e.thumbnail.clone())
+                .is_some_and(|u| self.app.image(&u, crate::ROW_COVER).is_some());
+            if ready {
+                self.missing.borrow_mut().remove(&row);
+                self.notify.row_changed(row);
+            }
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -52,6 +70,9 @@ impl Model for LazyLibrary {
                 crate::theme_r(crate::ROW_COVER_R, crate::ROW_COVER, 44.0),
             )
         });
+        if cover.is_none() && e.thumbnail.is_some() {
+            self.missing.borrow_mut().insert(row);
+        }
         Some(LibItem {
             title: e.title.into(),
             subtitle: e.subtitle.into(),

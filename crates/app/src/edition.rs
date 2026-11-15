@@ -51,7 +51,7 @@ impl EditionProfile {
             auto_spectrum: false,
             story_animations: false,
             po_token: PoTokenMode::Helper,
-            image_cache_bytes: 12 << 20,
+            image_cache_bytes: 32 << 20,
         }
     }
 

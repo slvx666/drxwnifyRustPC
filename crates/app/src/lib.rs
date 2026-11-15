@@ -282,6 +282,13 @@ impl App {
         drx_core::paths::write_atomic(&path, &prefs.encode())
             .map_err(|e| AppError::Other(e.to_string()))
     }
+    /// A number setting from `settings.preferences_pb`.
+    pub fn pref_i64(&self, key: &str) -> Option<i64> {
+        std::fs::read(self.inner.profile.prefs_pb())
+            .ok()
+            .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
+            .and_then(|p| p.get_i64(key))
+    }
     fn store(&self) -> Store {
         self.inner.store.read().expect("store lock").clone()
     }

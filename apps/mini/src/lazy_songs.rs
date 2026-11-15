@@ -5,7 +5,7 @@ use crate::SongItem;
 use drx_app::{App, ListHandle, ListSpec, SongRow};
 use slint::{Model, ModelNotify, ModelTracker};
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 const PAGE: usize = 64;
 
@@ -14,6 +14,9 @@ pub struct LazySongs {
     handle: Cell<ListHandle>,
     len: Cell<usize>,
     pages: RefCell<HashMap<usize, Vec<SongRow>>>,
+    /// Rows drawn without their cover yet: only these are redrawn when covers arrive, so rows that have theirs
+    /// never blink (resetting the whole model made every cover reload and the list flicker).
+    missing: RefCell<HashSet<usize>>,
     notify: ModelNotify,
 }
 
@@ -26,6 +29,7 @@ impl LazySongs {
             handle: Cell::new(handle),
             len: Cell::new(len),
             pages: RefCell::default(),
+            missing: RefCell::default(),
             notify: ModelNotify::default(),
         }
     }
@@ -56,6 +60,7 @@ impl LazySongs {
             .unwrap_or(0);
         self.len.set(len);
         self.pages.borrow_mut().clear();
+        self.missing.borrow_mut().clear();
         self.notify.reset();
     }
 
@@ -85,9 +90,19 @@ impl LazySongs {
         }
     }
 
-    /// Covers arrived: redraw the visible rows (cached pages are kept).
+    /// Covers arrived: redraw the rows still waiting for theirs.
     pub fn refresh_covers(&self) {
-        self.notify.reset();
+        let waiting: Vec<usize> = self.missing.borrow().iter().copied().collect();
+        for row in waiting {
+            let ready = self
+                .row(row)
+                .and_then(|r| r.thumbnail)
+                .is_some_and(|u| self.app.image(&u, crate::ROW_COVER).is_some());
+            if ready {
+                self.missing.borrow_mut().remove(&row);
+                self.notify.row_changed(row);
+            }
+        }
     }
 
     pub fn row(&self, i: usize) -> Option<SongRow> {
@@ -136,6 +151,9 @@ impl Model for LazySongs {
                     crate::theme_r(crate::ROW_COVER_R, crate::ROW_COVER, 44.0),
                 )
             });
+            if cover.is_none() && r.thumbnail.is_some() {
+                self.missing.borrow_mut().insert(row);
+            }
             SongItem {
                 id: r.id.into(),
                 title: r.title.into(),
