@@ -485,6 +485,7 @@ component Header inherits HorizontalLayout {
 component MenuItem inherits Rectangle {
     in property <string> label;
     in property <bool> checked;
+    in property <string> icon; // a command menu: its icon instead of the check mark
     callback clicked();
     height: 34px;
     border-radius: Grid.small-radius;
@@ -493,8 +494,8 @@ component MenuItem inherits Rectangle {
         padding-left: 10px;
         padding-right: 10px;
         spacing: 8px;
-        Middle { Icon { icon: root.checked ? Icons.check : ""; size: 16px; color: Theme.accent; } }
-        Text { text: root.label; font-family: Theme.body-font; font-size: 13px; color: root.checked ? Theme.text : Theme.dim; vertical-alignment: center; }
+        Middle { Icon { icon: root.icon != "" ? root.icon : (root.checked ? Icons.check : ""); size: 16px; color: root.icon != "" ? (ta.has-hover ? Theme.text : Theme.dim) : Theme.accent; } }
+        Text { text: root.label; font-family: Theme.body-font; font-size: 13px; color: root.checked || (root.icon != "" && ta.has-hover) ? Theme.text : Theme.dim; vertical-alignment: center; }
     }
     ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
@@ -647,11 +648,19 @@ component SongRow inherits Rectangle {
     callback play();
     callback open-artist(string);
     callback like-song(string);
+    callback song-menu(string, length, length);
     height: Grid.row;
     border-radius: Grid.item-radius;
     background: current ? Theme.fill-hover : (ta.has-hover || hot ? Theme.fill : transparent);
-    // Under the content, so the artist link on top gets its own clicks.
-    ta := TouchArea { double-clicked => { root.play(); } }
+    // Under the content, so the artist link on top gets its own clicks. A right click opens the track menu.
+    ta := TouchArea {
+        double-clicked => { root.play(); }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                root.song-menu(root.song.id, root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+            }
+        }
+    }
     HorizontalLayout {
         padding-left: 8px;
         padding-right: 12px;
@@ -802,7 +811,7 @@ component SettingsPage inherits Flickable {
         }
         SettingRow {
             label: "Глобальные горячие клавиши";
-            hint: "Ctrl+Alt+Shift+Пробел — пауза, ← и → — треки, L — в любимые. Работают в любой программе, даже в игре";
+            hint: "Ctrl+Alt+Shift+Пробел — пауза, ← и → — треки, L — в любимые, R — радио. Работают в любой программе, даже в игре";
             Middle { Toggle { on: root.hotkeys; toggled(v) => { root.set-hotkeys(v); } } }
         }
         // Theme cards: a swatch of the theme's background and accent, the name under it.
@@ -890,6 +899,7 @@ component SearchPage inherits Flickable {
     callback more();
     callback open-artist(string);
     callback like-song(string);
+    callback song-menu(string, length, length);
     callback artist(int);
     callback album(int);
     callback playlist(int);
@@ -952,6 +962,7 @@ component SearchPage inherits Flickable {
                     play => { root.play(i); }
                     open-artist(id) => { root.open-artist(id); }
                     like-song(id) => { root.like-song(id); }
+                    song-menu(id, x, y) => { root.song-menu(id, x, y); }
                 }
             }
         }
@@ -987,6 +998,7 @@ component ArtistView inherits Flickable {
     callback more();
     callback open-artist(string);
     callback like-song(string);
+    callback song-menu(string, length, length);
     callback open-album(string);
     content-height: body.preferred-height + Grid.pad;
     body := VerticalLayout {
@@ -1016,6 +1028,7 @@ component ArtistView inherits Flickable {
                         play => { root.play(i); }
                         open-artist(id) => { root.open-artist(id); }
                         like-song(id) => { root.like-song(id); }
+                        song-menu(id, x, y) => { root.song-menu(id, x, y); }
                     }
                 }
             }
@@ -1051,6 +1064,7 @@ component HistoryView inherits HorizontalLayout {
     callback remove(int);
     callback open-artist(string);
     callback like-song(string);
+    callback song-menu(string, length, length);
     padding-left: 8px;
     padding-right: 4px;
     ListView {
@@ -1075,6 +1089,7 @@ component HistoryView inherits HorizontalLayout {
                     play => { root.play(it.index); }
                     open-artist(id) => { root.open-artist(id); }
                     like-song(id) => { root.like-song(id); }
+                    song-menu(id, x, y) => { root.song-menu(id, x, y); }
                 }
                 // Remove from the history: in place of the time while the row's right end is hovered. The button is a
                 // child of the hover area, so the area stays hovered (and the button shown) while the pointer is on it.
@@ -1112,6 +1127,7 @@ component StatsView inherits Flickable {
     callback more();
     callback open-artist(string);
     callback like-song(string);
+    callback song-menu(string, length, length);
     callback open-album(string);
     content-height: body.preferred-height + Grid.pad;
     body := VerticalLayout {
@@ -1170,6 +1186,7 @@ component StatsView inherits Flickable {
                         play => { root.play(i); }
                         open-artist(id) => { root.open-artist(id); }
                         like-song(id) => { root.like-song(id); }
+                        song-menu(id, x, y) => { root.song-menu(id, x, y); }
                     }
                 }
             }
@@ -1267,6 +1284,7 @@ component MainArea inherits VerticalLayout {
     callback import-backup();
     callback open-artist(string);
     callback like-song(string);
+    callback song-menu(string, length, length);
     callback open-album(string);
     in property <bool> can-save; // album / playlist / artist pages of a catalog
     in property <bool> saved;
@@ -1392,6 +1410,7 @@ component MainArea inherits VerticalLayout {
         remove(e) => { root.h-remove(e); }
         open-artist(id) => { root.open-artist(id); }
         like-song(id) => { root.like-song(id); }
+        song-menu(id, x, y) => { root.song-menu(id, x, y); }
     }
     if root.stats: StatsView {
         vertical-stretch: 1;
@@ -1409,6 +1428,7 @@ component MainArea inherits VerticalLayout {
         more => { root.st-more(); }
         open-artist(id) => { root.open-artist(id); }
         like-song(id) => { root.like-song(id); }
+        song-menu(id, x, y) => { root.song-menu(id, x, y); }
         open-album(id) => { root.open-album(id); }
     }
     if root.artist-view && !root.empty-library: ArtistView {
@@ -1425,6 +1445,7 @@ component MainArea inherits VerticalLayout {
         more => { root.a-more(); }
         open-artist(id) => { root.open-artist(id); }
         like-song(id) => { root.like-song(id); }
+        song-menu(id, x, y) => { root.song-menu(id, x, y); }
         open-album(id) => { root.open-album(id); }
     }
     if root.search: SearchPage {
@@ -1449,6 +1470,7 @@ component MainArea inherits VerticalLayout {
         more => { root.s-more(); }
         open-artist(id) => { root.open-artist(id); }
         like-song(id) => { root.like-song(id); }
+        song-menu(id, x, y) => { root.song-menu(id, x, y); }
         artist(i) => { root.s-artist(i); }
         album(i) => { root.s-album(i); }
         playlist(i) => { root.s-playlist(i); }
@@ -1543,6 +1565,7 @@ component MainArea inherits VerticalLayout {
                 play => { root.play(song.index - 1); }
                 open-artist(id) => { root.open-artist(id); }
                 like-song(id) => { root.like-song(id); }
+                song-menu(id, x, y) => { root.song-menu(id, x, y); }
             }
         }
     }
@@ -1561,6 +1584,7 @@ component RightPanel inherits VerticalLayout {
     in property <[QueueItem]> upcoming;
     callback open-artist(string);
     callback like-song(string);
+    callback song-menu(string, length, length);
     callback open-album(string);
     in property <string> lyric-now;
     in property <string> lyric-next;
@@ -1647,6 +1671,7 @@ component PlayerBar inherits HorizontalLayout {
     in property <string> artist-id;
     callback open-artist(string);
     callback like-song(string);
+    callback song-menu(string, length, length);
     in property <bool> liked;
     in property <bool> can-like;
     callback toggle-like();
@@ -1891,11 +1916,21 @@ export component MainWindow inherits Window {
     callback set-autostart(bool);
     callback open-artist(string);
     callback like-song(string);
+    callback song-menu(string, length, length);
     callback open-album(string);
     // The playing track's heart.
     in property <bool> now-liked;
     in property <bool> now-can-like;
     callback toggle-now-like();
+    // The track menu (right click on a row): what it is for and where it opened.
+    in-out property <string> menu-id;
+    in-out property <length> menu-x;
+    in-out property <length> menu-y;
+    in property <bool> menu-liked;
+    in property <bool> menu-has-artist;
+    in property <bool> menu-has-album;
+    callback menu-opening(string);
+    callback track-menu-action(string, string); // action, track id
     // The open page's «in the library» / «follow» heart.
     in property <bool> view-can-save;
     in property <bool> view-saved;
@@ -2065,6 +2100,7 @@ export component MainWindow inherits Window {
                         home-play(s, c) => { root.home-play(s, c); }
                         open-artist(id) => { root.open-artist(id); }
                         like-song(id) => { root.like-song(id); }
+                        song-menu(id, x, y) => { root.song-menu(id, x, y); }
                         open-album(id) => { root.open-album(id); }
                         play(i) => { root.play(i); }
                         import-backup => { root.import-backup(); }
@@ -2079,6 +2115,7 @@ export component MainWindow inherits Window {
                         album-id: root.now-album-id;
                         open-artist(id) => { root.open-artist(id); }
                         like-song(id) => { root.like-song(id); }
+                        song-menu(id, x, y) => { root.song-menu(id, x, y); }
                         open-album(id) => { root.open-album(id); }
                         cover: root.now-cover;
                         has-cover: root.has-now-cover;
@@ -2098,6 +2135,7 @@ export component MainWindow inherits Window {
                     artist-id: root.now-artist-id;
                     open-artist(id) => { root.open-artist(id); }
                     like-song(id) => { root.like-song(id); }
+                    song-menu(id, x, y) => { root.song-menu(id, x, y); }
                     cover: root.now-cover-small;
                     has-cover: root.has-now-cover;
                     playing: root.playing;
@@ -2121,6 +2159,43 @@ export component MainWindow inherits Window {
                 }
             }
         }
+    }
+    // The track menu (pc/ trackMenu): opened by a right click on any song row, where the pointer is.
+    track-menu := PopupWindow {
+        x: max(0px, min(root.menu-x, root.width - 244px));
+        y: max(0px, min(root.menu-y, root.height - menu-box.preferred-height - 8px));
+        width: 236px;
+        menu-box := Rectangle {
+            border-radius: Grid.item-radius;
+            background: Theme.menu;
+            border-color: Theme.panel-border;
+            border-width: 1px;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000060;
+            VerticalLayout {
+                padding: 6px;
+                spacing: 2px;
+                MenuItem { icon: Icons.track-next; label: "Играть дальше"; clicked => { root.track-menu-action("next", root.menu-id); } }
+                MenuItem { icon: Icons.list; label: "Добавить в очередь"; clicked => { root.track-menu-action("queue", root.menu-id); } }
+                MenuItem { icon: Icons.radio; label: "Радио по треку"; clicked => { root.track-menu-action("radio", root.menu-id); } }
+                HLine { }
+                MenuItem {
+                    icon: root.menu-liked ? Icons.heart-filled : Icons.heart;
+                    label: root.menu-liked ? "Убрать из любимых" : "В любимые";
+                    clicked => { root.track-menu-action("like", root.menu-id); }
+                }
+                if root.menu-has-artist || root.menu-has-album: HLine { }
+                if root.menu-has-artist: MenuItem { icon: Icons.user-circle; label: "К исполнителю"; clicked => { root.track-menu-action("artist", root.menu-id); } }
+                if root.menu-has-album: MenuItem { icon: Icons.album; label: "К альбому"; clicked => { root.track-menu-action("album", root.menu-id); } }
+            }
+        }
+    }
+    song-menu(id, x, y) => {
+        root.menu-id = id;
+        root.menu-x = x;
+        root.menu-y = y;
+        root.menu-opening(id);
+        track-menu.show();
     }
     // Under the search field: the history (field empty) or matching history + YouTube Music suggestions.
     if root.suggest-open && root.suggestions.length > 0: TouchArea {

@@ -49,6 +49,7 @@ switch ($Do) {
   "hwheel" { for ($i = 0; $i -lt [Math]::Abs($Amount); $i++) { [DrxIn]::mouse_event(0x1000, 0, 0, 120 * [Math]::Sign($Amount), [UIntPtr]::Zero); Start-Sleep -Milliseconds 60 } }
   "shiftwheel" { Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait("+"); for ($i = 0; $i -lt [Math]::Abs($Amount); $i++) { [DrxIn]::mouse_event(0x0800, 0, 0, 120 * [Math]::Sign($Amount), [UIntPtr]::Zero) } }
   "click"  { [DrxIn]::mouse_event(0x02, 0, 0, 0, [UIntPtr]::Zero); [DrxIn]::mouse_event(0x04, 0, 0, 0, [UIntPtr]::Zero) }
+  "rclick" { [DrxIn]::mouse_event(0x08, 0, 0, 0, [UIntPtr]::Zero); [DrxIn]::mouse_event(0x10, 0, 0, 0, [UIntPtr]::Zero) }
   "move"   { }
   # Press at (X,Y), move by (Dx,Dy) in steps, release (window drags from the top bar).
   "drag"   { Add-Type -AssemblyName System.Windows.Forms

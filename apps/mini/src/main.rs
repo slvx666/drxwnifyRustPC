@@ -8,6 +8,7 @@ mod home_view;
 mod lazy_library;
 mod lazy_songs;
 mod likes_ui;
+mod track_menu;
 mod nav;
 mod os;
 mod search_view;
@@ -872,6 +873,7 @@ fn main() {
     // System media controls (media keys, volume flyout, lock screen) and the tray.
     os::wire_title_bar(&ui);
     likes_ui::wire(&ui, &app);
+    track_menu::wire(&ui, &app);
     let platform = os::start(&ui, &app, Some(&guard));
     {
         let (app2, ui_w, platform) = (app.clone(), ui.as_weak(), platform.clone());

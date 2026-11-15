@@ -8,6 +8,7 @@ mod home;
 pub mod likes;
 pub mod lists;
 pub mod playback;
+pub mod radio;
 mod search;
 pub mod songs;
 mod stats;

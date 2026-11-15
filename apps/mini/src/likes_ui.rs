@@ -70,7 +70,7 @@ pub fn toggle(ui: &MainWindow, app: &App, id: String) {
 }
 
 /// The state the UI shows for `id` now (the player's heart for the playing track, else its row).
-fn shown_liked(ui: &MainWindow, id: &str) -> bool {
+pub fn shown_liked(ui: &MainWindow, id: &str) -> bool {
     if ui.get_now_id() == id {
         return ui.get_now_liked();
     }

@@ -67,7 +67,7 @@ impl Repeat {
 }
 
 /// Shuffles in place (xorshift seeded by the clock: no random crate needed for a queue).
-fn shuffle_in_place<T>(v: &mut [T]) {
+pub(crate) fn shuffle_in_place<T>(v: &mut [T]) {
     let mut x = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
@@ -546,6 +546,41 @@ impl Playback {
 
     pub fn set_repeat(&self, r: Repeat) {
         self.now.send_modify(|n| n.repeat = r);
+    }
+
+    /// Puts a track right after the playing one («Играть дальше»), or at the end of the queue.
+    pub fn enqueue(&self, item: Playable, next: bool) {
+        {
+            let mut q = self.queue.lock().expect("queue");
+            if q.0.is_empty() {
+                q.0.push(item.clone());
+            } else if next {
+                let at = (q.1 + 1).min(q.0.len());
+                q.0.insert(at, item.clone());
+            } else {
+                q.0.push(item.clone());
+            }
+            if let Some(o) = self.original.lock().expect("original").as_mut() {
+                o.push(item);
+            }
+        }
+        let up = self.upcoming();
+        self.now.send_modify(|n| n.upcoming = up);
+    }
+
+    /// Replaces what is queued after the track `current_id` (radio after the current track). If that track
+    /// ended meanwhile, the new tracks follow the one playing by then.
+    pub fn replace_upcoming(&self, current_id: &str, items: Vec<Playable>) {
+        {
+            let mut q = self.queue.lock().expect("queue");
+            let at = q.0.iter().position(|p| p.track.id == current_id).filter(|i| *i <= q.1).unwrap_or(q.1);
+            let keep = (at.max(q.1) + 1).min(q.0.len());
+            q.0.truncate(keep);
+            q.0.extend(items);
+        }
+        *self.original.lock().expect("original") = None;
+        let up = self.upcoming();
+        self.now.send_modify(|n| n.upcoming = up);
     }
 
     fn upcoming(&self) -> Vec<Track> {

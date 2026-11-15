@@ -57,6 +57,11 @@ ICONS = {
     "trash": 0xEB41,
     "clock": 0xEA70,
     "chart": 0xEA59,
+    "track-next": 0xED4B,  # playerTrackNext
+    "radio": 0xEF2D,
+    "playlist-add": 0xF008,
+    "user-circle": 0xEF68,
+    "album": 0xF022,
 }
 OPTICAL = {"play"}
 
