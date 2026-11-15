@@ -9,6 +9,7 @@ authors.workspace = true
 description = "Drxwnify Mini: light native desktop player"
 
 [dependencies]
+unicode-normalization = "0.1"
 drx-app.workspace = true
 drx-core.workspace = true
 drx-catalog.workspace = true

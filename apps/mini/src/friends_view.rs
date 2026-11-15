@@ -1,8 +1,8 @@
 //! The friends page (pc/ FriendsScreen): one's own profile with the code and invite link, requests, friends'
-//! cards (live first), and a friend's page with history, likes and playlists to play. Follows the relays while
-//! the app runs; the page redraws at most every half second.
+//! cards (live first), and a friend's page with the chat, history, likes and playlists to play. Follows the relays
+//! while the app runs; the page redraws at most every half second, the chat when a message comes or changes.
 
-use crate::{FriendCardItem, FriendRequestItem, MainWindow, SongItem};
+use crate::{ChatItem, FriendCardItem, FriendRequestItem, MainWindow, SongItem};
 use drx_app::App;
 use drx_social::friends::{DEVELOPER_PUBKEY, FriendData, FriendsState, TrackRef};
 use slint::{ComponentHandle, ModelRc, VecModel};
@@ -11,7 +11,9 @@ use std::cell::RefCell;
 thread_local! {
     /// The friend whose page is open, and the tracks its list shows.
     static OPEN: RefCell<Option<String>> = const { RefCell::new(None) };
-    static TAB: RefCell<String> = RefCell::new("history".into());
+    static TAB: RefCell<String> = RefCell::new("chat".into());
+    /// The music cards of the chat on screen, by row.
+    static CHAT_MUSIC: RefCell<Vec<Option<drx_app::chats::ChatMusic>>> = const { RefCell::new(Vec::new()) };
     static TRACKS: RefCell<Vec<drx_catalog::model::Track>> = const { RefCell::new(Vec::new()) };
     static WATCHING: RefCell<bool> = const { RefCell::new(false) };
 }
@@ -35,6 +37,37 @@ pub fn ago(ms: i64) -> String {
     }
 }
 
+/// A message's time: «14:05» today, «вчера 14:05», «03.11 14:05» before, with the year when it is not this one.
+fn clock(ms: i64) -> String {
+    let off = drx_platform::utc_offset_seconds();
+    let local = ms.div_euclid(1000) + off;
+    let (day, sec) = (local.div_euclid(86_400), local.rem_euclid(86_400));
+    let today = (now_ms().div_euclid(1000) + off).div_euclid(86_400);
+    let hm = format!("{:02}:{:02}", sec / 3600, sec % 3600 / 60);
+    if day == today {
+        return hm;
+    }
+    if day == today - 1 {
+        return format!("вчера {hm}");
+    }
+    let (y, m, d) = civil(day);
+    let (ty, _, _) = civil(today);
+    if y == ty { format!("{d:02}.{m:02} {hm}") } else { format!("{d:02}.{m:02}.{y} {hm}") }
+}
+
+/// Days since 1970-01-01 → (year, month, day) (H. Hinnant's civil_from_days).
+fn civil(z: i64) -> (i64, i64, i64) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (yoe + era * 400 + i64::from(m <= 2), m, d)
+}
+
 /// A friend's picture: the base64 JPEG written once to the cache and loaded like a cover.
 fn avatar(app: &App, pubkey: &str, b64: Option<&str>, size: f32) -> Option<slint::Image> {
     use base64::Engine;
@@ -48,6 +81,19 @@ fn avatar(app: &App, pubkey: &str, b64: Option<&str>, size: f32) -> Option<slint
     }
     let url = format!("{}{}", drx_core::images::LOCAL_PREFIX, path.display());
     crate::cover_r(app, &url, (size * 2.0) as u32, crate::theme_r(size, (size * 2.0) as u32, size))
+}
+
+/// A name as the app's fonts can draw it: mathematical bold, italic, script… letters (U+1D400–U+1D7FF, which
+/// the fonts lack, so the name came out blank) become plain ones; everything else stays as written.
+fn plain(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    name.chars()
+        .flat_map(|c| {
+            let fancy = ('\u{1D400}'..='\u{1D7FF}').contains(&c);
+            let v: Vec<char> = if fancy { c.to_string().nfkc().collect() } else { vec![c] };
+            v
+        })
+        .collect()
 }
 
 fn initial(name: &str) -> String {
@@ -73,8 +119,19 @@ pub fn wire(ui: &MainWindow, app: &App) {
     ui.on_friend_open(move |p| {
         let Some(ui) = ui_w.upgrade() else { return };
         OPEN.with(|o| *o.borrow_mut() = Some(p.to_string()));
-        TAB.with(|t| *t.borrow_mut() = "history".into());
+        TAB.with(|t| *t.borrow_mut() = "chat".into());
+        ui.set_friend_chat_text("".into());
         render(&ui, &app2);
+    });
+    let app2 = app.clone();
+    ui.on_friend_play_now(move |p| {
+        // What the friend plays (or played last), from the row's right side.
+        let now = app2.friends_state().and_then(|rx| rx.borrow().data.get(p.as_str()).and_then(|d| d.now.clone()));
+        if let Some(n) = now {
+            let t = drx_app::social::track_of(&n.track);
+            app2.remember_tracks(std::slice::from_ref(&t));
+            app2.play_tracks(vec![t], 0);
+        }
     });
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     ui.on_friend_back(move || {
@@ -93,6 +150,41 @@ pub fn wire(ui: &MainWindow, app: &App) {
         let tracks = TRACKS.with(|t| t.borrow().clone());
         if (i as usize) < tracks.len() {
             app2.play_tracks(tracks, i as usize);
+        }
+    });
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    ui.on_friend_chat_send(move |text| {
+        let Some(ui) = ui_w.upgrade() else { return };
+        let Some(peer) = OPEN.with(|o| o.borrow().clone()) else { return };
+        if text.trim().is_empty() {
+            return;
+        }
+        match app2.send_chat(&peer, &text) {
+            Ok(()) => ui.set_friend_chat_text("".into()),
+            Err(e) => ui.set_toast(format!("Не отправлено: {e}").into()),
+        }
+    });
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    ui.on_friend_chat_play(move |i| {
+        let Some(ui) = ui_w.upgrade() else { return };
+        let Some(m) = CHAT_MUSIC.with(|c| c.borrow().get(i as usize).cloned().flatten()) else { return };
+        match m.kind.as_str() {
+            "album" => ui.invoke_open_album(m.id.into()),
+            "artist" => ui.invoke_open_artist(m.id.into()),
+            "playlist" if drx_app::playlists::is_editable_id(&m.id) => crate::nav::go_playlist(&ui, &app2, &m.id, &m.title),
+            "playlist" => ui.set_toast("Этот плейлист открывается на телефоне".into()),
+            _ => {
+                let r = TrackRef {
+                    title: m.title,
+                    artist: m.by,
+                    catalog_id: Some(m.id.clone()).filter(|id| !id.contains(':') || id.starts_with("mfb:")),
+                    media_id: Some(m.id),
+                    cover: m.cover,
+                    duration_ms: m.duration_ms,
+                    at: 0,
+                };
+                app2.play_tracks(vec![drx_app::social::track_of(&r)], 0);
+            }
         }
     });
     let (app2, ui_w) = (app.clone(), ui.as_weak());
@@ -156,6 +248,25 @@ pub fn show(ui: &MainWindow, app: &App) {
         return;
     }
     app.start_friends_live();
+    app.start_chats_live();
+    if let Some(mut rx) = app.chats_version() {
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        app.runtime().spawn(async move {
+            while rx.changed().await.is_ok() {
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                let (app3, ui_w) = (app2.clone(), ui_w.clone());
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_w.upgrade()
+                        && ui.get_view_friends()
+                        && ui.get_friend_page()
+                        && TAB.with(|t| t.borrow().as_str() == "chat")
+                    {
+                        render(&ui, &app3);
+                    }
+                });
+            }
+        });
+    }
     let Some(mut rx) = app.friends_state() else { return };
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     app.runtime().spawn(async move {
@@ -191,7 +302,7 @@ fn render(ui: &MainWindow, app: &App) {
     let st: FriendsState = f.state().borrow().clone();
     let me = f.me();
     let mine = st.data.get(&me);
-    let my_name = mine.and_then(|d| d.name.clone()).unwrap_or_default();
+    let my_name = plain(&mine.and_then(|d| d.name.clone()).unwrap_or_default());
     ui.set_friends_me_initial(initial(&my_name).into());
     ui.set_friends_me_name(my_name.into());
     let npub = drx_social::nostr::bech32_encode("npub", &hex_bytes(&me));
@@ -208,8 +319,8 @@ fn render(ui: &MainWindow, app: &App) {
         .iter()
         .map(|r| FriendRequestItem {
             pubkey: r.pubkey.clone().into(),
-            initial: initial(&r.name).into(),
-            name: r.name.clone().into(),
+            initial: initial(&plain(&r.name)).into(),
+            name: plain(&r.name).into(),
             when: ago(r.at).into(),
         })
         .collect();
@@ -229,6 +340,7 @@ fn render(ui: &MainWindow, app: &App) {
                 .and_then(|d| d.name.clone())
                 .filter(|n| !n.trim().is_empty())
                 .or_else(|| Some(fr.name.clone()).filter(|n| !n.trim().is_empty()))
+                .map(|n| plain(&n))
                 .unwrap_or_else(|| "Друг".into());
             let (status, live) = status(d);
             let av = avatar(app, &fr.pubkey, d.and_then(|d| d.avatar.as_deref()), 44.0);
@@ -261,7 +373,10 @@ fn render(ui: &MainWindow, app: &App) {
     let d = st.data.get(&p);
     let name = d
         .and_then(|d| d.name.clone())
+        .filter(|n| !n.trim().is_empty())
         .or_else(|| st.friends.iter().find(|x| x.pubkey == p).map(|x| x.name.clone()))
+        .filter(|n| !n.trim().is_empty())
+        .map(|n| plain(&n))
         .unwrap_or_else(|| "Друг".into());
     ui.set_friend_status(
         match d.and_then(|d| d.now.as_ref()) {
@@ -283,6 +398,10 @@ fn render(ui: &MainWindow, app: &App) {
     ui.set_friend_likes(d.and_then(|d| d.likes.as_ref()).map(|l| l.total.to_string()).unwrap_or_default().into());
     let tab = TAB.with(|x| x.borrow().clone());
     ui.set_friend_tab(tab.clone().into());
+    if tab == "chat" {
+        render_chat(ui, app, &p);
+        return;
+    }
     let (refs, empty): (Vec<TrackRef>, &str) = match tab.as_str() {
         "likes" => (
             d.and_then(|d| d.likes.as_ref()).map(|l| l.tracks.clone()).unwrap_or_default(),
@@ -325,4 +444,48 @@ fn render(ui: &MainWindow, app: &App) {
         .collect();
     TRACKS.with(|t| *t.borrow_mut() = tracks);
     ui.set_friend_tracks(ModelRc::new(VecModel::from(items)));
+}
+
+/// The conversation with `peer` (the newest 300 messages); opening it reads the friend's messages.
+fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
+    app.chat_opened(peer);
+    let rows = app.chat_messages(peer, 300);
+    let items: Vec<ChatItem> = rows
+        .iter()
+        .map(|m| {
+            let music = m.music.as_ref();
+            let cover = music
+                .and_then(|c| c.cover.as_deref())
+                .and_then(|u| crate::cover_r(app, u, crate::ROW_COVER, crate::theme_r(8.0, crate::ROW_COVER, 44.0)));
+            ChatItem {
+                id: m.id.clone().into(),
+                mine: m.mine,
+                text: m.text.clone().into(),
+                time: clock(m.ts).into(),
+                edited: m.edited,
+                state: m.state as i32,
+                read: m.read,
+                has_music: music.is_some(),
+                music_kind: music.map(|c| c.kind.clone()).unwrap_or_default().into(),
+                music_title: music.map(|c| c.title.clone()).unwrap_or_default().into(),
+                music_by: music.map(|c| c.by.clone()).unwrap_or_default().into(),
+                has_music_cover: cover.is_some(),
+                music_cover: cover.unwrap_or_default(),
+            }
+        })
+        .collect();
+    CHAT_MUSIC.with(|c| *c.borrow_mut() = rows.into_iter().map(|m| m.music).collect());
+    ui.set_friend_chat(ModelRc::new(VecModel::from(items)));
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn civil_dates() {
+        assert_eq!(super::civil(0), (1970, 1, 1));
+        assert_eq!(super::civil(20_407), (2025, 11, 15));
+        assert_eq!(super::civil(19_782), (2024, 2, 29));
+        assert_eq!(super::plain("\u{1D403}\u{1D41E}\u{1D426}\u{1D428} ok"), "Demo ok");
+        assert_eq!(super::plain("шура"), "шура");
+    }
 }

@@ -27,6 +27,38 @@ pub struct ChatRow {
     pub state: i64,
     /// Mine: the friend has read it.
     pub read: bool,
+    /// A shared track, album, playlist or artist.
+    pub music: Option<ChatMusic>,
+}
+
+/// A music card in a message (spec §1.4 ChatMusic): `kind` is track | album | playlist | artist.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChatMusic {
+    pub kind: String,
+    pub id: String,
+    pub title: String,
+    pub by: String,
+    pub cover: Option<String>,
+    pub duration_ms: i64,
+}
+
+impl ChatMusic {
+    fn parse(json: &str) -> Option<Self> {
+        let o: serde_json::Value = serde_json::from_str(json).ok()?;
+        let s = |k: &str| o.get(k).and_then(serde_json::Value::as_str).unwrap_or("").to_string();
+        let id = s("id");
+        if id.is_empty() {
+            return None;
+        }
+        Some(ChatMusic {
+            kind: Some(s("k")).filter(|k| !k.is_empty()).unwrap_or_else(|| "track".into()),
+            id,
+            title: s("t"),
+            by: s("a"),
+            cover: Some(s("i")).filter(|u| u.starts_with("http")),
+            duration_ms: o.get("d").and_then(serde_json::Value::as_i64).unwrap_or(0),
+        })
+    }
 }
 
 pub(crate) struct ChatStore {
@@ -43,8 +75,11 @@ fn now_ms() -> i64 {
 impl ChatStore {
     fn open(path: &std::path::Path) -> rusqlite::Result<ChatStore> {
         let c = Connection::open(path)?;
+        // Thousands of messages arrive at once on the first look: WAL without a sync per row keeps that quick.
+        c.busy_timeout(Duration::from_secs(5))?;
         c.execute_batch(
-            "CREATE TABLE IF NOT EXISTS message (owner TEXT NOT NULL, peer TEXT NOT NULL, id TEXT NOT NULL,
+            "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;
+             CREATE TABLE IF NOT EXISTS message (owner TEXT NOT NULL, peer TEXT NOT NULL, id TEXT NOT NULL,
                  mine INTEGER NOT NULL, ts INTEGER NOT NULL, text TEXT NOT NULL, music TEXT, replyTo TEXT,
                  state INTEGER NOT NULL, read INTEGER NOT NULL DEFAULT 0, edited INTEGER NOT NULL DEFAULT 0,
                  deleted INTEGER NOT NULL DEFAULT 0, eventId TEXT, PRIMARY KEY (owner, peer, id));
@@ -169,12 +204,23 @@ impl App {
                 json!({"kinds": [4], "authors": [me], "since": since}),
             ]);
             let mut pending = false;
+            let mut drawn = std::time::Instant::now();
+            // The cursor moves only once every relay has sent what it stored: relays send newest first, so an
+            // app closed during that first flow would otherwise skip the older messages next time.
+            let (mut done, mut newest) = (0usize, 0i64);
             loop {
+                // While messages keep coming (the first look), the chat still redraws once a second.
+                if pending && drawn.elapsed() >= Duration::from_secs(1) {
+                    pending = false;
+                    drawn = std::time::Instant::now();
+                    store2.bump();
+                }
                 let next = if pending {
                     match tokio::time::timeout(Duration::from_millis(300), sub.next()).await {
                         Ok(m) => m,
                         Err(_) => {
                             pending = false;
+                            drawn = std::time::Instant::now();
                             store2.bump();
                             continue;
                         }
@@ -182,17 +228,26 @@ impl App {
                 } else {
                     sub.next().await
                 };
-                let Some(SubEvent::Event(e)) = next else {
-                    if next.is_none() {
-                        return;
+                let e = match next {
+                    None => return,
+                    Some(SubEvent::Done) => {
+                        done += 1;
+                        if done == drx_social::relay::RELAYS.len() && newest > 0 {
+                            store2.advance(&me, newest);
+                        }
+                        continue;
                     }
-                    continue;
+                    Some(SubEvent::Event(e)) => e,
                 };
                 if let Some(w) = chat::decode(&keys, &e) {
                     if store2.apply(&me, &w) {
                         pending = true;
                     }
-                    store2.advance(&me, e.created_at);
+                    if done >= drx_social::relay::RELAYS.len() {
+                        store2.advance(&me, e.created_at);
+                    } else {
+                        newest = newest.max(e.created_at);
+                    }
                 }
             }
         }));
@@ -223,7 +278,7 @@ impl App {
         let me = f.me();
         let c = store.db.lock().expect("chat db");
         let Ok(mut st) = c.prepare(
-            "SELECT id, mine, ts, text, edited, state, read FROM message
+            "SELECT id, mine, ts, text, edited, state, read, music FROM message
              WHERE owner = ?1 AND peer = ?2 AND deleted = 0 ORDER BY ts DESC, id DESC LIMIT ?3",
         ) else {
             return Vec::new();
@@ -238,6 +293,7 @@ impl App {
                     edited: r.get(4)?,
                     state: r.get(5)?,
                     read: r.get(6)?,
+                    music: r.get::<_, Option<String>>(7)?.as_deref().and_then(ChatMusic::parse),
                 })
             })
             .map(|it| it.flatten().collect())

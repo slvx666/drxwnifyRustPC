@@ -11,6 +11,22 @@ import { Icons } from "icons.slint";
 
 export { Theme }
 
+export struct ChatItem {
+    id: string,
+    mine: bool,
+    text: string,
+    time: string,
+    edited: bool,
+    state: int, // mine: 0 sending, 1 sent, 2 failed; theirs: 3
+    read: bool,
+    has-music: bool,
+    music-kind: string,
+    music-title: string,
+    music-by: string,
+    music-cover: image,
+    has-music-cover: bool,
+}
+
 export struct SongItem {
     id: string,
     title: string,
@@ -433,22 +449,23 @@ component TopBar inherits Rectangle {
         left-group := HorizontalLayout {
             alignment: start;
             spacing: 8px;
+            // The app's icon and the street-art wordmark (Rubik Wet Paint, a mask tinted with the theme's text).
             Middle {
                 Rectangle {
                     width: 32px;
                     height: 32px;
                     border-radius: Grid.small-radius;
-                    background: Theme.accent2;
-                    Text { text: Theme.brand; font-family: "Noto Serif JP"; font-size: 18px; color: white; }
+                    clip: true;
+                    Image { width: 32px; height: 32px; source: @image-url("../../../assets/icons/mini/d.png"); image-fit: cover; }
                 }
             }
-            Text {
-                text: "drxwnify";
-                font-family: Theme.heading-font;
-                font-weight: Theme.heading-weight;
-                font-size: 19px;
-                color: Theme.text;
-                vertical-alignment: center;
+            Middle {
+                Image {
+                    height: 23px;
+                    width: 23px * 345 / 74;
+                    source: @image-url("../../../assets/brand/wordmark.png");
+                    colorize: Theme.text;
+                }
             }
             Rectangle { width: 8px; }
             Middle { IconButton { icon: Icons.chevron-left; filled: true; enabled: root.can-back; clicked => { root.back(); } } }
@@ -1950,6 +1967,62 @@ component Avatar inherits Rectangle {
     if !root.has-source: Text { text: root.initial; font-family: Theme.heading-font; font-weight: 700; font-size: root.size * 0.42; color: Theme.on-accent; }
 }
 
+// One chat message (pc/ FriendChat): mine on the right in the accent's tint, the friend's on the left; a shared
+// track, album or artist on top with its play button; time, «изменено» and (mine) sent / read under the text.
+component ChatBubble inherits Rectangle {
+    in property <ChatItem> m;
+    in property <length> max-w: 480px;
+    callback play();
+    probe := Text { visible: false; text: root.m.text; font-family: Theme.body-font; font-size: 14px; }
+    property <length> text-w: min(root.max-w - 24px, probe.preferred-width + 1px);
+    property <length> inner-w: max(root.m.has-music ? root.max-w - 24px : 0px, max(root.text-w, meta.preferred-width));
+    width: root.inner-w + 24px;
+    height: col.preferred-height;
+    border-radius: 14px;
+    background: root.m.mine ? Theme.accent.mix(Theme.bg, 0.16) : Theme.fill;
+    border-color: root.m.mine ? Theme.accent.mix(Theme.bg, 0.35) : Theme.panel-border;
+    border-width: 1px;
+    col := VerticalLayout {
+        width: root.width;
+        padding: 12px;
+        spacing: 4px;
+        if root.m.has-music: HorizontalLayout {
+            spacing: 10px;
+            padding-bottom: 4px;
+            Middle { Cover { size: 44px; source: root.m.music-cover; has-source: root.m.has-music-cover; radius: 8px; placeholder: root.m.music-kind == "artist" ? Icons.user-circle : (root.m.music-kind == "album" ? Icons.album : Icons.music); } }
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                horizontal-stretch: 1;
+                Text { text: root.m.music-title; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.text; overflow: elide; }
+                Text { text: root.m.music-by; font-family: Theme.body-font; font-size: 11px; color: Theme.dim; overflow: elide; }
+            }
+            Middle { IconButton { icon: root.m.music-kind == "track" ? Icons.play : Icons.chevron-right; size: 32px; icon-size: 16px; filled: true; clicked => { root.play(); } } }
+        }
+        if root.m.text != "": Text {
+            text: root.m.text;
+            wrap: word-wrap;
+            font-family: Theme.body-font;
+            font-size: 14px;
+            color: Theme.text;
+        }
+        meta := HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            Text { text: root.m.time; font-family: Theme.mono-font; font-size: 10px; color: Theme.mute; vertical-alignment: center; }
+            if root.m.edited: Text { text: "изменено"; font-family: Theme.mono-font; font-size: 10px; color: Theme.mute; vertical-alignment: center; }
+            if root.m.mine: Middle {
+                Icon {
+                    size: 12px;
+                    icon: root.m.state == 2 ? Icons.alert-circle : (root.m.state == 0 ? Icons.clock : (root.m.read ? Icons.circle-check : Icons.check));
+                    color: root.m.state == 2 ? #E5484D : (root.m.read ? Theme.accent : Theme.mute);
+                }
+            }
+            if root.m.mine && root.m.state == 2: Text { text: "не отправлено"; font-family: Theme.mono-font; font-size: 10px; color: #E5484D; vertical-alignment: center; }
+        }
+    }
+}
+
 // Friends (pc/ FriendsScreen): one's own profile, requests, friends' cards; a friend's page with history,
 // likes and playlists. Over Nostr: no server of our own.
 component FriendsView inherits Rectangle {
@@ -1967,7 +2040,11 @@ component FriendsView inherits Rectangle {
     in property <string> f-status;
     in property <image> f-avatar;
     in property <bool> f-has-avatar;
-    in property <string> f-tab; // history | likes | playlists
+    in property <string> f-tab; // chat | history | likes | playlists
+    in property <[ChatItem]> f-chat;
+    in-out property <string> chat-text;
+    callback chat-send(string);
+    callback chat-play(int);
     in property <string> f-likes;
     in property <[SongItem]> f-tracks;
     in property <string> f-empty;
@@ -1977,6 +2054,7 @@ component FriendsView inherits Rectangle {
     callback add(string);
     in-out property <string> add-text;
     callback open(string);
+    callback play-now(string);
     callback back();
     callback set-tab(string);
     callback play(int);
@@ -1985,8 +2063,6 @@ component FriendsView inherits Rectangle {
     callback open-artist(string);
     callback like-song(string);
     callback song-menu(string, int, length, length);
-    property <int> cols: max(1, floor((root.width - 2 * Grid.pad) / 300px));
-    property <length> card-w: (root.width - 2 * Grid.pad - (root.cols - 1) * 12px) / root.cols;
     if !root.available: VerticalLayout {
         padding: Grid.pad + 4px;
         spacing: 8px;
@@ -2066,52 +2142,71 @@ component FriendsView inherits Rectangle {
                 Middle { Pill { label: "Скрыть"; clicked => { root.dismiss(r.pubkey); } } }
             }
             Text { text: root.cards.length == 0 ? "Друзья · пока никого" : "Друзья · " + root.cards.length; font-family: Theme.heading-font; font-weight: 700; font-size: 16px; color: Theme.text; }
-            Rectangle {
-                height: ceil(root.cards.length / root.cols) * 150px;
-                for c[i] in root.cards: Rectangle {
-                    x: mod(i, root.cols) * (root.card-w + 12px);
-                    y: floor(i / root.cols) * 150px;
-                    width: root.card-w;
-                    height: 138px;
-                    border-radius: 16px;
+            // One row per friend: who and how long ago on the left, what plays on the right (press it to play).
+            VerticalLayout {
+                spacing: 6px;
+                for c in root.cards: Rectangle {
+                    height: 64px;
+                    border-radius: 14px;
                     background: ca.has-hover ? Theme.fill-hover : Theme.fill;
-                    border-color: Theme.panel-border;
+                    border-color: c.live ? Theme.accent.mix(Theme.bg, 0.45) : Theme.panel-border;
                     border-width: 1px;
                     ca := TouchArea { mouse-cursor: pointer; clicked => { root.open(c.pubkey); } }
-                    VerticalLayout {
-                        padding: 14px;
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 8px;
                         spacing: 12px;
-                        HorizontalLayout {
-                            spacing: 12px;
-                            Middle {
-                                Rectangle {
-                                    width: 44px;
-                                    height: 44px;
-                                    Avatar { size: 44px; source: c.avatar; has-source: c.has-avatar; initial: c.initial; }
-                                    if c.live: Rectangle {
-                                        x: 32px; y: 32px; width: 12px; height: 12px; border-radius: 6px; background: Theme.bg;
-                                        Rectangle { width: 8px; height: 8px; border-radius: 4px; background: #3DD68C; }
-                                    }
+                        Middle {
+                            Rectangle {
+                                width: 42px;
+                                height: 42px;
+                                Avatar { size: 42px; source: c.avatar; has-source: c.has-avatar; initial: c.initial; }
+                                if c.live: Rectangle {
+                                    x: 30px; y: 30px; width: 12px; height: 12px; border-radius: 6px; background: Theme.bg;
+                                    Rectangle { width: 8px; height: 8px; border-radius: 4px; background: #3DD68C; }
                                 }
                             }
-                            VerticalLayout {
-                                alignment: center;
-                                spacing: 2px;
-                                horizontal-stretch: 1;
-                                Text { text: c.name; font-family: Theme.body-font; font-weight: 800; font-size: 15px; color: Theme.text; overflow: elide; }
-                                Text { text: c.status; font-family: Theme.mono-font; font-size: 11px; color: c.live ? Theme.accent : Theme.mute; overflow: elide; }
-                            }
-                            if c.developer: Middle { Text { text: "разработчик"; font-family: Theme.mono-font; font-size: 11px; color: Theme.accent; } }
                         }
-                        if c.has-track: HorizontalLayout {
-                            spacing: 10px;
-                            Middle { Cover { size: 46px; source: c.cover; has-source: c.has-cover; radius: Grid.row-cover-radius; } }
-                            VerticalLayout {
-                                alignment: center;
-                                spacing: 2px;
-                                horizontal-stretch: 1;
-                                Text { text: c.track-title; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.text; overflow: elide; }
-                                Text { text: c.track-artist; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 2px;
+                            width: max(160px, min(260px, root.width * 0.3));
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: c.name; font-family: Theme.body-font; font-weight: 800; font-size: 15px; color: Theme.text; overflow: elide; }
+                                if c.developer: Text { text: "разработчик"; font-family: Theme.mono-font; font-size: 10px; color: Theme.accent; vertical-alignment: center; horizontal-stretch: 0; }
+                            }
+                            Text { text: c.status; font-family: Theme.mono-font; font-size: 11px; color: c.live ? Theme.accent : Theme.mute; overflow: elide; }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        if c.has-track: Rectangle {
+                            width: min(380px, max(200px, root.width * 0.4));
+                            border-radius: 10px;
+                            background: ta.has-hover ? Theme.panel-border : transparent;
+                            ta := TouchArea { mouse-cursor: pointer; clicked => { root.play-now(c.pubkey); } }
+                            HorizontalLayout {
+                                padding: 4px;
+                                padding-right: 10px;
+                                spacing: 10px;
+                                Middle {
+                                    Rectangle {
+                                        width: 44px;
+                                        height: 44px;
+                                        Cover { size: 44px; source: c.cover; has-source: c.has-cover; radius: Grid.row-cover-radius; }
+                                        if ta.has-hover: Rectangle {
+                                            border-radius: Grid.row-cover-radius;
+                                            background: #00000088;
+                                            Icon { icon: Icons.play; size: 18px; color: white; }
+                                        }
+                                    }
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    spacing: 2px;
+                                    horizontal-stretch: 1;
+                                    Text { text: c.track-title; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.text; overflow: elide; }
+                                    Text { text: c.track-artist; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
+                                }
                             }
                         }
                     }
@@ -2140,18 +2235,94 @@ component FriendsView inherits Rectangle {
             padding-left: Grid.pad + 4px;
             spacing: 8px;
             alignment: start;
+            Chip { label: "Чат"; selected: root.f-tab == "chat"; clicked => { root.set-tab("chat"); } }
             Chip { label: "История"; selected: root.f-tab == "history"; clicked => { root.set-tab("history"); } }
             Chip { label: root.f-likes == "" ? "Любимые" : "Любимые · " + root.f-likes; selected: root.f-tab == "likes"; clicked => { root.set-tab("likes"); } }
             Chip { label: "Плейлисты"; selected: root.f-tab == "playlists"; clicked => { root.set-tab("playlists"); } }
         }
-        if root.f-tracks.length == 0: Text {
+        if root.f-tab == "chat": chat := Flickable {
+            vertical-stretch: 1;
+            content-height: max(self.height, msgs.preferred-height);
+            // New messages and the first look keep the end of the conversation in view.
+            changed content-height => { self.content-y = min(0px, self.height - self.content-height); }
+            changed height => { self.content-y = min(0px, self.height - self.content-height); }
+            msgs := VerticalLayout {
+                y: max(0px, chat.height - self.preferred-height);
+                width: chat.width;
+                padding-top: 6px;
+                padding-bottom: 14px;
+                spacing: 10px;
+                for m[i] in root.f-chat: Rectangle {
+                    height: b.height;
+                    b := ChatBubble {
+                        m: m;
+                        max-w: min(480px, (chat.width - 2 * Grid.pad) * 0.8);
+                        x: m.mine ? parent.width - self.width - Grid.pad : Grid.pad + 4px;
+                        play => { root.chat-play(i); }
+                    }
+                }
+            }
+            if root.f-chat.length == 0: VerticalLayout {
+                width: chat.width;
+                height: chat.height;
+                alignment: center;
+                spacing: 6px;
+                HorizontalLayout { alignment: center; Icon { icon: Icons.message; size: 32px; color: Theme.dim; } }
+                Text { text: "В чате пока тихо"; horizontal-alignment: center; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.text; }
+                Text { text: "Напиши " + root.f-name + " первое сообщение!"; horizontal-alignment: center; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; }
+            }
+        }
+        if root.f-tab == "chat": HorizontalLayout {
+            padding-left: Grid.pad + 4px;
+            padding-right: Grid.pad;
+            padding-bottom: Grid.pad;
+            Rectangle {
+                height: 46px;
+                border-radius: 12px;
+                background: Theme.fill;
+                border-color: chat-input.has-focus ? Theme.accent : Theme.panel-border;
+                border-width: 1px;
+                if root.chat-text == "": Text {
+                    x: 16px;
+                    height: parent.height;
+                    text: "Написать сообщение…";
+                    font-family: Theme.mono-font;
+                    font-size: 12px;
+                    color: Theme.mute;
+                    vertical-alignment: center;
+                }
+                chat-input := TextInput {
+                    x: 16px;
+                    width: parent.width - 16px - 48px;
+                    height: parent.height;
+                    text <=> root.chat-text;
+                    font-family: Theme.body-font;
+                    font-size: 14px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    single-line: true;
+                    accepted => { root.chat-send(self.text); }
+                }
+                IconButton {
+                    x: parent.width - self.width - 7px;
+                    y: (parent.height - self.height) / 2;
+                    size: 32px;
+                    icon-size: 18px;
+                    icon: Icons.send;
+                    tint: root.chat-text == "" ? Theme.mute : Theme.accent;
+                    enabled: root.chat-text != "";
+                    clicked => { root.chat-send(root.chat-text); }
+                }
+            }
+        }
+        if root.f-tab != "chat" && root.f-tracks.length == 0: Text {
             x: Grid.pad + 4px;
             text: root.f-empty;
             font-family: Theme.body-font;
             font-size: 13px;
             color: Theme.dim;
         }
-        HorizontalLayout {
+        if root.f-tab != "chat": HorizontalLayout {
             vertical-stretch: 1;
             padding-left: 8px;
             padding-right: 4px;
@@ -2360,13 +2531,18 @@ export component MainWindow inherits Window {
     in property <string> friend-status;
     in property <image> friend-avatar;
     in property <bool> friend-has-avatar;
-    in property <string> friend-tab: "history";
+    in property <string> friend-tab: "chat";
+    in property <[ChatItem]> friend-chat;
+    in-out property <string> friend-chat-text;
+    callback friend-chat-send(string);
+    callback friend-chat-play(int);
     in property <string> friend-likes;
     in property <[SongItem]> friend-tracks;
     in property <string> friend-empty;
     callback open-friends();
     callback friends-copy(string);
     callback friend-open(string);
+    callback friend-play-now(string);
     callback friend-back();
     callback friend-set-tab(string);
     callback friend-play(int);
@@ -2590,6 +2766,10 @@ export component MainWindow inherits Window {
                         f-avatar: root.friend-avatar;
                         f-has-avatar: root.friend-has-avatar;
                         f-tab: root.friend-tab;
+                        f-chat: root.friend-chat;
+                        chat-text <=> root.friend-chat-text;
+                        chat-send(t) => { root.friend-chat-send(t); }
+                        chat-play(i) => { root.friend-chat-play(i); }
                         f-likes: root.friend-likes;
                         f-tracks: root.friend-tracks;
                         f-empty: root.friend-empty;
@@ -2599,6 +2779,7 @@ export component MainWindow inherits Window {
                         add-text <=> root.friends-add-text;
                         add(t) => { root.friend-add(t); }
                         open(p) => { root.friend-open(p); }
+                        play-now(p) => { root.friend-play-now(p); }
                         back => { root.friend-back(); }
                         set-tab(t) => { root.friend-set-tab(t); }
                         play(i) => { root.friend-play(i); }

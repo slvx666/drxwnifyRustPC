@@ -1731,6 +1731,7 @@ dependencies = [
  "slint-build",
  "tokio",
  "tracing",
+ "unicode-normalization",
 ]
 
 [[package]]

@@ -64,6 +64,10 @@ ICONS = {
     "album": 0xF022,
     "chevron-up": 0xEA62,
     "chevron-down": 0xEA5F,
+    "send": 0xEB1E,  # send
+    "message": 0xEAEF,  # message
+    "circle-check": 0xEA67,  # circle-check
+    "alert-circle": 0xEA05,  # alert-circle
 }
 OPTICAL = {"play"}
 
