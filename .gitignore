@@ -10,3 +10,6 @@ local.properties
 .env
 *.backup
 secrets/
+
+# Local keys read by scripts/build.ps1 (never committed)
+local.env

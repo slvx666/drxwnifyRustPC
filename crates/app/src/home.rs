@@ -5,8 +5,9 @@
 //! plain plays only break ties (same weights as Android). Rows, as on Android: «Похоже на <исполнитель>» (related
 //! artists' tracks new to the listener), «Новое у любимых», «Альбомы, которые вы не слушали», «Глубже в любимое»
 //! (album tracks of loved artists that are not their hits), «Давно не слушали» (old likes not heard for 60 days),
-//! plus «Недавно слушали» from the history. Not ported yet: genre rows (need the genre pipeline), Last.fm agreement
-//! for related artists.
+//! plus «Недавно слушали» from the history, and «Похожее в <жанре>» rows for the listener's main genres (artists
+//! close to their favourites in that genre, kept to the genre by Last.fm). Not ported yet: Last.fm agreement for
+//! related artists.
 
 use crate::playback::Playable;
 use crate::{App, AppError, AppResult};
@@ -20,7 +21,7 @@ const TTL: Duration = Duration::from_secs(6 * 60 * 60);
 const FORGOTTEN_AFTER_DAYS: i64 = 60;
 const MIN_LOVE: f64 = 1.0;
 /// Bumped when rows are chosen differently: an older saved feed is rebuilt at once.
-const FORMAT: u32 = 1;
+const FORMAT: u32 = 2;
 const FILE: &str = "home_feed.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +49,9 @@ pub struct HomeRow {
     pub artist_id: Option<String>,
     pub tracks: Vec<Track>,
     pub albums: Vec<HomeAlbum>,
+    /// The line under a genre row's title («Рядом с <исполнитель>»).
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -146,6 +150,11 @@ struct Taste {
     known: HashSet<String>,
     /// "artist|album" → different tracks played from it.
     album_tracks: HashMap<String, HashSet<String>>,
+    /// Every artist liked, played or followed (lower case): not suggested as new.
+    known_artists: HashSet<String>,
+    /// Likes per artist and recent plays per artist (decaying), for the genre weights.
+    likes: HashMap<String, f64>,
+    plays: HashMap<String, f64>,
 }
 
 /// Favourites from the database: plays of the last 5000 events (decaying over 90 days, capped), repeats (3+ plays
@@ -156,6 +165,7 @@ fn taste(c: &mut rusqlite::Connection) -> rusqlite::Result<Taste> {
     let mut ids: HashMap<String, String> = HashMap::new();
     let mut known = HashSet::new();
     let mut album_tracks: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut likes: HashMap<String, f64> = HashMap::new();
     let mut note =
         |name: &str, id: Option<String>, names: &mut HashMap<String, String>| -> Option<String> {
             let n = name.trim();
@@ -228,8 +238,8 @@ fn taste(c: &mut rusqlite::Connection) -> rusqlite::Result<Taste> {
     for (k, r) in repeats {
         *love.entry(k).or_default() += r.min(1.2);
     }
-    for (k, p) in plays {
-        *love.entry(k).or_default() += (p * 0.02).min(0.5);
+    for (k, p) in &plays {
+        *love.entry(k.clone()).or_default() += (p * 0.02).min(0.5);
     }
 
     let mut st = c.prepare(&format!(
@@ -247,7 +257,8 @@ fn taste(c: &mut rusqlite::Connection) -> rusqlite::Result<Taste> {
             continue;
         };
         known.insert(track_key(&name, &title));
-        *love.entry(key).or_default() += 1.0;
+        *love.entry(key.clone()).or_default() += 1.0;
+        *likes.entry(key).or_default() += 1.0;
     }
     let mut st = c.prepare("SELECT name, id FROM artist WHERE bookmarkedAt IS NOT NULL")?;
     let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
@@ -259,6 +270,7 @@ fn taste(c: &mut rusqlite::Connection) -> rusqlite::Result<Taste> {
         *love.entry(key).or_default() += 4.0;
     }
 
+    let known_artists: HashSet<String> = names.keys().cloned().collect();
     let mut fav: Vec<(String, f64)> = love.into_iter().filter(|(_, s)| *s >= MIN_LOVE).collect();
     fav.sort_by(|a, b| b.1.total_cmp(&a.1));
     let favorites = fav
@@ -274,6 +286,9 @@ fn taste(c: &mut rusqlite::Connection) -> rusqlite::Result<Taste> {
         favorites,
         known,
         album_tracks,
+        known_artists,
+        likes,
+        plays,
     })
 }
 
@@ -424,6 +439,7 @@ impl App {
                 artist_id: None,
                 tracks: recent,
                 albums: Vec::new(),
+                label: None,
             });
         }
 
@@ -510,6 +526,7 @@ impl App {
                     artist_id: seed.id.clone(),
                     tracks,
                     albums: Vec::new(),
+                    label: None,
                 });
             }
         }
@@ -541,6 +558,7 @@ impl App {
                 artist_id: None,
                 tracks: Vec::new(),
                 albums: fresh,
+                label: None,
             });
         }
 
@@ -577,6 +595,7 @@ impl App {
                 artist_id: None,
                 tracks: Vec::new(),
                 albums: unheard,
+                label: None,
             });
         }
 
@@ -620,8 +639,12 @@ impl App {
                 artist_id: None,
                 tracks: deep,
                 albums: Vec::new(),
+                label: None,
             });
         }
+
+        // «Похожее в <жанре>»: the listener's main genres (HomeFeed.genreStats / genreRows).
+        rows.extend(self.genre_rows(&taste, &mut rng).await);
 
         // «Давно не слушали»: likes older than 60 days not heard for 60 days, one per artist.
         let cut = now_ms() - FORGOTTEN_AFTER_DAYS * 86_400_000;
@@ -652,6 +675,7 @@ impl App {
                 artist_id: None,
                 tracks: forgotten,
                 albums: Vec::new(),
+                label: None,
             });
         }
 
@@ -661,9 +685,10 @@ impl App {
             "Недавно слушали" => 0,
             "Новое у любимых" => 1,
             "Альбомы, которые вы не слушали" => 2,
-            "Давно не слушали" => 3,
-            "Глубже в любимое" => 4,
-            _ => 5,
+            t if t.starts_with("Похожее в ") => 3,
+            "Давно не слушали" => 4,
+            "Глубже в любимое" => 5,
+            _ => 6,
         };
         rows.sort_by_key(rank);
         Ok(HomeFeed {
@@ -671,6 +696,176 @@ impl App {
             format: FORMAT,
             rows,
         })
+    }
+
+    /// HomeFeed.genreStats: each artist's two main genres weighted by how loved and how played the artist is; rows
+    /// go to the two strongest genres with at least two loved artists, plus the one liked most for how little it is
+    /// played.
+    async fn genre_stats(&self, taste: &Taste) -> (Vec<String>, HashMap<String, Vec<String>>) {
+        const UMBRELLA: &[&str] = &[
+            "metal", "rock", "pop", "hip-hop", "electronic", "alternative rock", "alternative", "indie",
+            "punk", "dance", "experimental", "electronic dance", "hard rock", "heavy metal", "soundtrack",
+            "classical", "jazz", "folk", "r&b", "soul", "rap",
+        ];
+        let mut artists: Vec<String> = taste.favorites.iter().take(40).map(|f| f.name.clone()).collect();
+        let mut by_plays: Vec<(&String, &f64)> = taste.plays.iter().collect();
+        by_plays.sort_by(|a, b| b.1.total_cmp(a.1));
+        for (k, _) in by_plays.into_iter().take(30) {
+            if !artists.iter().any(|a| a.to_lowercase() == *k) {
+                artists.push(k.clone());
+            }
+        }
+        self.ensure_genres(&artists).await;
+        let fav_score: HashMap<String, f64> =
+            taste.favorites.iter().map(|f| (f.name.to_lowercase(), f.score)).collect();
+        let (mut love, mut like, mut play) =
+            (HashMap::<String, f64>::new(), HashMap::<String, f64>::new(), HashMap::<String, f64>::new());
+        let mut artists_of: HashMap<String, Vec<String>> = HashMap::new();
+        for name in &artists {
+            let key = name.to_lowercase();
+            let genres: Vec<String> = self
+                .cached_genres(name)
+                .into_iter()
+                .filter(|g| !UMBRELLA.contains(&g.to_lowercase().as_str()))
+                .fold(Vec::new(), |mut v, g| {
+                    if !v.contains(&g) {
+                        v.push(g);
+                    }
+                    v
+                })
+                .into_iter()
+                .take(2)
+                .collect();
+            for (i, g) in genres.iter().enumerate() {
+                let part = if i == 0 { 1.0 } else { 0.5 };
+                *love.entry(g.clone()).or_default() += fav_score.get(&key).copied().unwrap_or(0.0) * part;
+                *like.entry(g.clone()).or_default() += taste.likes.get(&key).copied().unwrap_or(0.0) * part;
+                *play.entry(g.clone()).or_default() += taste.plays.get(&key).copied().unwrap_or(0.0) * part;
+                artists_of.entry(g.clone()).or_default().push(name.clone());
+            }
+        }
+        let total_love = love.values().sum::<f64>().max(1.0);
+        let total_plays = play.values().sum::<f64>().max(1.0);
+        let total_likes = like.values().sum::<f64>().max(1.0);
+        let mut top: Vec<(String, f64)> = love
+            .keys()
+            .map(|g| (g.clone(), love[g] / total_love + play.get(g).copied().unwrap_or(0.0) / total_plays))
+            .collect();
+        top.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let worthy: Vec<String> = top
+            .iter()
+            .map(|(g, _)| g.clone())
+            .filter(|g| {
+                artists_of
+                    .get(g)
+                    .map_or(0, |v| v.iter().filter(|a| fav_score.contains_key(&a.to_lowercase())).count())
+                    >= 2
+            })
+            .collect();
+        let mut rows: Vec<String> = worthy.iter().take(2).cloned().collect();
+        let loved_more = like
+            .iter()
+            .filter(|(g, l)| !rows.contains(g) && worthy.contains(g) && **l >= 3.0)
+            .max_by(|a, b| {
+                let score = |(g, l): (&String, &f64)| {
+                    (l / total_likes) / (play.get(g).copied().unwrap_or(0.0) / total_plays + 0.02)
+                };
+                score(*a).total_cmp(&score(*b))
+            })
+            .map(|(g, _)| g.clone());
+        rows.extend(loved_more);
+        (rows, artists_of)
+    }
+
+    /// HomeFeed.genreRows: for each row genre, artists the catalog lists as close to up to four of the listener's
+    /// favourites in it, new to the listener, in-genre ones first (Last.fm's top artists of the genre or their own
+    /// tags); two popular tracks of seven of them.
+    async fn genre_rows(&self, taste: &Taste, rng: &mut Rng) -> Vec<HomeRow> {
+        let (genres, artists_of) = self.genre_stats(taste).await;
+        let by_name: HashMap<String, &Favorite> =
+            taste.favorites.iter().map(|f| (f.name.to_lowercase(), f)).collect();
+        let mut out = Vec::new();
+        for (index, genre) in genres.iter().enumerate() {
+            let mut r = Rng(seed_mix(seed_u(genre), index as u64, rng.next()));
+            let of_genre = self.genre_top_artists(genre).await;
+            let fam = crate::genres::family(genre).to_lowercase();
+            let in_genre = |app: &App, name: &str| {
+                of_genre.contains(&crate::genres::norm(name))
+                    || app.cached_genres(name).iter().any(|g| {
+                        g.eq_ignore_ascii_case(genre) || crate::genres::family(g).to_lowercase() == fam
+                    })
+            };
+            let mine: Vec<Favorite> = artists_of
+                .get(genre)
+                .map(|v| {
+                    v.iter()
+                        .filter_map(|a| by_name.get(&a.to_lowercase()).map(|f| (*f).clone()))
+                        .filter(|f| f.id.is_some())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let seeds = pick(&mine, 4, 8, &mut r);
+            let seed_ids: Vec<String> = seeds.iter().filter_map(|f| f.id.clone()).collect();
+            let pages = self.artist_pages(&seed_ids).await;
+            let related: Vec<(String, String)> = seed_ids
+                .iter()
+                .filter_map(|id| pages.get(id))
+                .flat_map(|p| p.related.iter().map(|a| (a.id.clone(), a.name.clone())))
+                .filter(|(id, name)| !id.is_empty() && !taste.known_artists.contains(&name.to_lowercase()))
+                .collect();
+            let mut counted: HashMap<String, usize> = HashMap::new();
+            for (id, _) in &related {
+                *counted.entry(id.clone()).or_default() += 1;
+            }
+            let mut seen = HashSet::new();
+            let mut candidates: Vec<(String, String, bool)> = related
+                .into_iter()
+                .filter(|(id, _)| seen.insert(id.clone()))
+                .map(|(id, name)| {
+                    let g = in_genre(self, &name);
+                    (id, name, g)
+                })
+                .collect();
+            candidates.sort_by_key(|(id, _, g)| std::cmp::Reverse(counted.get(id).copied().unwrap_or(0) + if *g { 2 } else { 0 }));
+            let (inside, outside): (Vec<_>, Vec<_>) = candidates.into_iter().partition(|(_, _, g)| *g);
+            let mut chosen: Vec<(String, String, bool)> = inside.into_iter().chain(outside).take(12).collect();
+            r.shuffle(&mut chosen);
+            chosen.truncate(7);
+            let ids: Vec<String> = chosen.iter().map(|(id, _, _)| id.clone()).collect();
+            let tops = self.artist_pages(&ids).await;
+            let lists: Vec<Vec<Track>> = ids
+                .iter()
+                .filter_map(|id| tops.get(id))
+                .map(|p| {
+                    let mut t: Vec<Track> = p
+                        .top_tracks
+                        .iter()
+                        .filter(|t| {
+                            let a = t.artists.first().map(|a| a.name.as_str()).unwrap_or("");
+                            !t.id.is_empty() && !taste.known.contains(&track_key(a, &t.title))
+                        })
+                        .take(5)
+                        .cloned()
+                        .collect();
+                    r.shuffle(&mut t);
+                    t.truncate(2);
+                    t
+                })
+                .collect();
+            let tracks: Vec<Track> = interleave(lists).into_iter().take(14).collect();
+            tracing::info!("home: more {genre} from {:?}: {} tracks", seeds.iter().map(|f| &f.name).collect::<Vec<_>>(), tracks.len());
+            if tracks.len() >= 4 {
+                out.push(HomeRow {
+                    kind: HomeRowKind::Tracks,
+                    title: format!("Похожее в {genre}"),
+                    artist_id: None,
+                    tracks,
+                    albums: Vec::new(),
+                    label: seeds.first().map(|f| format!("Рядом с {}", f.name)),
+                });
+            }
+        }
+        out
     }
 
     /// Artist pages for ids, four requests at a time; failures are skipped.

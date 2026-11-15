@@ -3,6 +3,7 @@
 
 mod accounts;
 pub mod edition;
+pub mod genres;
 mod history;
 mod home;
 pub mod likes;
@@ -174,6 +175,8 @@ struct Inner {
     shared_lock: Mutex<()>,
     /// Tracks the UI was handed (lists, search, queue), by id: a heart on any row knows the whole track.
     known: Mutex<HashMap<String, drx_catalog::model::Track>>,
+    /// Artists' genres (Last.fm / MusicBrainz), loaded from the profile on first use.
+    genres: Mutex<genres::GenreCache>,
 }
 
 /// The running core. Cheap to clone; UIs call the async methods through [`App::runtime`].
@@ -216,6 +219,7 @@ impl App {
             images,
             shared_lock: Mutex::new(()),
             known: Mutex::default(),
+            genres: Mutex::default(),
             lists: lists::Lists::default(),
             profile,
             edition,
@@ -1461,9 +1465,14 @@ mod live_home {
         let t = std::time::Instant::now();
         let feed = app.runtime().block_on(app.home(true)).unwrap();
         for r in &feed.rows {
-            let kind = r.title.split(' ').next().unwrap_or("");
+            // Genre rows say their genre (not personal); other titles only their first word.
+            let kind = if r.title.starts_with("Похожее в ") {
+                r.title.clone()
+            } else {
+                format!("{}…", r.title.split(' ').next().unwrap_or(""))
+            };
             eprintln!(
-                "row {kind}…: tracks={} albums={}",
+                "row {kind}: tracks={} albums={}",
                 r.tracks.len(),
                 r.albums.len()
             );

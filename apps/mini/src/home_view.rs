@@ -95,6 +95,7 @@ fn rebuild(ui: &MainWindow, app: &App) {
                     .map(|(r, cards)| HomeSection {
                         title: r.title.clone().into(),
                         artist_id: r.artist_id.clone().unwrap_or_default().into(),
+                        label: r.label.clone().unwrap_or_default().into(),
                         cards: ModelRc::from(cards.clone()),
                     })
                     .collect()

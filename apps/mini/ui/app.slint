@@ -45,6 +45,7 @@ export struct HomeCard {
 export struct HomeSection {
     title: string,
     artist-id: string, // «Похоже на …»: the title links to the artist
+    label: string, // genre rows: «Рядом с <исполнитель>» after the title
     cards: [HomeCard],
 }
 
@@ -1502,6 +1503,7 @@ component MainArea inherits VerticalLayout {
             HorizontalLayout {
                 padding-left: Grid.pad + 4px;
                 height: 28px;
+                spacing: 10px;
                 alignment: start;
                 Link {
                     text: sec.title;
@@ -1511,6 +1513,13 @@ component MainArea inherits VerticalLayout {
                     color: Theme.text;
                     enabled: sec.artist-id != "";
                     clicked => { root.open-artist(sec.artist-id); }
+                }
+                if sec.label != "": Text {
+                    text: sec.label;
+                    font-family: Theme.body-font;
+                    font-size: 13px;
+                    color: Theme.mute;
+                    vertical-alignment: center;
                 }
             }
             Flickable {

@@ -29,6 +29,13 @@ if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
     $vsCmake = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin' -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($vsCmake) { $env:PATH = "$($vsCmake.FullName);$env:PATH" }
 }
+# Keys that must not be in the repository (the app's Last.fm key...): KEY=VALUE lines of the untracked local.env.
+$localEnv = Join-Path $PSScriptRoot '..\local.env'
+if (Test-Path $localEnv) {
+    foreach ($line in Get-Content $localEnv) {
+        if ($line -match '^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$') { Set-Item -Path "env:$($Matches[1])" -Value $Matches[2].Trim() }
+    }
+}
 # Portable tools (NSIS etc.) live here.
 if (Test-Path 'D:\dev\tools\bin') { $env:PATH = "D:\dev\tools\bin;$env:PATH" }
 
