@@ -14,6 +14,11 @@ use std::time::Duration;
 const NOW_DEBOUNCE: Duration = Duration::from_millis(1500);
 const HISTORY_DELAY: Duration = Duration::from_secs(120);
 
+/// For other modules (chats): publishing is allowed in this run.
+pub(crate) fn may_publish_pub() -> bool {
+    may_publish()
+}
+
 fn may_publish() -> bool {
     std::env::var_os("DRX_PROFILE").is_none() || std::env::var_os("DRX_SOCIAL_PUBLISH").is_some()
 }

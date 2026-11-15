@@ -2,6 +2,7 @@
 //! The UIs depend on this crate only (see docs/ARCHITECTURE.md). No business logic lives in the UIs.
 
 mod accounts;
+pub mod chats;
 pub mod edition;
 pub mod genres;
 mod history;
@@ -181,6 +182,7 @@ struct Inner {
     genres: Mutex<genres::GenreCache>,
     friends: std::sync::OnceLock<Option<drx_social::friends::Friends>>,
     history_publish: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    chats: std::sync::OnceLock<Option<Arc<chats::ChatStore>>>,
 }
 
 /// The running core. Cheap to clone; UIs call the async methods through [`App::runtime`].
@@ -226,6 +228,7 @@ impl App {
             genres: Mutex::default(),
             friends: std::sync::OnceLock::new(),
             history_publish: Mutex::default(),
+            chats: std::sync::OnceLock::new(),
             lists: lists::Lists::default(),
             profile,
             edition,

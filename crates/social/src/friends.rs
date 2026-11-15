@@ -420,6 +420,14 @@ impl Friends {
         }
     }
 
+    pub fn keys(&self) -> Keys {
+        self.inner.keys.clone()
+    }
+
+    pub fn pool(&self) -> Pool {
+        self.inner.pool.clone()
+    }
+
     pub fn me(&self) -> String {
         self.inner.keys.public_hex()
     }
