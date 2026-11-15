@@ -268,6 +268,18 @@ impl Spotify {
         Ok(())
     }
 
+    /// Adds tracks (`spotify:track:…`) at the end of one of the listener's playlists (the web player's
+    /// `addToPlaylist`, Spotify.addTracksToPlaylist).
+    pub async fn add_to_playlist(&self, playlist_id: &str, uris: &[String]) -> Result<()> {
+        let vars = json!({
+            "playlistUri": format!("spotify:playlist:{playlist_id}"),
+            "playlistItemUris": uris,
+            "newPosition": { "moveType": "BOTTOM_OF_PLAYLIST", "fromUid": null }
+        });
+        self.graphql("addToPlaylist", vars).await?;
+        Ok(())
+    }
+
     /// Liked songs, newest first.
     pub async fn liked_songs(&self, offset: u32, limit: u32) -> Result<Page<Track>> {
         let v = self

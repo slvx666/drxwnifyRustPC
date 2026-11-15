@@ -9,6 +9,7 @@ mod home;
 pub mod likes;
 pub mod lists;
 pub mod playback;
+pub mod playlists;
 pub mod radio;
 mod search;
 pub mod songs;
