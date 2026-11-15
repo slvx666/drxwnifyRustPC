@@ -36,3 +36,40 @@ fn reads_android_events() {
     eprintln!("fields addressed to me: {}, decrypted: {decrypted}", personal.len());
     assert!(!own.is_empty(), "the phone's profile should be on the relays");
 }
+
+#[test]
+fn follows_friends() {
+    let Ok(dir) = std::env::var("DRX_TEST_PROFILE") else {
+        return;
+    };
+    let profile = drx_core::paths::Profile::at(dir);
+    let vault = drx_core::secrets::Vault::load(&profile).expect("vault");
+    let keys = Keys::from_hex(vault.shared("friends", "sk").unwrap()).unwrap();
+    let xml = std::fs::read_to_string(profile.shared_prefs("friends")).unwrap();
+    let sp = drx_core::shared_prefs::SharedPrefs::parse(&xml).unwrap();
+    let saved = drx_social::friends::Saved {
+        friends_json: sp.get_str("friends").map(str::to_string),
+        privacy_json: sp.get_str("privacy").map(str::to_string),
+        ..Default::default()
+    };
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let _g = rt.enter();
+    let pool = Pool::new(rt.handle());
+    let friends = drx_social::friends::Friends::new(keys, pool, saved);
+    friends.start_live();
+    rt.block_on(tokio::time::sleep(Duration::from_secs(15)));
+    let st = friends.state().borrow().clone();
+    let count = |f: &dyn Fn(&drx_social::friends::FriendData) -> bool| st.data.values().filter(|d| f(d)).count();
+    eprintln!(
+        "friends {} | with data {} | name {} | avatar {} | now {} | history {} | likes {} | requests {}",
+        st.friends.len(),
+        st.data.len(),
+        count(&|d| d.name.is_some()),
+        count(&|d| d.avatar.is_some()),
+        count(&|d| d.now.is_some()),
+        count(&|d| d.history.is_some()),
+        count(&|d| d.likes.is_some()),
+        st.requests.len()
+    );
+    assert!(st.data.len() > 1);
+}

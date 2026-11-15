@@ -23,6 +23,7 @@ tokio-tungstenite = { version = "0.26", default-features = false, features = ["c
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 tracing = "0.1"
+flate2 = "1"
 
 [dev-dependencies]
 drx-core.workspace = true

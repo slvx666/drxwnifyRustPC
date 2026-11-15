@@ -3,3 +3,4 @@
 
 pub mod nostr;
 pub mod relay;
+pub mod friends;
