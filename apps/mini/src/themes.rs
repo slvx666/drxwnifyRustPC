@@ -10,6 +10,18 @@ const THEMES: &str = include_str!("../../../assets/themes.json");
 /// Setting key for the chosen theme (PC only; Android has its own theme keys).
 pub const THEME_KEY: &str = "pcTheme";
 
+/// Themes Full keeps but Mini does not offer (owner, 2026-11-15: «удали ретровейв»).
+const NOT_IN_MINI: &[&str] = &["retrowave"];
+
+/// The themes Mini offers, in the file's order.
+fn mini_specs() -> Vec<Value> {
+    serde_json::from_str::<Vec<Value>>(THEMES)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| !NOT_IN_MINI.contains(&s["id"].as_str().unwrap_or("")))
+        .collect()
+}
+
 pub fn current_theme_id(app: &App) -> String {
     std::fs::read(app.profile().prefs_pb())
         .ok()
@@ -31,9 +43,7 @@ pub fn current_day(app: &App) -> bool {
 
 /// Every theme for the settings page: id, name, accent and background of the night or day variant.
 pub fn list(day: bool) -> Vec<(String, String, Color, Color)> {
-    let Ok(specs) = serde_json::from_str::<Vec<Value>>(THEMES) else {
-        return Vec::new();
-    };
+    let specs = mini_specs();
     specs
         .iter()
         .map(|s| {
@@ -104,9 +114,8 @@ fn weight(w: &str) -> i32 {
 }
 
 pub fn apply(ui: &MainWindow, id: &str, day: bool) {
-    let Ok(specs) = serde_json::from_str::<Vec<Value>>(THEMES) else {
-        return;
-    };
+    // A theme Mini no longer offers (chosen earlier) falls back to the first one.
+    let specs = mini_specs();
     let spec = specs
         .iter()
         .find(|s| s["id"] == id)

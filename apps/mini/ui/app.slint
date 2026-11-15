@@ -188,7 +188,7 @@ export global Grid {
     out property <length> bar-height: 84px;
     out property <length> control: 40px;     // top bar controls
     out property <length> button: 36px;      // icon buttons elsewhere
-    out property <length> row: 60px;         // list rows
+    out property <length> row: 64px;         // list rows (Spotify's 64 with 48 px covers)
 }
 
 // A vector icon centred in a square box.
@@ -238,7 +238,7 @@ component Link {
     in property <bool> enabled: true;
     in property <color> color: Theme.dim;
     in property <length> font-size: 14px;
-    in property <int> font-weight: 400;
+    in property <int> font-weight: 500;
     in property <string> font-family: Theme.body-font;
     in property <bool> underline: true; // on hover, as Spotify's links
     out property <bool> hovered: ta.has-hover;
@@ -298,8 +298,9 @@ component Chip inherits Rectangle {
         Text {
             text: label;
             font-size: 14px;
+            font-weight: 700;
             font-family: Theme.body-font;
-            color: selected ? Theme.on-accent : Theme.dim;
+            color: selected ? Theme.on-accent : Theme.text;
             vertical-alignment: center;
         }
     }
@@ -736,7 +737,7 @@ component LibraryPanel inherits VerticalLayout {
                     spacing: Grid.gap;
                     Middle {
                         Cover {
-                            size: 44px;
+                            size: 48px;
                             source: item.cover;
                             has-source: item.has-cover;
                             placeholder: item.kind == "liked" ? Icons.heart-filled : Icons.music;
@@ -748,7 +749,7 @@ component LibraryPanel inherits VerticalLayout {
                     VerticalLayout {
                         alignment: center;
                         spacing: 2px;
-                        Text { text: item.title; font-family: Theme.body-font; font-size: 16px; color: Theme.text; overflow: elide; }
+                        Text { text: item.title; font-family: Theme.body-font; font-size: 16px; font-weight: 600; color: Theme.text; overflow: elide; }
                         Text { text: item.subtitle; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; overflow: elide; }
                     }
                 }
@@ -794,7 +795,7 @@ component SongRow inherits Rectangle {
             if root.row-hot: Icon { x: parent.width - self.width; icon: Icons.play; size: 16px; color: pa.has-hover ? Theme.text : (current ? Theme.accent : Theme.dim); }
             pa := TouchArea { mouse-cursor: pointer; clicked => { root.play(); } }
         }
-        Middle { Cover { size: 44px; source: song.cover; has-source: song.has-cover; radius: Grid.row-cover-radius; } }
+        Middle { Cover { size: 48px; source: song.cover; has-source: song.has-cover; radius: Grid.row-cover-radius; } }
         VerticalLayout {
             alignment: center;
             spacing: 2px;
@@ -803,6 +804,7 @@ component SongRow inherits Rectangle {
                 title := Link {
                     text: song.title;
                     font-size: 16px;
+                    font-weight: 600;
                     color: current ? Theme.accent : Theme.text;
                     enabled: song.album-id != "";
                     clicked => { root.open-album(song.album-id); }
@@ -2636,6 +2638,7 @@ export component MainWindow inherits Window {
     background: Theme.bg;
     default-font-family: Theme.body-font;
     default-font-size: 14px; // texts without their own size (owner: 1920x1080 must read easily)
+    default-font-weight: 500; // Medium unless a text says otherwise: Regular looked thin next to Spotify
     // No system title bar: the top bar is the title bar (drag, double press, window buttons); edges still resize.
     no-frame: true;
     resize-border-width: root.window-maximized ? 0 : 6px;

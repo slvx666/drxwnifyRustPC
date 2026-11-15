@@ -1,7 +1,8 @@
 # Captures one app window to a PNG, even when other windows cover it (PrintWindow), without activating it.
 # Only that window is in the picture: nothing else on the owner's screen gets captured.
 # Usage: scripts\shotwin.ps1 -Process drxwnify-mini -Out shot.png
-param([string]$Process = "drxwnify-mini", [string]$Out = "shot.png", [switch]$Client)
+# -Title picks another window by its exact title (e.g. Spotify's, for side-by-side comparisons).
+param([string]$Process = "drxwnify-mini", [string]$Out = "shot.png", [switch]$Client, [string]$Title = "Drxwnify Mini")
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
 using System;
@@ -15,8 +16,8 @@ public static class DrxWin {
 }
 "@
 # By title: Mini also owns winit's invisible helper window, which MainWindowHandle may pick.
-$h = [DrxWin]::FindWindow([NullString]::Value, "Drxwnify Mini")
-if ($h -eq [IntPtr]::Zero) { Write-Error "no Mini window"; exit 1 }
+$h = [DrxWin]::FindWindow([NullString]::Value, $Title)
+if ($h -eq [IntPtr]::Zero) { Write-Error "no window titled $Title"; exit 1 }
 $r = New-Object DrxWin+RECT
 if ($Client) { [void][DrxWin]::GetClientRect($h, [ref]$r) } else { [void][DrxWin]::GetWindowRect($h, [ref]$r) }
 $w = $r.R - $r.L; $hh = $r.B - $r.T
