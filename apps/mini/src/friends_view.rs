@@ -598,6 +598,7 @@ fn chips(reactions: &[(String, bool)]) -> Vec<ReactionChip> {
             }
             None => out.push(ReactionChip {
                 label: key.strip_prefix("e:").map(str::to_string).unwrap_or_else(|| "стикер".into()).into(),
+                pic: drx_social::chat::emoji_index(key).map_or(-1, |i| i as i32),
                 key: key.clone().into(),
                 count: 1,
                 mine: *mine,

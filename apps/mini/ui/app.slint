@@ -8,11 +8,13 @@
 import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Icons } from "icons.slint";
+import { Emoji } from "emoji.slint";
 
 export { Theme }
 
 export struct ReactionChip {
     label: string, // the emoji, or «стикер» for a sticker key
+    pic: int, // its picture in Emoji.all, -1 when there is none
     key: string,
     count: int,
     mine: bool,
@@ -2039,15 +2041,23 @@ component ChatBubble inherits Rectangle {
             if root.m.mine && root.m.state == 2: Text { text: "не отправлено"; font-family: Theme.mono-font; font-size: 10px; color: #E5484D; vertical-alignment: center; }
             Rectangle { width: 4px; }
             for r in root.m.reactions: Rectangle {
-                height: 20px;
-                width: chip-text.preferred-width + 14px;
-                border-radius: 10px;
+                height: 22px;
+                border-radius: 11px;
                 background: r.mine ? Theme.accent.mix(Theme.bg, 0.3) : Theme.fill-hover;
-                chip-text := Text {
-                    text: r.count > 1 ? r.label + " " + r.count : r.label;
-                    font-size: 12px;
-                    color: Theme.text;
-                    vertical-alignment: center;
+                border-width: r.mine ? 1px : 0px;
+                border-color: Theme.accent;
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: r.count > 1 || r.pic < 0 ? 8px : 6px;
+                    spacing: 4px;
+                    if r.pic >= 0: Middle { Image { source: Emoji.all[r.pic]; width: 15px; height: 15px; } }
+                    if r.pic < 0 || r.count > 1: Text {
+                        text: r.pic < 0 ? (r.count > 1 ? r.label + " " + r.count : r.label) : r.count;
+                        font-family: Theme.mono-font;
+                        font-size: 11px;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
                 }
                 TouchArea { mouse-cursor: pointer; clicked => { root.react(r.key); } }
             }
@@ -2294,6 +2304,9 @@ component FriendsView inherits Rectangle {
         }
         if root.f-tab == "chat": chat := Flickable {
             vertical-stretch: 1;
+            // Its content would cap it (an empty chat is a few pixels tall): the page gives it all the room left.
+            min-height: 120px;
+            max-height: 100000px;
             content-height: max(self.height, msgs.preferred-height);
             // New messages and the first look keep the end of the conversation in view.
             changed content-height => { self.content-y = min(0px, self.height - self.content-height); }
@@ -2982,13 +2995,13 @@ export component MainWindow inherits Window {
                 spacing: 2px;
                 HorizontalLayout {
                     spacing: 2px;
-                    for e in ["❤️", "👍", "🔥", "😂", "😭", "😍", "🤯"]: Rectangle {
+                    for i in 7: Rectangle {
                         width: 34px;
                         height: 34px;
                         border-radius: 17px;
                         background: ea.has-hover ? Theme.fill-hover : transparent;
-                        Text { text: e; font-size: 18px; }
-                        ea := TouchArea { mouse-cursor: pointer; clicked => { root.friend-chat-action(root.chat-menu-index, "r:e:" + e); } }
+                        Image { source: Emoji.all[i]; width: ea.has-hover ? 24px : 20px; height: self.width; }
+                        ea := TouchArea { mouse-cursor: pointer; clicked => { root.friend-chat-action(root.chat-menu-index, "r:" + Emoji.keys[i]); } }
                     }
                 }
                 HLine { }
@@ -3037,7 +3050,7 @@ export component MainWindow inherits Window {
                         spacing: 4px;
                         horizontal-stretch: 1;
                         Text { text: root.dialog-title; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; }
-                        if root.dialog-subtitle != "": Text { text: root.dialog-subtitle; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+                        if root.dialog-subtitle != "": Text { text: root.dialog-subtitle; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; wrap: word-wrap; }
                     }
                     VerticalLayout { alignment: start; IconButton { icon: Icons.x; size: 30px; icon-size: 15px; clicked => { root.dialog-kind = ""; } } }
                 }

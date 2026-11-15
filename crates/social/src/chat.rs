@@ -178,6 +178,15 @@ pub fn toggle_reaction(current: &[String], key: &str) -> Vec<String> {
 
 pub const MAX_REACTIONS: usize = 3;
 
+/// The built-in emoji reactions, in Android's order (ChatReactions.EMOJI; the list comes from scripts/emoji.py).
+pub const EMOJI: &str = include_str!("emoji.txt");
+
+/// Where the emoji of `key` («e:<emoji>») stands in [EMOJI]; None for a sticker or an emoji this version lacks.
+pub fn emoji_index(key: &str) -> Option<usize> {
+    let e = key.strip_prefix("e:")?;
+    EMOJI.lines().position(|x| x == e)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +214,8 @@ mod tests {
         let t = toggle_reaction(&["e:a".into(), "e:b".into(), "e:c".into()], "e:d");
         assert_eq!(t, vec!["e:b".to_string(), "e:c".into(), "e:d".into()]);
         assert_eq!(toggle_reaction(&t, "e:c"), vec!["e:b".to_string(), "e:d".into()]);
+        assert_eq!(emoji_index("e:\u{2764}\u{fe0f}"), Some(0));
+        assert_eq!(EMOJI.lines().count(), 40);
+        assert_eq!(emoji_index("s:x"), None);
     }
 }
