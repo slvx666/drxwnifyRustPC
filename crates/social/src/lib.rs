@@ -2,3 +2,4 @@
 //! Wire format must stay byte-compatible with the Android app (spec/CRITICAL.md, section 1).
 
 pub mod nostr;
+pub mod relay;
