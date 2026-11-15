@@ -1,6 +1,7 @@
 //! Shared models, settings, SQLite storage, HTTP client and the app event bus.
 //! Both editions (Full and Mini) build on this crate; UI code never talks to the network or the database directly.
 
+pub mod app_icons;
 pub mod db;
 pub mod error;
 pub mod http;

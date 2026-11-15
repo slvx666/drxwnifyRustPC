@@ -14,7 +14,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 drx-app.workspace = true
 drx-core.workspace = true
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["image-png"] }
 serde = { version = "1", features = ["derive"] }
 
 [lints]
