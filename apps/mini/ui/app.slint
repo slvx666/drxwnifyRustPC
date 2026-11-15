@@ -2337,6 +2337,9 @@ component FriendsView inherits Rectangle {
     in property <bool> f-typing; // they are typing to me
     callback chat-send(string);
     callback chat-typing(); // the field changed: the friend sees «печатает…»
+    in property <[StickerPic]> sticker-list; // every sticker Mini draws (for the panel)
+    in-out property <bool> stickers-open;
+    callback chat-sticker(int); // a sticker picked in the panel: it goes as a message
     callback chat-play(int);
     callback chat-react(int, string);
     callback chat-menu(int, length, length);
@@ -2628,7 +2631,7 @@ component FriendsView inherits Rectangle {
                 }
                 chat-input := TextInput {
                     x: 16px;
-                    width: parent.width - 16px - 48px;
+                    width: parent.width - 16px - 82px;
                     height: parent.height;
                     text <=> root.chat-text;
                     font-family: Theme.body-font;
@@ -2638,6 +2641,17 @@ component FriendsView inherits Rectangle {
                     single-line: true;
                     accepted => { root.chat-send(self.text); }
                     edited => { if self.text != "" { root.chat-typing(); } }
+                }
+                // Stickers (Telegram: the smile in the field opens the panel above it).
+                IconButton {
+                    x: parent.width - self.width - 41px;
+                    y: (parent.height - self.height) / 2;
+                    size: 32px;
+                    icon-size: 20px;
+                    icon: Icons.mood-smile;
+                    active: root.stickers-open;
+                    active-color: Theme.accent;
+                    clicked => { root.stickers-open = !root.stickers-open; }
                 }
                 IconButton {
                     x: parent.width - self.width - 7px;
@@ -2671,6 +2685,50 @@ component FriendsView inherits Rectangle {
                     open-album(id) => { root.open-album(id); }
                     like-song(id) => { root.like-song(id); }
                     song-menu(id, idx, x, y) => { root.song-menu(id, idx, x, y); }
+                }
+            }
+        }
+    }
+    // Sticker panel (Telegram's): a grid over the chat, right above the message field; a sticker click sends it.
+    if root.available && root.page && root.f-tab == "chat" && root.stickers-open: Rectangle {
+        property <int> cols: 4;
+        property <length> cell: 80px;
+        width: self.cols * self.cell + 2 * 10px + 8px;
+        height: min(380px, root.height - 200px);
+        x: root.width - self.width - Grid.pad;
+        y: root.height - self.height - Grid.pad - 46px - 8px;
+        border-radius: Grid.item-radius;
+        background: Theme.menu;
+        border-color: Theme.panel-border;
+        border-width: 1px;
+        drop-shadow-blur: 18px;
+        drop-shadow-color: #00000070;
+        TouchArea { } // the chat under it gets no clicks through the panel
+        VerticalLayout {
+            padding: 10px;
+            spacing: 6px;
+            HorizontalLayout {
+                height: 24px;
+                Text { text: "Стикеры"; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+                Middle { IconButton { icon: Icons.x; size: 24px; icon-size: 13px; clicked => { root.stickers-open = false; } } }
+            }
+            Flickable {
+                vertical-stretch: 1;
+                content-height: ceil(root.sticker-list.length / 4) * 80px;
+                for st[si] in root.sticker-list: Rectangle {
+                    x: mod(si, 4) * 80px;
+                    y: floor(si / 4) * 80px;
+                    width: 76px;
+                    height: 76px;
+                    border-radius: 10px;
+                    background: sta.has-hover ? Theme.fill-hover : transparent;
+                    Image {
+                        source: Stickers.all[st.pic];
+                        width: st.ratio >= 1 ? 64px : 64px * st.ratio;
+                        height: st.ratio >= 1 ? 64px / st.ratio : 64px;
+                        image-fit: contain;
+                    }
+                    sta := TouchArea { mouse-cursor: pointer; clicked => { root.chat-sticker(st.pic); } }
                 }
             }
         }
@@ -2885,6 +2943,9 @@ export component MainWindow inherits Window {
     in property <bool> friend-typing;
     callback friend-chat-send(string);
     callback friend-chat-typing();
+    in property <[StickerPic]> sticker-list;
+    in-out property <bool> friend-stickers-open;
+    callback friend-chat-sticker(int);
     callback friend-chat-play(int);
     callback friend-chat-action(int, string); // «r:<key>» react, «edit», «del», «del-both», «cancel-edit»
     callback friend-toggle-along();
@@ -3134,6 +3195,9 @@ export component MainWindow inherits Window {
                         chat-text <=> root.friend-chat-text;
                         chat-send(t) => { root.friend-chat-send(t); }
                         chat-typing => { root.friend-chat-typing(); }
+                        sticker-list: root.sticker-list;
+                        stickers-open <=> root.friend-stickers-open;
+                        chat-sticker(i) => { root.friend-chat-sticker(i); }
                         chat-play(i) => { root.friend-chat-play(i); }
                         chat-editing: root.friend-chat-editing;
                         f-can-along: root.friend-can-along;

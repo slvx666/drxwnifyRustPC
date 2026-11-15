@@ -202,6 +202,22 @@ pub fn mini_sticker(id: &str) -> Option<(usize, f32)> {
     })
 }
 
+/// Every sticker Mini can draw, in picture order: (id, width/height).
+pub fn mini_stickers() -> Vec<(String, f32)> {
+    MINI_STICKERS
+        .lines()
+        .filter_map(|l| {
+            let (id, r) = l.split_once(' ')?;
+            Some((id.to_string(), r.trim().parse().unwrap_or(1.0)))
+        })
+        .collect()
+}
+
+/// A sticker as it travels inside a message (Stickers.token).
+pub fn sticker_token(id: &str) -> String {
+    format!("{STICKER_START}{id}{STICKER_END}")
+}
+
 /// The sticker ids of a message made of stickers alone (spaces between them allowed): shown big, as on the phone.
 pub fn sticker_only(text: &str) -> Option<Vec<String>> {
     let mut ids = Vec::new();

@@ -159,6 +159,25 @@ pub fn wire(ui: &MainWindow, app: &App) {
         }
     });
     let (app2, ui_w) = (app.clone(), ui.as_weak());
+    // The sticker panel: every sticker Mini draws; a pick goes out as a message of that sticker (as on the phone).
+    ui.set_sticker_list(ModelRc::new(VecModel::from(
+        drx_social::chat::mini_stickers()
+            .iter()
+            .enumerate()
+            .map(|(i, (_, r))| StickerPic { pic: i as i32, ratio: *r })
+            .collect::<Vec<_>>(),
+    )));
+    {
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_friend_chat_sticker(move |i| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            let Some(peer) = OPEN.with(|o| o.borrow().clone()) else { return };
+            let Some((id, _)) = drx_social::chat::mini_stickers().into_iter().nth(i as usize) else { return };
+            if let Err(e) = app2.send_chat(&peer, &drx_social::chat::sticker_token(&id)) {
+                ui.set_toast(format!("Не отправлено: {e}").into());
+            }
+        });
+    }
     {
         let app2 = app.clone();
         ui.on_friend_chat_typing(move || {

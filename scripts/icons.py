@@ -44,6 +44,7 @@ ICONS = {
     "repeat": 0xEB72,
     "volume": 0xEB51,
     "volume-off": 0xEB50,  # volume-3 (muted)
+    "mood-smile": 0xEAF7,  # the chat's sticker button
     "list": 0xEB6B,  # playlist
     "sort": 0xEB5A,  # arrowsSort
     "layout-right": 0xF006,
