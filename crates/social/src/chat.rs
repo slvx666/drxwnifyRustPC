@@ -191,6 +191,30 @@ const STICKERS: &str = include_str!("stickers.json");
 const STICKER_START: char = '\u{E000}';
 const STICKER_END: char = '\u{E001}';
 
+/// Mini's sticker pictures (the phone's still stickers, scripts/stickers.py): id and width/height per line.
+const MINI_STICKERS: &str = include_str!("stickers_mini.txt");
+
+/// Where sticker `id` stands among Mini's pictures, with its width/height; None for an animated or unknown one.
+pub fn mini_sticker(id: &str) -> Option<(usize, f32)> {
+    MINI_STICKERS.lines().enumerate().find_map(|(i, l)| {
+        let (lid, ratio) = l.split_once(' ')?;
+        (lid == id).then(|| (i, ratio.trim().parse().unwrap_or(1.0)))
+    })
+}
+
+/// The sticker ids of a message made of stickers alone (spaces between them allowed): shown big, as on the phone.
+pub fn sticker_only(text: &str) -> Option<Vec<String>> {
+    let mut ids = Vec::new();
+    let mut rest = text.trim();
+    while !rest.is_empty() {
+        let after = rest.strip_prefix(STICKER_START)?;
+        let end = after.find(STICKER_END)?;
+        ids.push(after[..end].to_string());
+        rest = after[end + STICKER_END.len_utf8()..].trim_start();
+    }
+    (!ids.is_empty()).then_some(ids)
+}
+
 /// The text with stickers as their codes (Stickers.plain): the chat list and, until the pictures come, the bubbles.
 pub fn plain_stickers(text: &str) -> String {
     if !text.contains(STICKER_START) && !text.contains(STICKER_END) {
@@ -264,6 +288,9 @@ mod tests {
         assert_eq!(emoji_index("s:x"), None);
         assert_eq!(plain_stickers("ok \u{E000}aga\u{E001}!"), "ok aga!");
         assert_eq!(plain_stickers("\u{E000}nope_x\u{E001}"), "[стикер]");
+        assert_eq!(sticker_only(" \u{E000}aga\u{E001} \u{E000}hmm\u{E001}"), Some(vec!["aga".to_string(), "hmm".into()]));
+        assert_eq!(sticker_only("hi \u{E000}aga\u{E001}"), None);
+        assert_eq!(mini_sticker("aga").map(|s| s.0), Some(0));
         let ty = typing_event(&me, &friend.public_hex(), 9000).unwrap();
         assert_eq!(decode(&friend, &ty).unwrap().payload, Payload::Typing);
     }

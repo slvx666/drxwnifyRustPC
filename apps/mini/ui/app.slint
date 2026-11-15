@@ -9,15 +9,23 @@ import { ListView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Icons } from "icons.slint";
 import { Emoji } from "emoji.slint";
+import { Stickers } from "stickers.slint";
 
 export { Theme }
 
 export struct ReactionChip {
     label: string, // the emoji, or «стикер» for a sticker key
     pic: int, // its picture in Emoji.all, -1 when there is none
+    sticker: int, // a sticker reaction: its picture in Stickers.all, -1 otherwise
+    ratio: float, // the sticker's width / height
     key: string,
     count: int,
     mine: bool,
+}
+
+export struct StickerPic {
+    pic: int, // in Stickers.all
+    ratio: float, // width / height
 }
 
 export struct ChatItem {
@@ -35,6 +43,8 @@ export struct ChatItem {
     music-cover: image,
     has-music-cover: bool,
     reactions: [ReactionChip],
+    stickers: [StickerPic], // a message of stickers alone: drawn big, without the bubble (its text is empty)
+    sticker-ratio: float, // their widths / height, added up
 }
 
 export struct SongItem {
@@ -2208,13 +2218,17 @@ component ChatBubble inherits Rectangle {
     }
     probe := Text { visible: false; text: root.m.text; font-family: Theme.body-font; font-size: 15px; }
     property <length> text-w: min(root.max-w - 24px, probe.preferred-width + 1px);
-    property <length> inner-w: max(root.m.has-music ? root.max-w - 24px : 0px, max(root.text-w, meta.preferred-width));
+    property <bool> big: root.m.stickers.length > 0;
+    // Stickers 96 px high, smaller when a row of them would be wider than the bubble may be.
+    property <length> sticker-h: root.big ? min(96px, (root.max-w - 24px - (root.m.stickers.length - 1) * 4px) / max(0.1, root.m.sticker-ratio)) : 0px;
+    property <length> sticker-w: root.sticker-h * root.m.sticker-ratio + (root.m.stickers.length - 1) * 4px;
+    property <length> inner-w: max(root.m.has-music ? root.max-w - 24px : 0px, max(max(root.text-w, root.sticker-w), meta.preferred-width));
     width: root.inner-w + 24px;
     height: col.preferred-height;
     border-radius: 14px;
-    background: root.m.mine ? Theme.accent.mix(Theme.bg, 0.16) : Theme.fill;
+    background: root.big ? transparent : (root.m.mine ? Theme.accent.mix(Theme.bg, 0.16) : Theme.fill);
     border-color: root.m.mine ? Theme.accent.mix(Theme.bg, 0.35) : Theme.panel-border;
-    border-width: 1px;
+    border-width: root.big ? 0px : 1px;
     col := VerticalLayout {
         width: root.width;
         padding: 12px;
@@ -2231,6 +2245,16 @@ component ChatBubble inherits Rectangle {
                 Text { text: root.m.music-by; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
             }
             Middle { IconButton { icon: root.m.music-kind == "track" ? Icons.play : Icons.chevron-right; size: 32px; icon-size: 16px; filled: true; clicked => { root.play(); } } }
+        }
+        if root.big: HorizontalLayout {
+            spacing: 4px;
+            alignment: root.m.mine ? end : start;
+            for st in root.m.stickers: Image {
+                source: Stickers.all[st.pic];
+                width: root.sticker-h * st.ratio;
+                height: root.sticker-h;
+                image-fit: contain;
+            }
         }
         if root.m.text != "": Text {
             text: root.m.text;
@@ -2261,11 +2285,12 @@ component ChatBubble inherits Rectangle {
                 border-color: Theme.accent;
                 HorizontalLayout {
                     padding-left: 6px;
-                    padding-right: r.count > 1 || r.pic < 0 ? 8px : 6px;
+                    padding-right: r.count > 1 || (r.pic < 0 && r.sticker < 0) ? 8px : 6px;
                     spacing: 4px;
                     if r.pic >= 0: Middle { Image { source: Emoji.all[r.pic]; width: 15px; height: 15px; } }
-                    if r.pic < 0 || r.count > 1: Text {
-                        text: r.pic < 0 ? (r.count > 1 ? r.label + " " + r.count : r.label) : r.count;
+                    if r.sticker >= 0: Middle { Image { source: Stickers.all[r.sticker]; width: 18px * r.ratio; height: 18px; image-fit: contain; } }
+                    if (r.pic < 0 && r.sticker < 0) || r.count > 1: Text {
+                        text: r.pic < 0 && r.sticker < 0 ? (r.count > 1 ? r.label + " " + r.count : r.label) : r.count;
                         font-family: Theme.mono-font;
                         font-size: 12px;
                         color: Theme.text;

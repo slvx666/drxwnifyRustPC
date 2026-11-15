@@ -2,7 +2,7 @@
 //! cards (live first), and a friend's page with the chat, history, likes and playlists to play. Follows the relays
 //! while the app runs; the page redraws at most every half second, the chat when a message comes or changes.
 
-use crate::{ChatItem, FriendCardItem, FriendRequestItem, MainWindow, ReactionChip, SongItem};
+use crate::{ChatItem, FriendCardItem, FriendRequestItem, MainWindow, ReactionChip, SongItem, StickerPic};
 use drx_app::App;
 use drx_social::friends::{DEVELOPER_PUBKEY, FriendData, FriendsState, TrackRef};
 use slint::{ComponentHandle, ModelRc, VecModel};
@@ -589,10 +589,20 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
             let cover = music
                 .and_then(|c| c.cover.as_deref())
                 .and_then(|u| crate::cover_r(app, u, crate::ROW_COVER, crate::theme_r(8.0, crate::ROW_COVER, 44.0)));
+            // Stickers alone, all with a picture here: drawn big (an animated one keeps the message as text).
+            let pics: Vec<StickerPic> = drx_social::chat::sticker_only(&m.text)
+                .and_then(|ids| {
+                    ids.iter()
+                        .map(|id| drx_social::chat::mini_sticker(id).map(|(i, r)| StickerPic { pic: i as i32, ratio: r }))
+                        .collect::<Option<Vec<_>>>()
+                })
+                .unwrap_or_default();
             ChatItem {
                 id: m.id.clone().into(),
                 mine: m.mine,
-                text: drx_social::chat::plain_stickers(&m.text).into(),
+                text: if pics.is_empty() { drx_social::chat::plain_stickers(&m.text).into() } else { "".into() },
+                sticker_ratio: pics.iter().map(|p| p.ratio).sum(),
+                stickers: ModelRc::new(VecModel::from(pics)),
                 time: clock(m.ts).into(),
                 edited: m.edited,
                 state: m.state as i32,
@@ -654,6 +664,8 @@ fn chips(reactions: &[(String, bool)]) -> Vec<ReactionChip> {
             None => out.push(ReactionChip {
                 label: key.strip_prefix("e:").map(str::to_string).unwrap_or_else(|| "стикер".into()).into(),
                 pic: drx_social::chat::emoji_index(key).map_or(-1, |i| i as i32),
+                sticker: key.strip_prefix("s:").and_then(drx_social::chat::mini_sticker).map_or(-1, |s| s.0 as i32),
+                ratio: key.strip_prefix("s:").and_then(drx_social::chat::mini_sticker).map_or(1.0, |s| s.1),
                 key: key.clone().into(),
                 count: 1,
                 mine: *mine,
