@@ -1556,6 +1556,7 @@ dependencies = [
  "drx-core",
  "drx-lyrics",
  "drx-resolver",
+ "drx-social",
  "drx-transfer",
  "reqwest",
  "rusqlite",

@@ -14,6 +14,7 @@ drx-audio.workspace = true
 drx-catalog.workspace = true
 drx-lyrics.workspace = true
 drx-resolver.workspace = true
+drx-social.workspace = true
 reqwest = { version = "0.13", default-features = false }
 rusqlite = { version = "0.42", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

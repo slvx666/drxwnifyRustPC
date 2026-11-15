@@ -12,6 +12,7 @@ pub mod playback;
 pub mod playlists;
 pub mod radio;
 mod search;
+pub mod social;
 pub mod songs;
 mod stats;
 
@@ -178,6 +179,8 @@ struct Inner {
     known: Mutex<HashMap<String, drx_catalog::model::Track>>,
     /// Artists' genres (Last.fm / MusicBrainz), loaded from the profile on first use.
     genres: Mutex<genres::GenreCache>,
+    friends: std::sync::OnceLock<Option<drx_social::friends::Friends>>,
+    history_publish: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 /// The running core. Cheap to clone; UIs call the async methods through [`App::runtime`].
@@ -221,6 +224,8 @@ impl App {
             shared_lock: Mutex::new(()),
             known: Mutex::default(),
             genres: Mutex::default(),
+            friends: std::sync::OnceLock::new(),
+            history_publish: Mutex::default(),
             lists: lists::Lists::default(),
             profile,
             edition,
@@ -236,6 +241,7 @@ impl App {
         app.install_providers();
         app.restore_shuffle_repeat();
         app.start_history();
+        app.start_social_publishing();
         let a = app.clone();
         app.runtime.spawn(async move {
             let _ = a.refresh_state().await;

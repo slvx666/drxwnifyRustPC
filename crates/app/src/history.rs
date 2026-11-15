@@ -98,6 +98,9 @@ impl App {
                             continue;
                         }
                         l.saved = app.save_listen(&l.track, l.played_ms);
+                        if l.saved.is_some() {
+                            app.history_changed();
+                        }
                     }
                 }
             });
