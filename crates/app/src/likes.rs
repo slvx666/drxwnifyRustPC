@@ -170,6 +170,11 @@ impl App {
         }
     }
 
+    /// Tracks a view shows that the core did not hand over itself (friends' lists): their hearts work too.
+    pub fn remember_tracks(&self, tracks: &[Track]) {
+        self.remember(tracks.iter());
+    }
+
     /// A track by the id a row or the player shows: one the UI was handed, else its library row.
     pub async fn known_track(&self, id: &str) -> Option<Track> {
         if let Some(t) = self.inner.known.lock().expect("known").get(id).cloned() {

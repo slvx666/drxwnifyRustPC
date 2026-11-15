@@ -42,6 +42,30 @@ export struct HomeCard {
     album: bool, // an album card opens the album; a track card plays its row from there
 }
 
+// A friend's card (pc/ FriendCard).
+export struct FriendCardItem {
+    pubkey: string,
+    name: string,
+    status: string, // «слушает сейчас», «слушал(а) 2 ч назад», «ничего не слышно»
+    live: bool,
+    avatar: image,
+    has-avatar: bool,
+    initial: string,
+    developer: bool,
+    has-track: bool,
+    track-title: string,
+    track-artist: string,
+    cover: image,
+    has-cover: bool,
+}
+
+export struct FriendRequestItem {
+    pubkey: string,
+    name: string,
+    initial: string,
+    when: string,
+}
+
 // One hotkey row in the settings (pc/ KeysSection).
 export struct HotkeyRow {
     id: int,
@@ -213,6 +237,21 @@ component Link {
     }
 }
 
+// A pill button with a label (pc/ PillButton): primary on the accent, otherwise on the fill with a border.
+component Pill inherits Rectangle {
+    in property <string> label;
+    in property <bool> primary;
+    callback clicked();
+    width: pl-text.preferred-width + 32px;
+    height: 34px;
+    border-radius: min(Theme.chip-radius, 17px);
+    background: root.primary ? (pa.has-hover ? Theme.accent2 : Theme.accent) : (pa.has-hover ? Theme.fill-hover : Theme.fill);
+    border-color: root.primary ? transparent : Theme.panel-border;
+    border-width: 1px;
+    pl-text := Text { text: root.label; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: root.primary ? Theme.on-accent : Theme.text; }
+    pa := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
 component Chip inherits Rectangle {
     in property <string> label;
     in property <bool> selected;
@@ -348,6 +387,7 @@ component TopBar inherits Rectangle {
     callback forward();
     callback import-backup();
     callback open-settings();
+    callback open-friends();
     callback open-history();
     callback open-stats();
     callback typing(string);
@@ -419,7 +459,7 @@ component TopBar inherits Rectangle {
             spacing: 4px;
             Middle { IconButton { icon: Icons.clock; clicked => { root.open-history(); } } }
             Middle { IconButton { icon: Icons.chart; clicked => { root.open-stats(); } } }
-            Middle { IconButton { icon: Icons.users; } }
+            Middle { IconButton { icon: Icons.users; clicked => { root.open-friends(); } } }
             Middle { IconButton { icon: Icons.puzzle; } }
             Middle { IconButton { icon: Icons.download; } }
             Middle { IconButton { icon: Icons.upload; clicked => { root.import-backup(); } } }
@@ -1895,6 +1935,204 @@ component PlayerBar inherits HorizontalLayout {
     }
 }
 
+// A round picture of a person (base64 JPEG from their profile), or the first letter on the accent.
+component Avatar inherits Rectangle {
+    in property <image> source;
+    in property <bool> has-source;
+    in property <string> initial;
+    in property <length> size: 44px;
+    width: root.size;
+    height: root.size;
+    border-radius: root.size / 2;
+    clip: true;
+    background: root.has-source ? transparent : Theme.accent;
+    if root.has-source: Image { width: root.size; height: root.size; source: root.source; image-fit: cover; }
+    if !root.has-source: Text { text: root.initial; font-family: Theme.heading-font; font-weight: 700; font-size: root.size * 0.42; color: Theme.on-accent; }
+}
+
+// Friends (pc/ FriendsScreen): one's own profile, requests, friends' cards; a friend's page with history,
+// likes and playlists. Over Nostr: no server of our own.
+component FriendsView inherits Rectangle {
+    in property <string> me-name;
+    in property <string> me-initial;
+    in property <string> me-code;
+    in property <image> me-avatar;
+    in property <bool> me-has-avatar;
+    in property <bool> available; // the profile has a friends key (from the phone's backup)
+    in property <[FriendCardItem]> cards;
+    in property <[FriendRequestItem]> requests;
+    in property <bool> page; // a friend's page is open
+    in property <string> f-name;
+    in property <string> f-initial;
+    in property <string> f-status;
+    in property <image> f-avatar;
+    in property <bool> f-has-avatar;
+    in property <string> f-tab; // history | likes | playlists
+    in property <string> f-likes;
+    in property <[SongItem]> f-tracks;
+    in property <string> f-empty;
+    in property <string> now-id;
+    callback copy-code();
+    callback copy-link();
+    callback open(string);
+    callback back();
+    callback set-tab(string);
+    callback play(int);
+    callback accept(string);
+    callback dismiss(string);
+    callback open-artist(string);
+    callback like-song(string);
+    callback song-menu(string, int, length, length);
+    property <int> cols: max(1, floor((root.width - 2 * Grid.pad) / 300px));
+    property <length> card-w: (root.width - 2 * Grid.pad - (root.cols - 1) * 12px) / root.cols;
+    if !root.available: VerticalLayout {
+        padding: Grid.pad + 4px;
+        spacing: 8px;
+        alignment: start;
+        Text { text: "Друзья"; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; }
+        Text {
+            text: "Кто что слушает, история и любимые друзей — через Nostr, без своего сервера. Профиль приходит с телефона: импортируйте резервную копию.";
+            font-family: Theme.body-font; font-size: 13px; color: Theme.dim; wrap: word-wrap;
+        }
+    }
+    if root.available && !root.page: Flickable {
+        content-height: home.preferred-height;
+        home := VerticalLayout {
+            padding: Grid.pad + 4px;
+            padding-right: Grid.pad;
+            spacing: 14px;
+            alignment: start;
+            HorizontalLayout {
+                spacing: 18px;
+                Middle { Avatar { size: 72px; source: root.me-avatar; has-source: root.me-has-avatar; initial: root.me-initial; } }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 4px;
+                    horizontal-stretch: 1;
+                    Text { text: root.me-name == "" ? "Мой профиль" : root.me-name; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
+                    Text { text: root.me-code; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; }
+                    Text { text: "Профиль с телефона: имя, аватар и любимые ведёт телефон, отсюда друзья видят, что играет на ПК"; font-family: Theme.body-font; font-size: 11px; color: Theme.mute; wrap: word-wrap; }
+                }
+                Middle { Pill { label: "Мой код"; clicked => { root.copy-code(); } } }
+                Middle { Pill { label: "Ссылка"; clicked => { root.copy-link(); } } }
+            }
+            if root.requests.length > 0: Text { text: "Заявки · " + root.requests.length; font-family: Theme.heading-font; font-weight: 700; font-size: 16px; color: Theme.text; }
+            for r in root.requests: HorizontalLayout {
+                spacing: 12px;
+                Middle { Avatar { size: 40px; initial: r.initial; } }
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 1;
+                    Text { text: r.name == "" ? "Без имени" : r.name; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.text; }
+                    Text { text: "хочет дружить · " + r.when; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; }
+                }
+                Middle { Pill { label: "Принять"; primary: true; clicked => { root.accept(r.pubkey); } } }
+                Middle { Pill { label: "Скрыть"; clicked => { root.dismiss(r.pubkey); } } }
+            }
+            Text { text: root.cards.length == 0 ? "Друзья · пока никого" : "Друзья · " + root.cards.length; font-family: Theme.heading-font; font-weight: 700; font-size: 16px; color: Theme.text; }
+            Rectangle {
+                height: ceil(root.cards.length / root.cols) * 150px;
+                for c[i] in root.cards: Rectangle {
+                    x: mod(i, root.cols) * (root.card-w + 12px);
+                    y: floor(i / root.cols) * 150px;
+                    width: root.card-w;
+                    height: 138px;
+                    border-radius: 16px;
+                    background: ca.has-hover ? Theme.fill-hover : Theme.fill;
+                    border-color: Theme.panel-border;
+                    border-width: 1px;
+                    ca := TouchArea { mouse-cursor: pointer; clicked => { root.open(c.pubkey); } }
+                    VerticalLayout {
+                        padding: 14px;
+                        spacing: 12px;
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Middle {
+                                Rectangle {
+                                    width: 44px;
+                                    height: 44px;
+                                    Avatar { size: 44px; source: c.avatar; has-source: c.has-avatar; initial: c.initial; }
+                                    if c.live: Rectangle {
+                                        x: 32px; y: 32px; width: 12px; height: 12px; border-radius: 6px; background: Theme.bg;
+                                        Rectangle { width: 8px; height: 8px; border-radius: 4px; background: #3DD68C; }
+                                    }
+                                }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 2px;
+                                horizontal-stretch: 1;
+                                Text { text: c.name; font-family: Theme.body-font; font-weight: 800; font-size: 15px; color: Theme.text; overflow: elide; }
+                                Text { text: c.status; font-family: Theme.mono-font; font-size: 11px; color: c.live ? Theme.accent : Theme.mute; overflow: elide; }
+                            }
+                            if c.developer: Middle { Text { text: "разработчик"; font-family: Theme.mono-font; font-size: 11px; color: Theme.accent; } }
+                        }
+                        if c.has-track: HorizontalLayout {
+                            spacing: 10px;
+                            Middle { Cover { size: 46px; source: c.cover; has-source: c.has-cover; radius: Grid.row-cover-radius; } }
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 2px;
+                                horizontal-stretch: 1;
+                                Text { text: c.track-title; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.text; overflow: elide; }
+                                Text { text: c.track-artist; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if root.available && root.page: VerticalLayout {
+        padding-top: Grid.pad;
+        spacing: 12px;
+        HorizontalLayout {
+            padding-left: Grid.pad + 4px;
+            padding-right: Grid.pad;
+            spacing: 16px;
+            Middle { IconButton { icon: Icons.chevron-left; filled: true; clicked => { root.back(); } } }
+            Middle { Avatar { size: 84px; source: root.f-avatar; has-source: root.f-has-avatar; initial: root.f-initial; } }
+            VerticalLayout {
+                alignment: center;
+                spacing: 4px;
+                horizontal-stretch: 1;
+                Text { text: root.f-name; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
+                Text { text: root.f-status; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; overflow: elide; }
+            }
+        }
+        HorizontalLayout {
+            padding-left: Grid.pad + 4px;
+            spacing: 8px;
+            alignment: start;
+            Chip { label: "История"; selected: root.f-tab == "history"; clicked => { root.set-tab("history"); } }
+            Chip { label: root.f-likes == "" ? "Любимые" : "Любимые · " + root.f-likes; selected: root.f-tab == "likes"; clicked => { root.set-tab("likes"); } }
+            Chip { label: "Плейлисты"; selected: root.f-tab == "playlists"; clicked => { root.set-tab("playlists"); } }
+        }
+        if root.f-tracks.length == 0: Text {
+            x: Grid.pad + 4px;
+            text: root.f-empty;
+            font-family: Theme.body-font;
+            font-size: 13px;
+            color: Theme.dim;
+        }
+        HorizontalLayout {
+            vertical-stretch: 1;
+            padding-left: 8px;
+            padding-right: 4px;
+            ListView {
+                for song[i] in root.f-tracks: SongRow {
+                    song: song;
+                    current: root.now-id != "" && song.id == root.now-id;
+                    play => { root.play(i); }
+                    open-artist(id) => { root.open-artist(id); }
+                    like-song(id) => { root.like-song(id); }
+                    song-menu(id, idx, x, y) => { root.song-menu(id, idx, x, y); }
+                }
+            }
+        }
+    }
+}
+
 export component MainWindow inherits Window {
     title: "Drxwnify Mini";
     icon: @image-url("../../../assets/icons/mini/d.png");
@@ -2070,6 +2308,34 @@ export component MainWindow inherits Window {
     callback track-menu-action(string, string); // action, track id
     callback create-playlist();
     callback window-key(string, bool, bool, bool) -> bool;
+    // Friends.
+    in property <bool> view-friends;
+    in property <bool> friends-available;
+    in property <string> friends-me-name;
+    in property <string> friends-me-initial;
+    in property <string> friend-initial;
+    in property <string> friends-me-code;
+    in property <image> friends-me-avatar;
+    in property <bool> friends-me-has-avatar;
+    in property <[FriendCardItem]> friends-cards;
+    in property <[FriendRequestItem]> friends-requests;
+    in property <bool> friend-page;
+    in property <string> friend-name;
+    in property <string> friend-status;
+    in property <image> friend-avatar;
+    in property <bool> friend-has-avatar;
+    in property <string> friend-tab: "history";
+    in property <string> friend-likes;
+    in property <[SongItem]> friend-tracks;
+    in property <string> friend-empty;
+    callback open-friends();
+    callback friends-copy(string);
+    callback friend-open(string);
+    callback friend-back();
+    callback friend-set-tab(string);
+    callback friend-play(int);
+    callback friend-accept(string);
+    callback friend-dismiss(string);
     in property <bool> view-can-edit;
     callback rename-view();
     callback delete-view();
@@ -2139,6 +2405,7 @@ export component MainWindow inherits Window {
             home => { root.home(); }
             open-settings => { root.open-settings(); }
             open-history => { root.open-history(); }
+                open-friends => { root.open-friends(); }
             open-stats => { root.open-stats(); }
             import-backup => { root.import-backup(); }
             search(q) => { root.suggest-open = false; key-scope.focus(); root.search(q); }
@@ -2171,7 +2438,7 @@ export component MainWindow inherits Window {
                         open(item) => { root.selected-id = item.id; root.open-library(item); }
                     }
                     VLine { }
-                    MainArea {
+                    if !root.view-friends: MainArea {
                         horizontal-stretch: 1;
                         title: root.view-title;
                         subtitle: root.view-subtitle;
@@ -2267,6 +2534,39 @@ export component MainWindow inherits Window {
                         open-album(id) => { root.open-album(id); }
                         play(i) => { root.play(i); }
                         import-backup => { root.import-backup(); }
+                    }
+                    if root.view-friends: FriendsView {
+                        horizontal-stretch: 1;
+                        available: root.friends-available;
+                        me-name: root.friends-me-name;
+                        me-initial: root.friends-me-initial;
+                        me-code: root.friends-me-code;
+                        me-avatar: root.friends-me-avatar;
+                        me-has-avatar: root.friends-me-has-avatar;
+                        cards: root.friends-cards;
+                        requests: root.friends-requests;
+                        page: root.friend-page;
+                        f-name: root.friend-name;
+                        f-initial: root.friend-initial;
+                        f-status: root.friend-status;
+                        f-avatar: root.friend-avatar;
+                        f-has-avatar: root.friend-has-avatar;
+                        f-tab: root.friend-tab;
+                        f-likes: root.friend-likes;
+                        f-tracks: root.friend-tracks;
+                        f-empty: root.friend-empty;
+                        now-id: root.now-id;
+                        copy-code => { root.friends-copy("code"); }
+                        copy-link => { root.friends-copy("link"); }
+                        open(p) => { root.friend-open(p); }
+                        back => { root.friend-back(); }
+                        set-tab(t) => { root.friend-set-tab(t); }
+                        play(i) => { root.friend-play(i); }
+                        accept(p) => { root.friend-accept(p); }
+                        dismiss(p) => { root.friend-dismiss(p); }
+                        open-artist(id) => { root.open-artist(id); }
+                        like-song(id) => { root.like-song(id); }
+                        song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
                     }
                     VLine { }
                     RightPanel {

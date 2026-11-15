@@ -724,3 +724,34 @@ pub fn double_click_ms() -> u64 {
     // SAFETY: no arguments, no side effects.
     u64::from(unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime() })
 }
+
+/// CF_UNICODETEXT on the clipboard.
+pub fn copy_text(text: &str) -> bool {
+    use windows::Win32::Foundation::{HANDLE, HGLOBAL};
+    use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+    use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
+    const CF_UNICODETEXT: u32 = 13;
+    let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    // SAFETY: the clipboard is opened, filled with a moveable global block we own until SetClipboardData takes
+    // it, and closed on every path; the copy stays within the block's size.
+    unsafe {
+        if OpenClipboard(None).is_err() {
+            return false;
+        }
+        let ok = (|| {
+            EmptyClipboard().ok()?;
+            let mem: HGLOBAL = GlobalAlloc(GMEM_MOVEABLE, wide.len() * 2).ok()?;
+            let ptr = GlobalLock(mem) as *mut u16;
+            if ptr.is_null() {
+                return None;
+            }
+            std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr, wide.len());
+            let _ = GlobalUnlock(mem);
+            SetClipboardData(CF_UNICODETEXT, Some(HANDLE(mem.0))).ok()?;
+            Some(())
+        })()
+        .is_some();
+        let _ = CloseClipboard();
+        ok
+    }
+}

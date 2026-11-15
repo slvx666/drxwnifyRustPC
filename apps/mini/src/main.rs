@@ -3,6 +3,7 @@
 //! Drxwnify Mini: the native, light edition. All logic lives in `drx-app`; this file only binds the UI to it.
 
 mod artist_view;
+mod friends_view;
 mod history_view;
 mod hotkeys;
 mod home_view;
@@ -720,6 +721,9 @@ fn main() {
                 let Some(ui) = ui_w2.upgrade() else { return };
                 songs3.refresh_covers();
                 library_model(&ui, &app3).refresh_covers();
+                if ui.get_view_friends() {
+                    friends_view::refresh(&ui, &app3);
+                }
                 let url = ui.get_now_cover_url().to_string();
                 match (!url.is_empty())
                     .then(|| cover_r(&app3, &url, NOW_COVER, theme_r(100.0, NOW_COVER, 288.0)))
@@ -878,6 +882,15 @@ fn main() {
     likes_ui::wire(&ui, &app);
     track_menu::wire(&ui, &app);
     playlists_ui::wire(&ui, &app);
+    friends_view::wire(&ui, &app);
+    {
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_open_friends(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                nav::go_page(&ui, &app2, nav::Page::friends());
+            }
+        });
+    }
     let platform = os::start(&ui, &app, Some(&guard));
     {
         let (app2, ui_w, platform) = (app.clone(), ui.as_weak(), platform.clone());

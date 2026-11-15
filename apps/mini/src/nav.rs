@@ -11,6 +11,8 @@ use std::rc::Rc;
 /// What the centre shows.
 #[derive(Clone, PartialEq)]
 pub enum PageKind {
+    /// Friends (Nostr).
+    Friends,
     /// A list of tracks (`spec`).
     List,
     Home,
@@ -72,6 +74,10 @@ impl Page {
 
     pub fn history() -> Self {
         Self::special(PageKind::History, "История")
+    }
+
+    pub fn friends() -> Self {
+        Self::special(PageKind::Friends, "Друзья")
     }
 
     pub fn stats() -> Self {
@@ -242,6 +248,13 @@ fn songs_rc() -> Option<Rc<LazySongs>> {
 pub fn go_playlist(ui: &MainWindow, app: &App, id: &str, name: &str) {
     if let Some(songs) = songs_rc() {
         let page = Page::list(ListSpec::Playlist { id: id.to_string() }, name, id, None);
+        go(ui, app, &songs, page);
+    }
+}
+
+/// Opens a page from anywhere.
+pub fn go_page(ui: &MainWindow, app: &App, page: Page) {
+    if let Some(songs) = songs_rc() {
         go(ui, app, &songs, page);
     }
 }
@@ -422,6 +435,7 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     ui.set_view_search(matches!(page.kind, PageKind::Search(..)));
     ui.set_view_history(page.kind == PageKind::History);
     ui.set_view_stats(page.kind == PageKind::Stats);
+    ui.set_view_friends(page.kind == PageKind::Friends);
     ui.set_view_artist(
         page.kind == PageKind::List
             && matches!(
@@ -451,6 +465,7 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
         PageKind::Home => return crate::home_view::show(ui, app, false),
         PageKind::History => return crate::history_view::show(ui, app),
         PageKind::Stats => return crate::stats_view::show(ui, app),
+        PageKind::Friends => return crate::friends_view::show(ui, app),
         PageKind::List => {}
     }
     songs.reopen(page.spec.clone());

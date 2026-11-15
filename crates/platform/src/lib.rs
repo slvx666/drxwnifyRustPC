@@ -193,3 +193,16 @@ pub fn double_click_ms() -> u64 {
         500
     }
 }
+
+/// Puts text on the clipboard (invite links, codes). False when the clipboard was busy.
+pub fn copy_text(text: &str) -> bool {
+    #[cfg(windows)]
+    {
+        windows_impl::copy_text(text)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = text;
+        false
+    }
+}
