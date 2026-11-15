@@ -948,6 +948,42 @@ fn main() {
             }
         });
     }
+    // Links: an invite opens Friends with the code filled in (adding stays the owner's click, as on the phone where
+    // the invite asks first); music goes through the search, which knows every link the phone shares.
+    {
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_open_link(move |link| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            let link = link.trim().to_string();
+            let invite = link
+                .strip_prefix("drxwnify://add/")
+                .or_else(|| link.strip_prefix(drx_social::friends::INVITE_BASE))
+                .map(|rest| rest.split(['?', '#', '/']).next().unwrap_or("").to_string())
+                .filter(|code| !code.is_empty());
+            match invite {
+                Some(code) => {
+                    nav::go_page(&ui, &app2, nav::Page::friends());
+                    ui.set_friends_add_text(code.into());
+                    ui.set_toast("Приглашение в друзья: нажмите «Добавить», чтобы отправить заявку".into());
+                }
+                None => match drx_app::link_page(&link) {
+                    Some(("album", id)) => ui.invoke_open_album(id.into()),
+                    Some((_, id)) => ui.invoke_open_artist(id.into()),
+                    None => nav::go_page(&ui, &app2, nav::Page::search(&link, drx_app::SearchSource::Main)),
+                },
+            }
+        });
+    }
+    let first_link = os::launch_argument();
+    if !first_link.is_empty() {
+        let ui_w = ui.as_weak();
+        slint::Timer::single_shot(std::time::Duration::from_millis(600), move || {
+            if let Some(ui) = ui_w.upgrade() {
+                ui.invoke_open_link(first_link.into());
+            }
+        });
+    }
+    os::register_scheme();
     let platform = os::start(&ui, &app, Some(&guard));
     {
         let (app2, ui_w, platform) = (app.clone(), ui.as_weak(), platform.clone());

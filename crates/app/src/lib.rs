@@ -28,7 +28,7 @@ pub use edition::{Edition, EditionProfile};
 pub use home::{HomeAlbum, HomeFeed, HomeRow, HomeRowKind};
 pub use lists::{ListHandle, ListHeader, ListSpec, SongRow};
 pub use playback::{NowPlaying, Playable, Repeat};
-pub use search::{SearchOutcome, SearchSource, fold};
+pub use search::{SearchOutcome, SearchSource, fold, link_page};
 pub use stats::{HistoryEntry, StatItem, StatPeriod, StatSong, Stats, history_group};
 use std::collections::HashMap;
 use std::path::PathBuf;

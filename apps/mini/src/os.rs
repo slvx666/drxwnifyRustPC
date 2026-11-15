@@ -66,11 +66,26 @@ pub fn instance_name(profile_root: &std::path::Path) -> String {
     format!("mini-{h:016x}")
 }
 
+/// Makes `drxwnify://` links (invites, shared music; the site's «Открыть в приложении») open this Mini. Test runs
+/// (DRX_PROFILE) leave the registration alone unless DRX_SCHEME is set.
+pub fn register_scheme() {
+    if std::env::var_os("DRX_PROFILE").is_some() && std::env::var_os("DRX_SCHEME").is_none() {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    let command = format!("\"{}\" \"%1\"", exe.display());
+    if drx_platform::url_scheme_command("drxwnify").as_deref() != Some(command.as_str())
+        && let Err(e) = drx_platform::register_url_scheme("drxwnify", "URL:Drxwnify", &command)
+    {
+        tracing::warn!("drxwnify:// not registered: {e}");
+    }
+}
+
 /// What a second launch passes along: a `drxwnify://` link, if any.
 pub fn launch_argument() -> String {
     std::env::args()
         .skip(1)
-        .find(|a| a.starts_with("drxwnify://"))
+        .find(|a| a.starts_with("drxwnify://") || a.contains("drxwnify.pages.dev/") || a.contains("open.spotify.com/"))
         .unwrap_or_default()
 }
 
@@ -109,7 +124,10 @@ fn handle(ui: &MainWindow, app: &App, e: PlatformEvent) {
         PlatformEvent::Quit => {
             let _ = slint::quit_event_loop();
         }
-        PlatformEvent::Open(link) => tracing::info!("opened with {link}"),
+        PlatformEvent::Open(link) => {
+            show_window(ui);
+            ui.invoke_open_link(link.into());
+        }
         PlatformEvent::Hotkey(id) => perform(ui, app, id),
         PlatformEvent::HotkeyBusy(id) => {
             crate::hotkeys::mark_taken(id);

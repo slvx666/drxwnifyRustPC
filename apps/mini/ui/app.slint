@@ -2974,6 +2974,8 @@ export component MainWindow inherits Window {
     callback friend-accept(string);
     callback friend-dismiss(string);
     in-out property <string> friends-add-text;
+    // A drxwnify:// or drxwnify.pages.dev link the app was opened with: an invite, or music to show.
+    callback open-link(string);
     callback friend-add(string);
     in property <bool> view-can-edit;
     callback rename-view();

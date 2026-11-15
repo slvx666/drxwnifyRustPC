@@ -162,6 +162,35 @@ pub fn set_autostart(name: &str, command: Option<&str>) -> Result<(), String> {
     }
 }
 
+/// The command a `scheme://` link starts (Windows: HKCU\Software\Classes\<scheme>\shell\open\command).
+pub fn url_scheme_command(scheme: &str) -> Option<String> {
+    #[cfg(windows)]
+    {
+        windows_impl::reg_get(&format!(r"Software\Classes\{scheme}\shell\open\command"), "")
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = scheme;
+        None
+    }
+}
+
+/// Makes `scheme://` links start `command` (the per-user registration Windows offers without admin rights).
+pub fn register_url_scheme(scheme: &str, title: &str, command: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let base = format!(r"Software\Classes\{scheme}");
+        windows_impl::reg_set(&base, "", Some(title))?;
+        windows_impl::reg_set(&base, "URL Protocol", Some(""))?;
+        windows_impl::reg_set(&format!(r"{base}\shell\open\command"), "", Some(command))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (scheme, title, command);
+        Err("not supported yet".into())
+    }
+}
+
 /// The local time's offset from UTC in seconds, daylight saving included (history times, day groups).
 pub fn utc_offset_seconds() -> i64 {
     #[cfg(windows)]

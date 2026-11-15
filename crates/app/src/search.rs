@@ -86,6 +86,16 @@ fn is_video_id(s: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+/// A link that names a page of its own: ("album" | "artist", catalog id). Opened links go straight there, as the
+/// phone does; anything else (a track, a playlist, a video) goes through the search.
+pub fn link_page(text: &str) -> Option<(&'static str, String)> {
+    match parse_link(&url_in(text)?)? {
+        LinkTarget::Album(id) => Some(("album", id)),
+        LinkTarget::Artist(id) => Some(("artist", id)),
+        _ => None,
+    }
+}
+
 /// What a link names (AppLinks.parse + LinkSearch.youTubeVideoId).
 fn parse_link(url: &str) -> Option<LinkTarget> {
     let (scheme, rest) = url.split_once("://")?;
