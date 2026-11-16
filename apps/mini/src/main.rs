@@ -24,6 +24,7 @@ mod nav;
 mod os;
 mod search_view;
 mod settings_view;
+mod sound_ui;
 mod stats_view;
 mod themes;
 mod viewer;
@@ -980,6 +981,7 @@ fn main() {
     queue_ui::wire(&ui, &app);
     lyrics_ui::wire(&ui, &app);
     settings_view::wire(&ui, &app);
+    sound_ui::wire(&ui, &app);
     app.apply_playback_prefs();
     discord_ui::start(&app);
     app.keep_queue_going();

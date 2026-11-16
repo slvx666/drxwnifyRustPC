@@ -48,6 +48,8 @@ pub enum MixCmd {
         gain: f32,
     },
     Pause(bool),
+    /// Equaliser and balance on the mix (None = off).
+    SetPostFx(Option<Box<crate::dsp::PostFx>>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,6 +104,7 @@ pub struct Mixer {
     cmds: rtrb::Consumer<MixCmd>,
     events: rtrb::Producer<MixEvent>,
     idle_sent: bool,
+    post: Option<Box<crate::dsp::PostFx>>,
 }
 
 impl Mixer {
@@ -114,6 +117,7 @@ impl Mixer {
             cmds,
             events,
             idle_sent: true,
+            post: None,
         }
     }
 
@@ -195,6 +199,7 @@ impl Mixer {
                     }
                 }
                 MixCmd::Pause(p) => self.paused = p,
+                MixCmd::SetPostFx(fx) => self.post = fx,
             }
         }
     }
@@ -268,6 +273,9 @@ impl Mixer {
             out[f * 2] = l * m;
             out[f * 2 + 1] = r * m;
         }
+        if let Some(fx) = self.post.as_mut() {
+            fx.process(out);
+        }
         if self.voices.is_empty() && !self.idle_sent {
             self.idle_sent = true;
             self.emit(MixEvent::Idle);
@@ -309,6 +317,20 @@ mod tests {
             v.push(e);
         }
         v
+    }
+
+    #[test]
+    fn balance_on_the_mix() {
+        let (mut m, mut cmd, _ev) = mixer();
+        let (a, _) = voice(1, 50, 0.5);
+        cmd.push(MixCmd::Play(a)).ok();
+        cmd.push(MixCmd::SetPostFx(Some(Box::new(crate::dsp::PostFx { eq: None, balance: 0.5 })))).ok();
+        let mut out = vec![0.0; 20 * 2];
+        m.render(&mut out);
+        assert!(out.chunks(2).all(|f| (f[0] - 0.25).abs() < 1e-6 && (f[1] - 0.5).abs() < 1e-6));
+        cmd.push(MixCmd::SetPostFx(None)).ok();
+        m.render(&mut out);
+        assert!(out.chunks(2).all(|f| f[0] == 0.5 && f[1] == 0.5));
     }
 
     #[test]

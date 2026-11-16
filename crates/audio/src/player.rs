@@ -194,12 +194,16 @@ impl Player {
     ) -> Result<TrackId, String> {
         let (track, voice) = self.spawn_track(source, ext, start_s, gain)?;
         let id = track.id;
-        {
+        let dropped = {
             let mut st = self.state.lock().expect("state");
             st.current = Some(track);
-            st.queued = None;
             st.paused = false;
             st.idle_since = None;
+            st.queued.take()
+        };
+        // A track queued for a gapless start must not follow the one asked for now.
+        if let Some(q) = dropped {
+            self.cmd(MixCmd::Remove(q.voice));
         }
         self.cmd(MixCmd::Pause(false));
         self.cmd(MixCmd::Play(voice));
@@ -219,6 +223,24 @@ impl Player {
         self.state.lock().expect("state").queued = Some(track);
         self.cmd(MixCmd::Queue(voice));
         Ok(id)
+    }
+
+    /// Forgets the track queued for a gapless start (the queue changed).
+    pub fn drop_queued(&self) {
+        let q = self.state.lock().expect("state").queued.take();
+        if let Some(q) = q {
+            self.cmd(MixCmd::Remove(q.voice));
+        }
+    }
+
+    /// The equaliser (a profile with no enabled band = off) and the stereo balance −1..1, on everything played.
+    pub fn set_effects(&self, eq: Option<&crate::dsp::EqProfile>, balance: f32) {
+        let eq = eq
+            .filter(|p| p.preamp_db != 0.0 || p.bands.iter().any(|b| b.enabled && b.gain_db != 0.0))
+            .map(|p| crate::dsp::Equalizer::new(p, RATE));
+        let balance = balance.clamp(-1.0, 1.0);
+        let fx = (eq.is_some() || balance != 0.0).then(|| Box::new(crate::dsp::PostFx { eq, balance }));
+        self.cmd(MixCmd::SetPostFx(fx));
     }
 
     /// Starts a crossfade into a new track over `secs`.

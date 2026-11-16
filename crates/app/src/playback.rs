@@ -185,6 +185,32 @@ impl Fetcher for HttpFetcher {
     }
 }
 
+type Source = (Box<dyn drx_audio::decode::ByteSource>, Option<&'static str>, f32);
+
+/// The next track got ready before the current one ends (Android: ExoPlayer's gapless playlist and the crossfade
+/// trigger in MusicService.scheduleCrossfade).
+struct Prep {
+    /// The player track it follows.
+    after: drx_audio::player::TrackId,
+    index: usize,
+    track_id: String,
+    /// Crossfade into it (else a gapless start).
+    fade: bool,
+    /// Gapless: the player track queued in the mixer.
+    queued: Option<drx_audio::player::TrackId>,
+    /// Crossfade: the opened source, waiting for its moment.
+    ready: Option<Source>,
+}
+
+/// How tracks follow each other (settings).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Transitions {
+    /// Crossfade length, seconds; 0 = off.
+    pub crossfade_s: f32,
+    /// No crossfade between tracks of one album (crossfadeGapless).
+    pub album_gapless: bool,
+}
+
 pub(crate) fn cache_name(id: &str) -> String {
     id.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
@@ -218,6 +244,14 @@ pub(crate) struct Playback {
     pub store: Mutex<Option<drx_core::store::Store>>,
     /// Streams found this session, by catalog track id (provider match kept for a fresh URL later).
     resolved: Mutex<std::collections::HashMap<String, (ProviderMatch, AudioQuery)>>,
+    /// Loudness normalisation of YouTube streams (audioNormalization).
+    pub normalize: std::sync::atomic::AtomicBool,
+    transitions: Mutex<Transitions>,
+    /// The sleep timer waits for the track's end: the next one must not start on its own.
+    pub hold_next: std::sync::atomic::AtomicBool,
+    prep: Mutex<Option<Prep>>,
+    /// Equaliser profile and balance, set again when the device opens.
+    effects: Mutex<(Option<drx_audio::dsp::EqProfile>, f32)>,
 }
 
 impl Playback {
@@ -240,7 +274,127 @@ impl Playback {
             providers: Mutex::new(Vec::new()),
             store: Mutex::new(None),
             resolved: Mutex::new(std::collections::HashMap::new()),
+            normalize: std::sync::atomic::AtomicBool::new(true),
+            transitions: Mutex::new(Transitions { crossfade_s: 0.0, album_gapless: true }),
+            hold_next: std::sync::atomic::AtomicBool::new(false),
+            prep: Mutex::new(None),
+            effects: Mutex::new((None, 0.0)),
         })
+    }
+
+    pub fn set_transitions(&self, t: Transitions) {
+        *self.transitions.lock().expect("transitions") = t;
+        self.drop_prep();
+    }
+
+    /// Equaliser (None = flat) and stereo balance −1..1.
+    pub fn set_effects(&self, eq: Option<drx_audio::dsp::EqProfile>, balance: f32) {
+        if let Some(p) = self.player.lock().expect("player lock").as_ref() {
+            p.set_effects(eq.as_ref(), balance);
+        }
+        *self.effects.lock().expect("effects") = (eq, balance);
+    }
+
+    /// Forgets the prepared next track (the queue or the settings changed, or another track was asked for).
+    fn drop_prep(&self) {
+        let old = self.prep.lock().expect("prep").take();
+        if old.is_some_and(|p| p.queued.is_some())
+            && let Some(pl) = self.player.lock().expect("player lock").as_ref()
+        {
+            pl.drop_queued();
+        }
+    }
+
+    /// The queue index that follows the playing one on its own, if any.
+    fn natural_next(&self) -> Option<(usize, Playable, Playable)> {
+        let q = self.queue.lock().expect("queue");
+        let (i, len) = (q.1, q.0.len());
+        let next = match self.now.borrow().repeat {
+            // The same track again: its stream is still being written; started anew at the end.
+            Repeat::One => None,
+            Repeat::All if i + 1 >= len => (len > 1).then_some(0),
+            _ => (i + 1 < len).then_some(i + 1),
+        }?;
+        Some((next, q.0.get(i)?.clone(), q.0[next].clone()))
+    }
+
+    /// Watches the end of the playing track: opens the next one ahead of time and queues it for a gapless start,
+    /// or starts the crossfade into it at the right moment.
+    fn watch_transitions(me: std::sync::Weak<Self>, player: Arc<Player>) {
+        use std::sync::atomic::Ordering::Relaxed;
+        loop {
+            std::thread::sleep(Duration::from_millis(200));
+            let Some(this) = me.upgrade() else { return };
+            let Some(cur) = *this.current_id.lock().expect("current") else { continue };
+            let c = this.clock();
+            if c.track != Some(cur) || !c.playing {
+                continue;
+            }
+            let Some(d) = c.duration_s else { continue };
+            let rem = d - c.position_s;
+            if this.hold_next.load(Relaxed) {
+                this.drop_prep();
+                continue;
+            }
+            let Some((ni, cur_item, next)) = this.natural_next().filter(|(_, c, n)| c.track.id != n.track.id) else {
+                this.drop_prep();
+                continue;
+            };
+            let t = *this.transitions.lock().expect("transitions");
+            let album = |p: &Playable| p.track.album.as_ref().map(|a| a.name.to_lowercase()).filter(|a| !a.is_empty());
+            let same_album = album(&cur_item).is_some() && album(&cur_item) == album(&next);
+            let cf = t.crossfade_s as f64;
+            let fade = cf > 0.0 && d > cf + 2.0 && !(t.album_gapless && same_album);
+            let fits = |p: &Prep| p.after == cur && p.index == ni && p.track_id == next.track.id && p.fade == fade;
+            let have = this.prep.lock().expect("prep").as_ref().map(fits);
+            match have {
+                Some(true) => {}
+                stale => {
+                    if stale.is_some() {
+                        this.drop_prep();
+                    }
+                    // Opened 20 s ahead: enough for a slow resolver, little wasted when skipped.
+                    if rem > (if fade { cf } else { 0.0 }) + 20.0 {
+                        continue;
+                    }
+                    *this.prep.lock().expect("prep") = Some(Prep {
+                        after: cur,
+                        index: ni,
+                        track_id: next.track.id.clone(),
+                        fade,
+                        queued: None,
+                        ready: None,
+                    });
+                    let opened = this.source_for(&next);
+                    let mut prep = this.prep.lock().expect("prep");
+                    let Some(p) = prep.as_mut().filter(|p| fits(p)) else { continue };
+                    match opened {
+                        Ok(src) if fade => p.ready = Some(src),
+                        Ok((src, ext, gain)) => match player.queue_next(src, ext, gain) {
+                            Ok(id) => p.queued = Some(id),
+                            Err(e) => tracing::info!("next track not queued: {e}"),
+                        },
+                        // Left for the usual start at the end (which may skip it).
+                        Err(e) => tracing::info!("next track not opened ahead: {e}"),
+                    }
+                    continue;
+                }
+            }
+            if fade && rem <= cf {
+                let ready = this.prep.lock().expect("prep").as_mut().and_then(|p| p.ready.take());
+                if let Some((src, ext, gain)) = ready {
+                    *this.prep.lock().expect("prep") = None;
+                    match player.crossfade_to(src, ext, gain, cf as f32) {
+                        Ok(id) => {
+                            *this.current_id.lock().expect("current") = Some(id);
+                            this.skipped.store(0, Relaxed);
+                            this.announce(ni);
+                        }
+                        Err(e) => tracing::info!("crossfade failed: {e}"),
+                    }
+                }
+            }
+        }
     }
 
     /// The audio device opens on first use, so an idle app does not hold it.
@@ -251,6 +405,16 @@ impl Playback {
         }
         let player = Player::new()?;
         player.set_volume(*self.volume.lock().expect("volume") * *self.fade.lock().expect("fade"));
+        {
+            let fx = self.effects.lock().expect("effects");
+            player.set_effects(fx.0.as_ref(), fx.1);
+        }
+        {
+            let (me, pl) = (Arc::downgrade(self), player.clone());
+            let _ = std::thread::Builder::new()
+                .name("playback-next".into())
+                .spawn(move || Self::watch_transitions(me, pl));
+        }
         let me = Arc::downgrade(self);
         let pl = player.clone();
         std::thread::Builder::new()
@@ -264,9 +428,35 @@ impl Playback {
                         continue;
                     };
                     let Some(this) = me.upgrade() else { return };
+                    // The track queued for a gapless start began: it is the current one now.
+                    if let PlayerEvent::Started(id) = ev {
+                        let mut prep = this.prep.lock().expect("prep");
+                        if prep.as_ref().is_some_and(|p| p.queued == Some(id)) {
+                            let p = prep.take().expect("prep");
+                            drop(prep);
+                            let index = {
+                                let q = this.queue.lock().expect("queue");
+                                q.0.iter()
+                                    .enumerate()
+                                    .skip(p.index.min(q.1 + 1))
+                                    .find(|(_, x)| x.track.id == p.track_id)
+                                    .map_or(p.index, |(i, _)| i)
+                            };
+                            *this.current_id.lock().expect("current") = Some(id);
+                            this.skipped.store(0, std::sync::atomic::Ordering::Relaxed);
+                            this.announce(index);
+                        }
+                    }
                     if let PlayerEvent::Ended(id) = ev {
                         let cur = *this.current_id.lock().expect("current");
-                        if cur == Some(id) {
+                        // A gapless follower is queued: the mixer starts it on this very frame.
+                        let follows = this
+                            .prep
+                            .lock()
+                            .expect("prep")
+                            .as_ref()
+                            .is_some_and(|p| p.after == id && p.queued.is_some());
+                        if cur == Some(id) && !follows {
                             // Track finished on its own: repeat one, or continue (wrapping with repeat all).
                             let (i, len) = {
                                 let q = this.queue.lock().expect("queue");
@@ -453,6 +643,7 @@ impl Playback {
         }
         let file = self.cache_dir.join("audio").join(cache_name(&p.track.id));
         let (src, ext, gain) = self.stream_into(p, &file)?;
+        let gain = if self.normalize.load(std::sync::atomic::Ordering::Relaxed) { gain } else { 1.0 };
         Ok((Box::new(src), ext, gain))
     }
 
@@ -767,11 +958,20 @@ impl Playback {
     }
 
     fn start_index(self: &Arc<Self>, index: usize) {
+        self.drop_prep();
+        let Some(item) = self.announce(index) else { return };
+        let this = self.clone();
+        // Opening a stream does network round-trips; never on the UI thread.
+        std::thread::spawn(move || this.open_and_play(item, index));
+    }
+
+    /// Makes `index` the playing entry for everyone (queue, now playing, lyrics) without touching the sound.
+    fn announce(&self, index: usize) -> Option<Playable> {
         let item = {
             let mut q = self.queue.lock().expect("queue");
             if index >= q.0.len() {
                 self.now.send_modify(|n| n.playing = false);
-                return;
+                return None;
             }
             q.1 = index;
             q.0[index].clone()
@@ -815,9 +1015,12 @@ impl Playback {
                 }
             });
         }
-        let this = self.clone();
-        // Opening a stream does network round-trips; never on the UI thread.
-        std::thread::spawn(move || {
+        Some(item)
+    }
+
+    fn open_and_play(self: &Arc<Self>, item: Playable, index: usize) {
+        let this = self;
+        {
             let res = this.source_for(&item).and_then(|(src, ext, gain)| {
                 let player = this.player()?;
                 // A position picked before the track started (only for this very track).
@@ -869,7 +1072,7 @@ impl Playback {
                     }
                 }
             }
-        });
+        }
     }
 
     pub fn toggle(self: &Arc<Self>) {

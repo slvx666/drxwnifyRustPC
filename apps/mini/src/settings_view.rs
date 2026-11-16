@@ -55,6 +55,7 @@ pub fn fill(ui: &MainWindow, app: &App) {
     ui.set_autostart(crate::os::autostart_on());
     fill_flags(ui, app);
     fill_hotkeys(ui, app);
+    crate::sound_ui::fill(ui, app);
 }
 
 /// The playback switches (booleans of settings.preferences_pb, the phone's keys): (key, label, hint, default).

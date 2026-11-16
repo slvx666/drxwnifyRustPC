@@ -17,6 +17,7 @@ pub mod rooms;
 pub mod sleep;
 pub mod downloads;
 pub mod sponsorblock;
+pub mod sound;
 mod queue_store;
 mod search;
 pub mod social;
@@ -322,6 +323,14 @@ impl App {
     pub fn apply_playback_prefs(&self) {
         let on = self.pref_bool("autoSkipNextOnError").unwrap_or(false);
         self.inner.playback.skip_on_error.store(on, std::sync::atomic::Ordering::Relaxed);
+        self.apply_sound();
+    }
+    /// A number setting stored as a float in `settings.preferences_pb`.
+    pub fn pref_f32(&self, key: &str) -> Option<f32> {
+        std::fs::read(self.inner.profile.prefs_pb())
+            .ok()
+            .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
+            .and_then(|p| p.get_f32(key))
     }
     /// A number setting from `settings.preferences_pb`.
     pub fn pref_i64(&self, key: &str) -> Option<i64> {

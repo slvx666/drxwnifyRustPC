@@ -195,6 +195,22 @@ impl Equalizer {
     }
 }
 
+/// What the mixer applies to the finished mix: the equaliser, then the stereo balance (Android: the custom
+/// equaliser processor and BalanceAudioProcessor sit after the decoder for every track).
+pub struct PostFx {
+    pub eq: Option<Equalizer>,
+    pub balance: f32,
+}
+
+impl PostFx {
+    pub fn process(&mut self, samples: &mut [f32]) {
+        if let Some(e) = self.eq.as_mut() {
+            e.process(samples);
+        }
+        apply_balance(samples, self.balance);
+    }
+}
+
 /// Parses an AutoEq "ParametricEQ.txt" profile (ParametricEQParser.kt):
 /// `Preamp: -5.2 dB` and `Filter 1: ON PK Fc 105 Hz Gain 8.8 dB Q 0.70`.
 pub fn parse_autoeq(text: &str) -> EqProfile {

@@ -174,6 +174,30 @@ export struct FlagItem {
     on: bool,
 }
 
+// The sound section of the settings (the phone's keys): normalisation, crossfade, balance, graphic equaliser.
+export struct SoundData {
+    normalize: bool,
+    crossfade: bool,
+    crossfade-s: float,
+    album: bool,
+    balance: float, // −1..1
+    eq-on: bool,
+    gains: [float], // 10 bands, dB
+    eq-name: string, // the preset the gains match, or «Своя»
+    other: string, // an imported (AutoEq) profile is active: its name
+}
+
+// Shared by the settings page without passing it down every level.
+export global SoundUi {
+    in-out property <SoundData> data;
+    in property <[string]> presets;
+    in property <[string]> labels;
+    callback set-bool(string, bool);
+    callback set-num(string, float);
+    callback set-gain(int, float);
+    callback preset(int);
+}
+
 export struct LyricLine {
     text: string,
     time-ms: int,
@@ -1017,7 +1041,132 @@ component ArrowStrip inherits Rectangle {
     }
 }
 
+component Slider inherits Rectangle {
+    in property <float> value; // 0..1
+    in property <color> fill: Theme.text; // at rest
+    in property <float> total-s; // > 0: the time under the pointer shows above it (the seek bar)
+    in property <bool> live; // picks while dragging (volume), otherwise on release (seek)
+    callback picked(float);
+    height: 20px;
+    property <bool> hot: ta.has-hover || ta.pressed;
+    property <float> at: clamp(ta.mouse-x / max(1px, self.width), 0, 1);
+    // Let go: the knob stays there until playback reaches it (a seek takes a moment), at most 1.5 s.
+    property <float> held: -1;
+    property <float> shown: ta.pressed ? root.at : (root.held >= 0 ? root.held : clamp(root.value, 0, 1));
+    changed value => { if root.held >= 0 && abs(root.value - root.held) < 0.02 { root.held = -1; } }
+    Timer { interval: 1500ms; running: root.held >= 0; triggered => { root.held = -1; } }
+    property <int> tip-s: floor(root.total-s * root.at);
+    property <int> tip-m: floor(root.tip-s / 60);
+    Rectangle { y: (parent.height - 4px) / 2; height: 4px; border-radius: 2px; background: Theme.fill-hover; }
+    Rectangle {
+        x: 0;
+        y: (parent.height - 4px) / 2;
+        height: 4px;
+        width: parent.width * root.shown;
+        border-radius: 2px;
+        background: root.hot ? Theme.accent : root.fill;
+    }
+    if root.hot: Rectangle {
+        x: parent.width * root.shown - 6px;
+        y: (parent.height - 12px) / 2;
+        width: 12px;
+        height: 12px;
+        border-radius: 6px;
+        background: Theme.text;
+        drop-shadow-blur: 4px;
+        drop-shadow-color: #00000080;
+    }
+    if root.hot && root.total-s > 0: Rectangle {
+        property <length> w: tip.preferred-width + 16px;
+        x: clamp(ta.mouse-x - self.w / 2, -24px, root.width - self.w + 24px);
+        y: -30px;
+        width: self.w;
+        height: 26px;
+        border-radius: 5px;
+        background: Theme.menu;
+        border-color: Theme.panel-border;
+        border-width: 1px;
+        tip := Text {
+            text: root.tip-m + ":" + (root.tip-s - root.tip-m * 60 < 10 ? "0" : "") + (root.tip-s - root.tip-m * 60);
+            font-family: Theme.body-font;
+            font-size: 14px;
+            color: Theme.text;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        moved => {
+            if self.pressed && root.live { root.picked(root.at); }
+        }
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                if !root.live { root.held = root.at; }
+                root.picked(root.at);
+            }
+        }
+    }
+}
+
+// One band of the graphic equaliser: a vertical slider −12..+12 dB (steps of 0.5), the value above, the frequency
+// below. Dragging moves it; the gain is set on release.
+component EqBand inherits VerticalLayout {
+    in property <float> gain;
+    in property <string> label;
+    in property <bool> enabled;
+    callback picked(float);
+    property <float> drag;
+    property <float> shown: ta.pressed ? root.drag : root.gain;
+    width: 44px;
+    spacing: 6px;
+    Text {
+        text: (root.shown > 0 ? "+" : "") + round(root.shown * 2) / 2;
+        font-family: Theme.body-font; font-size: 13px; color: root.enabled ? Theme.text : Theme.mute;
+        horizontal-alignment: center;
+    }
+    Rectangle {
+        height: 150px;
+        Rectangle { x: (parent.width - 4px) / 2; width: 4px; border-radius: 2px; background: Theme.fill-hover; }
+        Rectangle { x: (parent.width - 16px) / 2; y: parent.height / 2; width: 16px; height: 1px; background: Theme.panel-border; }
+        Rectangle {
+            property <length> vy: parent.height * (1 - (root.shown + 12) / 24);
+            x: (parent.width - 4px) / 2;
+            y: min(self.vy, parent.height / 2);
+            width: 4px;
+            height: abs(self.vy - parent.height / 2);
+            border-radius: 2px;
+            background: root.enabled ? Theme.accent : Theme.dim;
+        }
+        Rectangle {
+            x: (parent.width - 14px) / 2;
+            y: parent.height * (1 - (root.shown + 12) / 24) - 7px;
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            background: ta.has-hover || ta.pressed ? Theme.text : (root.enabled ? Theme.text : Theme.dim);
+            drop-shadow-blur: 4px;
+            drop-shadow-color: #00000080;
+        }
+        ta := TouchArea {
+            mouse-cursor: pointer;
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                    root.drag = clamp(round((1 - self.mouse-y / self.height) * 48 - 24) / 2, -12, 12);
+                }
+                if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                    root.picked(root.drag);
+                }
+            }
+            moved => {
+                if self.pressed { root.drag = clamp(round((1 - self.mouse-y / self.height) * 48 - 24) / 2, -12, 12); }
+            }
+        }
+    }
+    Text { text: root.label; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; horizontal-alignment: center; }
+}
+
 component SettingsPage inherits Flickable {
+    // Scrolled by the wheel only: a drag belongs to the sliders (equaliser bands), not to the page.
+    interactive: false;
     // Its content would cap the window (Settings squeezed it to the minimum width and stopped «maximise»).
     min-width: 0;
     max-width: 100000px;
@@ -1101,6 +1250,103 @@ component SettingsPage inherits Flickable {
             label: f.label;
             hint: f.hint;
             Middle { Toggle { on: f.on; toggled(v) => { root.set-flag(f.key, v); } } }
+        }
+        Rectangle { height: 8px; }
+        Caption { text: "ЗВУК"; }
+        SettingRow {
+            label: "Нормализация громкости";
+            hint: "Треки с YouTube звучат одинаково громко";
+            Middle { Toggle { on: SoundUi.data.normalize; toggled(v) => { SoundUi.set-bool("audioNormalization", v); } } }
+        }
+        SettingRow {
+            label: "Кроссфейд";
+            hint: "Текущий трек плавно затухает, пока нарастает следующий";
+            Middle { Toggle { on: SoundUi.data.crossfade; toggled(v) => { SoundUi.set-bool("crossfadeEnabled", v); } } }
+        }
+        if SoundUi.data.crossfade: SettingRow {
+            label: "Длительность кроссфейда";
+            hint: round(SoundUi.data.crossfade-s) + " с";
+            Middle {
+                Slider {
+                    width: 240px;
+                    value: (SoundUi.data.crossfade-s - 1) / 14;
+                    picked(v) => { SoundUi.set-num("crossfadeDurationFloat", round(1 + v * 14)); }
+                }
+            }
+        }
+        if SoundUi.data.crossfade: SettingRow {
+            label: "Отключать для альбомов без пауз";
+            hint: "Треки одного альбома идут встык, без затухания";
+            Middle { Toggle { on: SoundUi.data.album; toggled(v) => { SoundUi.set-bool("crossfadeGapless", v); } } }
+        }
+        SettingRow {
+            property <float> b: SoundUi.data.balance;
+            label: "Баланс";
+            hint: abs(self.b) < 0.005 ? "По центру"
+                : "Л " + round((self.b > 0 ? 1 - self.b : 1) * 100) + "% · П " + round((self.b < 0 ? 1 + self.b : 1) * 100) + "%";
+            if abs(SoundUi.data.balance) >= 0.005: Middle {
+                Rectangle {
+                    height: 30px;
+                    width: bc.preferred-width + 24px;
+                    border-radius: min(Theme.chip-radius, 15px);
+                    background: bca.has-hover ? Theme.fill-hover : transparent;
+                    border-color: Theme.panel-border;
+                    border-width: 1px;
+                    bc := Text { text: "По центру"; font-family: Theme.body-font; font-size: 14px; color: Theme.text; }
+                    bca := TouchArea { mouse-cursor: pointer; clicked => { SoundUi.set-num("stereoBalance", 0); } }
+                }
+            }
+            Middle {
+                Slider {
+                    width: 240px;
+                    value: (SoundUi.data.balance + 1) / 2;
+                    picked(v) => { SoundUi.set-num("stereoBalance", abs(v * 2 - 1) < 0.04 ? 0 : round((v * 2 - 1) * 100) / 100); }
+                }
+            }
+        }
+        SettingRow {
+            label: "Эквалайзер";
+            hint: SoundUi.data.other != "" ? "Включён профиль «" + SoundUi.data.other + "» с телефона; полосы ниже заменят его"
+                : (SoundUi.data.eq-on ? SoundUi.data.eq-name : "Выключен");
+            Middle { Toggle { on: SoundUi.data.eq-on; toggled(v) => { SoundUi.set-bool("eq", v); } } }
+        }
+        presets-strip := ArrowStrip {
+            property <int> hover-i: -1;
+            height: 40px;
+            content-w: prow.preferred-width;
+            hot: self.hover-i >= 0;
+            arrow-y: 0px;
+            prow := HorizontalLayout {
+                spacing: 8px;
+                height: 40px;
+                for p[i] in SoundUi.presets: pm := Middle {
+                    property <bool> sel: SoundUi.data.eq-on && SoundUi.data.other == "" && SoundUi.data.eq-name == p;
+                    Rectangle {
+                        height: 32px;
+                        width: pt.preferred-width + 24px;
+                        border-radius: min(Theme.chip-radius, 16px);
+                        background: pm.sel ? Theme.accent : (pa.has-hover ? Theme.fill-hover : Theme.fill);
+                        pt := Text { text: p; font-family: Theme.body-font; font-size: 14px; color: pm.sel ? Theme.bg : Theme.text; }
+                        pa := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { SoundUi.preset(i); }
+                            changed has-hover => {
+                                if self.has-hover { presets-strip.hover-i = i; } else if presets-strip.hover-i == i { presets-strip.hover-i = -1; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: start;
+            spacing: 6px;
+            for g[i] in SoundUi.data.gains: EqBand {
+                gain: g;
+                label: SoundUi.labels[i];
+                enabled: SoundUi.data.eq-on && SoundUi.data.other == "";
+                picked(v) => { SoundUi.set-gain(i, v); }
+            }
         }
         Rectangle { height: 8px; }
         Caption { text: "ОФОРМЛЕНИЕ"; }
@@ -2304,71 +2550,6 @@ component RightPanel inherits VerticalLayout {
     }
 }
 
-component Slider inherits Rectangle {
-    in property <float> value; // 0..1
-    in property <color> fill: Theme.text; // at rest
-    in property <float> total-s; // > 0: the time under the pointer shows above it (the seek bar)
-    in property <bool> live; // picks while dragging (volume), otherwise on release (seek)
-    callback picked(float);
-    height: 20px;
-    property <bool> hot: ta.has-hover || ta.pressed;
-    property <float> at: clamp(ta.mouse-x / max(1px, self.width), 0, 1);
-    // Let go: the knob stays there until playback reaches it (a seek takes a moment), at most 1.5 s.
-    property <float> held: -1;
-    property <float> shown: ta.pressed ? root.at : (root.held >= 0 ? root.held : clamp(root.value, 0, 1));
-    changed value => { if root.held >= 0 && abs(root.value - root.held) < 0.02 { root.held = -1; } }
-    Timer { interval: 1500ms; running: root.held >= 0; triggered => { root.held = -1; } }
-    property <int> tip-s: floor(root.total-s * root.at);
-    property <int> tip-m: floor(root.tip-s / 60);
-    Rectangle { y: (parent.height - 4px) / 2; height: 4px; border-radius: 2px; background: Theme.fill-hover; }
-    Rectangle {
-        x: 0;
-        y: (parent.height - 4px) / 2;
-        height: 4px;
-        width: parent.width * root.shown;
-        border-radius: 2px;
-        background: root.hot ? Theme.accent : root.fill;
-    }
-    if root.hot: Rectangle {
-        x: parent.width * root.shown - 6px;
-        y: (parent.height - 12px) / 2;
-        width: 12px;
-        height: 12px;
-        border-radius: 6px;
-        background: Theme.text;
-        drop-shadow-blur: 4px;
-        drop-shadow-color: #00000080;
-    }
-    if root.hot && root.total-s > 0: Rectangle {
-        property <length> w: tip.preferred-width + 16px;
-        x: clamp(ta.mouse-x - self.w / 2, -24px, root.width - self.w + 24px);
-        y: -30px;
-        width: self.w;
-        height: 26px;
-        border-radius: 5px;
-        background: Theme.menu;
-        border-color: Theme.panel-border;
-        border-width: 1px;
-        tip := Text {
-            text: root.tip-m + ":" + (root.tip-s - root.tip-m * 60 < 10 ? "0" : "") + (root.tip-s - root.tip-m * 60);
-            font-family: Theme.body-font;
-            font-size: 14px;
-            color: Theme.text;
-        }
-    }
-    ta := TouchArea {
-        mouse-cursor: pointer;
-        moved => {
-            if self.pressed && root.live { root.picked(root.at); }
-        }
-        pointer-event(e) => {
-            if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
-                if !root.live { root.held = root.at; }
-                root.picked(root.at);
-            }
-        }
-    }
-}
 
 // Player bar: three sections as wide as the columns above (library | content | now playing).
 component PlayerBar inherits HorizontalLayout {

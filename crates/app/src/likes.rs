@@ -142,7 +142,7 @@ fn err(e: impl std::fmt::Display) -> AppError {
 }
 
 impl App {
-    fn shared(&self, name: &str) -> SharedPrefs {
+    pub(crate) fn shared(&self, name: &str) -> SharedPrefs {
         std::fs::read_to_string(self.inner.profile.shared_prefs(name))
             .ok()
             .and_then(|x| SharedPrefs::parse(&x).ok())

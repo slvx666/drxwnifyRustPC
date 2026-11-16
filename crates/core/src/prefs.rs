@@ -55,6 +55,13 @@ impl Prefs {
             _ => None,
         }
     }
+    pub fn get_f32(&self, key: &str) -> Option<f32> {
+        match self.get(key)? {
+            PrefValue::Float(v) => Some(*v),
+            PrefValue::Double(v) => Some(*v as f32),
+            _ => None,
+        }
+    }
     pub fn set(&mut self, key: impl Into<String>, value: PrefValue) {
         self.values.insert(key.into(), value);
     }
