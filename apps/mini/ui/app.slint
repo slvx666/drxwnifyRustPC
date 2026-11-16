@@ -47,6 +47,11 @@ export struct ChatItem {
     sticker-ratio: float, // their widths / height, added up
     reply-who: string, // an answer: whose message it answers («Вы» / the friend); empty when not an answer
     reply-text: string,
+    reply-index: int, // the answered message's row (-1: not loaded)
+    day: string, // the date badge above it (the day's first message), else empty
+    first: bool, // opens a group (Telegram attaches a sender's messages within 15 minutes)
+    last: bool, // closes a group: the bubble has its tail
+    unread-bar: bool, // «Непрочитанные сообщения» above it
 }
 
 export struct SongItem {
@@ -1223,7 +1228,7 @@ component FlagRow inherits VerticalLayout {
 component SettingsPage inherits Flickable {
     // Scrolled by the wheel only: a drag belongs to the sliders (equaliser bands), not to the page.
     interactive: false;
-    viewport-y: -SettingsUi.start-y;
+    content-y: -SettingsUi.start-y;
     // Its content would cap the window (Settings squeezed it to the minimum width and stopped «maximise»).
     min-width: 0;
     max-width: 100000px;
@@ -2811,61 +2816,126 @@ component Avatar inherits Rectangle {
 
 // One chat message (pc/ FriendChat): mine on the right in the accent's tint, the friend's on the left; a shared
 // track, album or artist on top with its play button; time, «изменено» and (mine) sent / read under the text.
+// A message as Telegram Desktop draws it (ui/chat/chat.style): a bubble up to 430 px, padding 11/8, large corners 16 px
+// and small ones where it attaches to its group, the tail on a group's last message, time and ticks at the bottom
+// right (on the text's line when it fits), reactions above them. A double click answers it; a click on its quote goes
+// to the quoted message; hovering shows the quick ♥.
 component ChatBubble inherits Rectangle {
     in property <ChatItem> m;
-    in property <length> max-w: 480px;
+    in property <length> max-w: 430px;
+    in property <bool> flash; // just jumped to: lit for a moment
     callback play();
     callback react(string);
     callback menu(length, length);
-    // Behind the content: a right press opens the message menu (the play button inside still gets its presses).
-    TouchArea {
+    callback reply();
+    callback quote();
+    property <length> big-r: 16px;
+    property <length> small-r: 6px;
+    property <color> fill: root.m.mine ? Theme.accent.mix(Theme.bg, 0.24) : Theme.fill-hover;
+    property <bool> big: root.m.stickers.length > 0;
+    property <bool> q-hot;
+    property <bool> h-hot;
+    property <bool> hot: bg.has-hover || root.q-hot || root.h-hot;
+    probe := Text { visible: false; text: root.m.text; font-family: Theme.body-font; font-size: 15px; }
+    // Time, «изменено» and ticks; on the last line of a one-line text when there is room.
+    property <length> meta-w: meta-probe.preferred-width;
+    meta-probe := HorizontalLayout {
+        visible: false;
+        spacing: 4px;
+        Text { text: root.m.time; font-size: 13px; }
+        if root.m.edited: Text { text: "изменено"; font-size: 13px; }
+        if root.m.mine: Rectangle { width: 16px; }
+    }
+    property <length> text-max: root.max-w - 22px;
+    property <bool> one-line: root.m.text != "" && probe.preferred-height < 26px;
+    property <bool> inline-meta: root.one-line && root.m.reactions.length == 0 && probe.preferred-width + 10px + root.meta-w <= root.text-max;
+    property <length> text-w: min(root.text-max, probe.preferred-width + 1px);
+    property <length> sticker-h: root.big ? min(96px, (root.max-w - 22px - (root.m.stickers.length - 1) * 4px) / max(0.1, root.m.sticker-ratio)) : 0px;
+    property <length> sticker-w: root.sticker-h * root.m.sticker-ratio + (root.m.stickers.length - 1) * 4px;
+    property <length> card-w: root.m.has-music || root.m.reply-who != "" ? min(root.text-max, root.m.has-music ? 300px : 200px) : 0px;
+    property <length> inner-w: max(root.card-w, max(root.inline-meta ? root.text-w + 10px + root.meta-w : max(root.text-w, root.meta-w), root.sticker-w));
+    width: min(root.max-w, root.inner-w + 22px);
+    height: col.preferred-height;
+    background: root.big ? transparent : (root.flash ? root.fill.mix(Theme.accent, 0.6) : root.fill);
+    animate background { duration: 400ms; }
+    // Corners: big outside, small where the group continues; none at the tail.
+    border-top-left-radius: root.m.mine || root.m.first ? root.big-r : root.small-r;
+    border-bottom-left-radius: root.m.mine ? root.big-r : (root.m.last ? 0px : root.small-r);
+    border-top-right-radius: !root.m.mine || root.m.first ? root.big-r : root.small-r;
+    border-bottom-right-radius: !root.m.mine ? root.big-r : (root.m.last ? 0px : root.small-r);
+    // The tail (Telegram's bubble corner) on a group's last message.
+    if root.m.last && !root.big: Path {
+        x: root.m.mine ? root.width : -9px;
+        y: root.height - 14px;
+        width: 9px;
+        height: 14px;
+        viewbox-width: 9;
+        viewbox-height: 14;
+        fill: root.flash ? root.fill.mix(Theme.accent, 0.6) : root.fill;
+        commands: root.m.mine ? "M 0 0 C 0 8 3 12 9 14 L 0 14 Z" : "M 9 0 C 9 8 6 12 0 14 L 9 14 Z";
+    }
+    // Behind the content: right press = the menu, double click = answer (Telegram's default quick action).
+    bg := TouchArea {
         pointer-event(e) => {
             if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                 root.menu(root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
             }
         }
+        double-clicked => { root.reply(); }
     }
-    probe := Text { visible: false; text: root.m.text; font-family: Theme.body-font; font-size: 15px; }
-    property <length> text-w: min(root.max-w - 24px, probe.preferred-width + 1px);
-    property <bool> big: root.m.stickers.length > 0;
-    // Stickers 96 px high, smaller when a row of them would be wider than the bubble may be.
-    property <length> sticker-h: root.big ? min(96px, (root.max-w - 24px - (root.m.stickers.length - 1) * 4px) / max(0.1, root.m.sticker-ratio)) : 0px;
-    property <length> sticker-w: root.sticker-h * root.m.sticker-ratio + (root.m.stickers.length - 1) * 4px;
-    property <length> inner-w: max(root.m.has-music || root.m.reply-who != "" ? min(root.max-w - 24px, max(root.m.has-music ? root.max-w : 0px, 260px)) : 0px, max(max(root.text-w, root.sticker-w), meta.preferred-width));
-    width: root.inner-w + 24px;
-    height: col.preferred-height;
-    border-radius: 14px;
-    background: root.big ? transparent : (root.m.mine ? Theme.accent.mix(Theme.bg, 0.16) : Theme.fill);
-    border-color: root.m.mine ? Theme.accent.mix(Theme.bg, 0.35) : Theme.panel-border;
-    border-width: root.big ? 0px : 1px;
+    // The quick reaction beside the bubble while it is hovered.
+    if root.hot && !root.big: Rectangle {
+        x: root.m.mine ? -34px : root.width + 6px;
+        y: root.height - 28px;
+        width: 28px;
+        height: 28px;
+        border-radius: 14px;
+        background: hra.has-hover ? Theme.fill-hover : Theme.menu;
+        drop-shadow-blur: 6px;
+        drop-shadow-color: #00000050;
+        Icon { icon: Icons.heart; size: 14px; color: hra.has-hover ? Theme.accent : Theme.dim; }
+        hra := TouchArea { mouse-cursor: pointer; clicked => { root.react("e:❤️"); } changed has-hover => { root.h-hot = self.has-hover; } }
+    }
     col := VerticalLayout {
         width: root.width;
-        padding: 12px;
+        padding-left: 11px;
+        padding-right: 11px;
+        padding-top: root.big ? 0px : 7px;
+        padding-bottom: root.big ? 0px : 7px;
         spacing: 4px;
-        // The message it answers (Telegram's quote): an accent bar, who, the text in one line.
-        if root.m.reply-who != "": HorizontalLayout {
-            spacing: 8px;
-            padding-bottom: 2px;
-            Rectangle { width: 3px; border-radius: 1.5px; background: Theme.accent; }
-            VerticalLayout {
-                spacing: 1px;
-                horizontal-stretch: 1;
-                Text { text: root.m.reply-who; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.accent; overflow: elide; }
-                Text { text: root.m.reply-text; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+        // The message it answers (Telegram's quote): an accent bar, who, the text in one line; a click goes there.
+        if root.m.reply-who != "": Rectangle {
+            height: qrow.preferred-height + 8px;
+            border-radius: 6px;
+            background: qa.has-hover ? Theme.accent.mix(Theme.bg, 0.30) : Theme.accent.mix(Theme.bg, 0.12);
+            qrow := HorizontalLayout {
+                spacing: 8px;
+                padding-right: 8px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+                Rectangle { width: 3px; border-radius: 1.5px; background: Theme.accent; }
+                VerticalLayout {
+                    spacing: 1px;
+                    horizontal-stretch: 1;
+                    Text { text: root.m.reply-who; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.accent; overflow: elide; }
+                    Text { text: root.m.reply-text; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+                }
             }
+            qa := TouchArea { mouse-cursor: root.m.reply-index >= 0 ? pointer : default; clicked => { root.quote(); } changed has-hover => { root.q-hot = self.has-hover; } }
         }
         if root.m.has-music: HorizontalLayout {
             spacing: 10px;
-            padding-bottom: 4px;
-            Middle { Cover { size: 44px; source: root.m.music-cover; has-source: root.m.has-music-cover; radius: 8px; placeholder: root.m.music-kind == "artist" ? Icons.user-circle : (root.m.music-kind == "album" ? Icons.album : Icons.music); } }
+            padding-top: 2px;
+            padding-bottom: 2px;
+            Middle { IconButton { icon: root.m.music-kind == "track" ? Icons.play : Icons.chevron-right; size: 40px; icon-size: 18px; filled: true; clicked => { root.play(); } } }
             VerticalLayout {
                 alignment: center;
                 spacing: 2px;
                 horizontal-stretch: 1;
                 Text { text: root.m.music-title; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.text; overflow: elide; }
-                Text { text: root.m.music-by; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
+                Text { text: root.m.music-by; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
             }
-            Middle { IconButton { icon: root.m.music-kind == "track" ? Icons.play : Icons.chevron-right; size: 32px; icon-size: 16px; filled: true; clicked => { root.play(); } } }
+            Middle { Cover { size: 44px; source: root.m.music-cover; has-source: root.m.has-music-cover; radius: 8px; placeholder: root.m.music-kind == "artist" ? Icons.user-circle : (root.m.music-kind == "album" ? Icons.album : Icons.music); } }
         }
         if root.big: HorizontalLayout {
             spacing: 4px;
@@ -2877,58 +2947,67 @@ component ChatBubble inherits Rectangle {
                 image-fit: contain;
             }
         }
-        if root.m.text != "": Text {
+        if root.m.text != "" && !root.inline-meta: Text {
             text: root.m.text;
             wrap: word-wrap;
             font-family: Theme.body-font;
             font-size: 15px;
             color: Theme.text;
         }
-        meta := HorizontalLayout {
-            spacing: 6px;
+        if root.m.reactions.length > 0: HorizontalLayout {
+            spacing: 4px;
             alignment: start;
-            Text { text: root.m.time; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; }
-            if root.m.edited: Text { text: "изменено"; font-family: Theme.mono-font; font-size: 11px; color: Theme.mute; vertical-alignment: center; }
-            if root.m.mine: Middle {
-                Icon {
-                    size: 12px;
-                    icon: root.m.state == 2 ? Icons.alert-circle : (root.m.state == 0 ? Icons.clock : (root.m.read ? Icons.circle-check : Icons.check));
-                    color: root.m.state == 2 ? #E5484D : (root.m.read ? Theme.accent : Theme.mute);
-                }
-            }
-            if root.m.mine && root.m.state == 2: Text { text: "не отправлено"; font-family: Theme.mono-font; font-size: 11px; color: #E5484D; vertical-alignment: center; }
-            Rectangle { width: 4px; }
             for r in root.m.reactions: Rectangle {
-                height: 22px;
-                border-radius: 11px;
-                background: r.mine ? Theme.accent.mix(Theme.bg, 0.3) : Theme.fill-hover;
-                border-width: r.mine ? 1px : 0px;
-                border-color: Theme.accent;
-                HorizontalLayout {
-                    padding-left: 6px;
-                    padding-right: r.count > 1 || (r.pic < 0 && r.sticker < 0) ? 8px : 6px;
+                height: 26px;
+                width: rrow.preferred-width;
+                border-radius: 13px;
+                background: r.mine ? Theme.accent : Theme.accent.mix(Theme.bg, 0.18);
+                rrow := HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
                     spacing: 4px;
-                    if r.pic >= 0: Middle { Image { source: Emoji.all[r.pic]; width: 15px; height: 15px; } }
-                    if r.sticker >= 0: Middle { Image { source: Stickers.all[r.sticker]; width: 18px * r.ratio; height: 18px; image-fit: contain; } }
+                    if r.pic >= 0: Middle { Image { source: Emoji.all[r.pic]; width: 16px; height: 16px; } }
+                    if r.sticker >= 0: Middle { Image { source: Stickers.all[r.sticker]; width: 20px * r.ratio; height: 20px; image-fit: contain; } }
                     if (r.pic < 0 && r.sticker < 0) || r.count > 1: Text {
                         text: r.pic < 0 && r.sticker < 0 ? (r.count > 1 ? r.label + " " + r.count : r.label) : r.count;
-                        font-family: Theme.mono-font;
-                        font-size: 12px;
-                        color: Theme.text;
+                        font-family: Theme.body-font;
+                        font-weight: 700;
+                        font-size: 13px;
+                        color: r.mine ? Theme.bg : Theme.text;
                         vertical-alignment: center;
                     }
                 }
                 TouchArea { mouse-cursor: pointer; clicked => { root.react(r.key); } }
             }
-            Middle {
-                Rectangle {
-                    width: 18px;
-                    height: 18px;
-                    Icon { icon: Icons.heart; size: 12px; color: ha.has-hover ? Theme.accent : Theme.mute; }
-                    ha := TouchArea { mouse-cursor: pointer; clicked => { root.react("e:❤️"); } }
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            if root.inline-meta: Text {
+                text: root.m.text;
+                font-family: Theme.body-font;
+                font-size: 15px;
+                color: Theme.text;
+                horizontal-stretch: 1;
+            }
+            if !root.inline-meta: Rectangle { horizontal-stretch: 1; }
+            meta := HorizontalLayout {
+                spacing: 4px;
+                alignment: end;
+                horizontal-stretch: 0;
+                if root.m.edited: Text { text: "изменено"; font-family: Theme.body-font; font-size: 13px; color: Theme.mute; vertical-alignment: bottom; }
+                Text { text: root.m.time; font-family: Theme.body-font; font-size: 13px; color: root.big ? Theme.dim : Theme.mute; vertical-alignment: bottom; }
+                if root.m.mine: VerticalLayout {
+                    alignment: end;
+                    padding-bottom: 2px;
+                    Icon {
+                        size: 16px;
+                        icon: root.m.state == 2 ? Icons.alert-circle : (root.m.state == 0 ? Icons.clock : (root.m.read ? Icons.checks : Icons.check));
+                        color: root.m.state == 2 ? #E5484D : (root.m.read ? Theme.accent : Theme.mute);
+                    }
                 }
             }
         }
+        if root.m.mine && root.m.state == 2: Text { text: "Не отправлено"; font-family: Theme.body-font; font-size: 13px; color: #E5484D; horizontal-alignment: right; }
     }
 }
 
@@ -3241,6 +3320,15 @@ component FriendsView inherits Rectangle {
     callback chat-react(int, string);
     callback chat-menu(int, length, length);
     callback chat-cancel-edit();
+    callback chat-act(int, string); // Telegram keys: «reply» (double click), «escape», «edit-last» (↑)
+    in-out property <int> chat-jump: -1; // the first look at a chat: show this row (the unread line) at the top
+    property <bool> chat-stick: true; // the view follows the end of the conversation
+    property <int> chat-unseen: 0; // messages that came while scrolled up (the badge on the down button)
+    property <int> chat-focus: -1; // a quote was clicked: go to this row
+    property <int> chat-flash: -1; // the row just jumped to, lit for a moment
+    property <int> chat-count: root.f-chat.length;
+    changed chat-count => { if !root.chat-stick { root.chat-unseen += 1; } }
+    flash-timer := Timer { interval: 1200ms; running: false; triggered => { root.chat-flash = -1; self.running = false; } }
     callback along();
     callback remove();
     in property <string> f-likes;
@@ -3507,41 +3595,110 @@ component FriendsView inherits Rectangle {
             Chip { label: root.f-likes == "" ? "Любимые" : "Любимые · " + root.f-likes; selected: root.f-tab == "likes"; clicked => { root.set-tab("likes"); } }
             Chip { label: "Плейлисты"; selected: root.f-tab == "playlists"; clicked => { root.set-tab("playlists"); } }
         }
-        if root.f-tab == "chat": chat := Flickable {
+        if root.f-tab == "chat": Rectangle {
             vertical-stretch: 1;
             // Its content would cap it (an empty chat is a few pixels tall): the page gives it all the room left.
             min-height: 120px;
             max-height: 100000px;
-            content-height: max(self.height, msgs.preferred-height);
-            // New messages and the first look keep the end of the conversation in view.
-            changed content-height => { self.content-y = min(0px, self.height - self.content-height); }
-            changed height => { self.content-y = min(0px, self.height - self.content-height); }
-            msgs := VerticalLayout {
-                y: max(0px, chat.height - self.preferred-height);
-                width: chat.width;
-                padding-top: 6px;
-                padding-bottom: 14px;
-                spacing: 10px;
-                for m[i] in root.f-chat: Rectangle {
-                    height: b.height;
-                    b := ChatBubble {
-                        m: m;
-                        max-w: min(480px, (chat.width - 2 * Grid.pad) * 0.8);
-                        x: m.mine ? parent.width - self.width - Grid.pad : Grid.pad + 4px;
-                        play => { root.chat-play(i); }
-                        react(k) => { root.chat-react(i, k); }
-                        menu(x, y) => { root.chat-menu(i, x, y); }
+            chat := Flickable {
+                width: 100%;
+                height: 100%;
+                content-height: max(self.height, msgs.preferred-height);
+                property <length> bottom-y: min(0px, self.height - self.content-height);
+                // At the end: new messages keep it there (Telegram); scrolled up, they only count on the down button.
+                changed content-height => { if root.chat-stick && root.chat-jump < 0 { self.content-y = self.bottom-y; } }
+                changed height => { if root.chat-stick { self.content-y = self.bottom-y; } }
+                changed content-y => {
+                    root.chat-stick = self.content-y <= self.bottom-y + 60px;
+                    if root.chat-stick { root.chat-unseen = 0; }
+                }
+                property <bool> go-end: root.chat-stick;
+                changed go-end => { if self.go-end { self.content-y = self.bottom-y; } }
+                msgs := VerticalLayout {
+                    y: max(0px, chat.height - self.preferred-height);
+                    width: chat.width;
+                    padding-top: 6px;
+                    padding-bottom: 10px;
+                    spacing: 0px;
+                    for m[i] in root.f-chat: row := VerticalLayout {
+                        padding-top: m.first ? 8px : 2px;
+                        spacing: 0px;
+                        // Go to this row: the unread line on the first look, or a clicked quote.
+                        property <bool> wanted: root.chat-jump == i || root.chat-focus == i;
+                        function show() {
+                            chat.content-y = max(chat.bottom-y, min(0px, -(msgs.y + self.y) + (root.chat-focus == i ? chat.height / 3 : 8px)));
+                            if root.chat-focus == i { root.chat-flash = i; flash-timer.running = true; }
+                            root.chat-jump = -1;
+                            root.chat-focus = -1;
+                        }
+                        init => { if self.wanted { self.show(); } }
+                        changed wanted => { if self.wanted { self.show(); } }
+                        // The date badge (Telegram's service date): centred, on the day's first message.
+                        if m.day != "": HorizontalLayout {
+                            alignment: center;
+                            padding-top: 8px;
+                            padding-bottom: 6px;
+                            Rectangle {
+                                height: 26px;
+                                width: dt.preferred-width + 24px;
+                                border-radius: 13px;
+                                background: Theme.menu;
+                                dt := Text { text: m.day; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.dim; }
+                            }
+                        }
+                        if m.unread-bar: Rectangle {
+                            height: 32px;
+                            background: Theme.fill;
+                            Text { text: "Непрочитанные сообщения"; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.dim; }
+                        }
+                        if m.unread-bar: Rectangle { height: 8px; }
+                        Rectangle {
+                            height: b.height;
+                            b := ChatBubble {
+                                m: m;
+                                flash: root.chat-flash == i;
+                                max-w: min(430px, (chat.width - 2 * Grid.pad) * 0.8);
+                                x: m.mine ? parent.width - self.width - Grid.pad - 9px : Grid.pad + 13px;
+                                play => { root.chat-play(i); }
+                                react(k) => { root.chat-react(i, k); }
+                                menu(x, y) => { root.chat-menu(i, x, y); }
+                                reply => { root.chat-act(i, "reply"); }
+                                quote => { if m.reply-index >= 0 { root.chat-focus = m.reply-index; } }
+                            }
+                        }
                     }
                 }
+                if root.f-chat.length == 0: VerticalLayout {
+                    width: chat.width;
+                    height: chat.height;
+                    alignment: center;
+                    spacing: 6px;
+                    HorizontalLayout { alignment: center; Icon { icon: Icons.message; size: 32px; color: Theme.dim; } }
+                    Text { text: "В чате пока тихо"; horizontal-alignment: center; font-family: Theme.body-font; font-weight: 700; font-size: 16px; color: Theme.text; }
+                    Text { text: "Напиши " + root.f-name + " первое сообщение!"; horizontal-alignment: center; font-family: Theme.mono-font; font-size: 13px; color: Theme.mute; }
+                }
             }
-            if root.f-chat.length == 0: VerticalLayout {
-                width: chat.width;
-                height: chat.height;
-                alignment: center;
-                spacing: 6px;
-                HorizontalLayout { alignment: center; Icon { icon: Icons.message; size: 32px; color: Theme.dim; } }
-                Text { text: "В чате пока тихо"; horizontal-alignment: center; font-family: Theme.body-font; font-weight: 700; font-size: 16px; color: Theme.text; }
-                Text { text: "Напиши " + root.f-name + " первое сообщение!"; horizontal-alignment: center; font-family: Theme.mono-font; font-size: 13px; color: Theme.mute; }
+            // Telegram's «down» button: appears when scrolled up, counts what came meanwhile, goes to the end.
+            if !root.chat-stick: Rectangle {
+                x: parent.width - self.width - Grid.pad - 4px;
+                y: parent.height - self.height - 10px;
+                width: 44px;
+                height: 44px;
+                border-radius: 22px;
+                background: dna.has-hover ? Theme.fill-hover : Theme.menu;
+                drop-shadow-blur: 10px;
+                drop-shadow-color: #00000060;
+                Icon { icon: Icons.chevron-down; size: 22px; color: Theme.text; }
+                if root.chat-unseen > 0: Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: -10px;
+                    height: 20px;
+                    width: max(20px, uc.preferred-width + 10px);
+                    border-radius: 10px;
+                    background: Theme.accent;
+                    uc := Text { text: root.chat-unseen; font-family: Theme.body-font; font-weight: 700; font-size: 12px; color: Theme.bg; }
+                }
+                dna := TouchArea { mouse-cursor: pointer; clicked => { root.chat-stick = true; root.chat-unseen = 0; } }
             }
         }
         if root.f-tab == "chat" && root.chat-replying != "": HorizontalLayout {
@@ -3570,37 +3727,58 @@ component FriendsView inherits Rectangle {
             padding-right: Grid.pad;
             padding-bottom: Grid.pad;
             Rectangle {
-                height: 46px;
+                // Grows with the text up to about six lines (Telegram), then scrolls inside.
+                height: clamp(chat-input.preferred-height + 26px, 46px, 168px);
                 border-radius: 12px;
                 background: Theme.fill;
                 border-color: chat-input.has-focus ? Theme.accent : Theme.panel-border;
                 border-width: 1px;
                 if root.chat-text == "": Text {
                     x: 16px;
-                    height: parent.height;
+                    y: 13px;
                     text: "Написать сообщение…";
-                    font-family: Theme.mono-font;
-                    font-size: 14px;
-                    color: Theme.mute;
-                    vertical-alignment: center;
-                }
-                chat-input := TextInput {
-                    x: 16px;
-                    width: parent.width - 16px - 82px;
-                    height: parent.height;
-                    text <=> root.chat-text;
                     font-family: Theme.body-font;
                     font-size: 15px;
-                    color: Theme.text;
-                    vertical-alignment: center;
-                    single-line: true;
-                    accepted => { root.chat-send(self.text); }
-                    edited => { if self.text != "" { root.chat-typing(); } }
+                    color: Theme.mute;
+                }
+                // Telegram's keys: Enter sends, Shift+Enter breaks the line, Esc drops the answer or the change,
+                // ↑ in an empty field changes the last own message.
+                keys := FocusScope {
+                    x: 16px;
+                    y: 12px;
+                    width: parent.width - 16px - 82px;
+                    height: parent.height - 24px;
+                    capture-key-pressed(e) => {
+                        if e.text == Key.Return && !e.modifiers.shift && !e.modifiers.control {
+                            if root.chat-text != "" { root.chat-stick = true; root.chat-send(root.chat-text); }
+                            return EventResult.accept;
+                        }
+                        if e.text == Key.Escape {
+                            root.stickers-open = false;
+                            root.chat-act(-1, "escape");
+                            return EventResult.accept;
+                        }
+                        if e.text == Key.UpArrow && root.chat-text == "" {
+                            root.chat-act(-1, "edit-last");
+                            return EventResult.accept;
+                        }
+                        return EventResult.reject;
+                    }
+                    chat-input := TextInput {
+                        width: parent.width;
+                        text <=> root.chat-text;
+                        font-family: Theme.body-font;
+                        font-size: 15px;
+                        color: Theme.text;
+                        single-line: false;
+                        wrap: word-wrap;
+                        edited => { if self.text != "" { root.chat-typing(); } }
+                    }
                 }
                 // Stickers (Telegram: the smile in the field opens the panel above it).
                 IconButton {
                     x: parent.width - self.width - 41px;
-                    y: (parent.height - self.height) / 2;
+                    y: parent.height - self.height - 7px;
                     size: 32px;
                     icon-size: 20px;
                     icon: Icons.mood-smile;
@@ -3610,13 +3788,13 @@ component FriendsView inherits Rectangle {
                 }
                 IconButton {
                     x: parent.width - self.width - 7px;
-                    y: (parent.height - self.height) / 2;
+                    y: parent.height - self.height - 7px;
                     size: 32px;
                     icon-size: 18px;
                     icon: Icons.send;
                     tint: root.chat-text == "" ? Theme.mute : Theme.accent;
                     enabled: root.chat-text != "";
-                    clicked => { root.chat-send(root.chat-text); }
+                    clicked => { root.chat-stick = true; root.chat-send(root.chat-text); }
                 }
             }
         }
@@ -3930,6 +4108,7 @@ export component MainWindow inherits Window {
     in property <[ChatItem]> friend-chat;
     in-out property <string> friend-chat-text;
     in property <bool> friend-chat-editing;
+    in-out property <int> friend-chat-jump: -1;
     in property <bool> friend-can-along;
     in property <bool> friend-along;
     in property <bool> friend-typing;
@@ -4250,6 +4429,8 @@ export component MainWindow inherits Window {
                         f-typing: root.friend-typing;
                         chat-react(i, k) => { root.friend-chat-action(i, "r:" + k); }
                         chat-cancel-edit => { root.friend-chat-action(-1, "cancel-edit"); }
+                        chat-act(i, a) => { root.friend-chat-action(i, a); }
+                        chat-jump <=> root.friend-chat-jump;
                         chat-menu(i, x, y) => {
                             root.chat-menu-index = i;
                             root.chat-menu-mine = root.friend-chat[i].mine;

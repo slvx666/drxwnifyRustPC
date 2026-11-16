@@ -909,7 +909,7 @@ fn main() {
             &songs,
             nav::Page::search(&q, drx_app::SearchSource::Main),
         );
-    } else if let Ok(demo) = std::env::var("DRX_DEMO") {
+    } else if let Some(demo) = std::env::var("DRX_DEMO").ok().filter(|d| !d.starts_with("chat")) {
         app.set_volume(0.0);
         let entries = app
             .runtime()
@@ -998,6 +998,20 @@ fn main() {
         ui.on_open_friends(move || {
             if let Some(ui) = ui_w.upgrade() {
                 nav::go_page(&ui, &app2, nav::Page::friends());
+            }
+        });
+    }
+    // DRX_DEMO=chat[:<n>]: the n-th most recent chat opens after the chats load (checks by screenshot, no input).
+    if let Some(rest) = std::env::var("DRX_DEMO").ok().and_then(|d| d.strip_prefix("chat").map(str::to_string)) {
+        let n: usize = rest.trim_start_matches(':').parse().unwrap_or(0);
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        slint::Timer::single_shot(std::time::Duration::from_secs(6), move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            let mut previews = app2.chat_previews();
+            previews.sort_by(|a, b| b.ts.cmp(&a.ts));
+            if let Some(p) = previews.get(n) {
+                nav::go_page(&ui, &app2, nav::Page::friends());
+                ui.invoke_friend_open(p.peer.clone().into());
             }
         });
     }

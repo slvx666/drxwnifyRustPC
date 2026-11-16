@@ -20,6 +20,8 @@ thread_local! {
     static EDITING: RefCell<Option<String>> = const { RefCell::new(None) };
     /// The message being answered, if any.
     static REPLYING: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// Where «Непрочитанные сообщения» stands in the open chat: (friend, first unread message), fixed when it opens.
+    static UNREAD_AT: RefCell<Option<(String, Option<String>)>> = const { RefCell::new(None) };
     static TRACKS: RefCell<Vec<drx_catalog::model::Track>> = const { RefCell::new(Vec::new()) };
     static WATCHING: RefCell<bool> = const { RefCell::new(false) };
 }
@@ -59,6 +61,33 @@ fn clock(ms: i64) -> String {
     let (y, m, d) = civil(day);
     let (ty, _, _) = civil(today);
     if y == ty { format!("{d:02}.{m:02} {hm}") } else { format!("{d:02}.{m:02}.{y} {hm}") }
+}
+
+/// The local day number of a moment (days since 1970-01-01).
+fn local_day(ms: i64) -> i64 {
+    (ms.div_euclid(1000) + drx_platform::utc_offset_seconds()).div_euclid(86_400)
+}
+
+/// «16:05» — the time inside a bubble (Telegram shows the day in the date badge).
+fn hm(ms: i64) -> String {
+    let sec = (ms.div_euclid(1000) + drx_platform::utc_offset_seconds()).rem_euclid(86_400);
+    format!("{:02}:{:02}", sec / 3600, sec % 3600 / 60)
+}
+
+/// The date badge above a day's first message: «16 ноября», with the year when it is not this one.
+fn day_badge(day: i64) -> String {
+    const MONTHS: [&str; 12] =
+        ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+    let (y, m, d) = civil(day);
+    let (ty, _, _) = civil(local_day(now_ms()));
+    let month = MONTHS[(m - 1).clamp(0, 11) as usize];
+    if y == ty { format!("{d} {month}") } else { format!("{d} {month} {y}") }
+}
+
+/// Telegram's grouping (history_view_element.cpp, kAttachMessageToPreviousSecondsDelta): a message from the same
+/// sender within 15 minutes and on the same day attaches to the previous one.
+fn attaches(prev: &drx_app::chats::ChatRow, m: &drx_app::chats::ChatRow) -> bool {
+    prev.mine == m.mine && (m.ts - prev.ts).abs() < 900_000 && local_day(prev.ts) == local_day(m.ts)
 }
 
 /// Days since 1970-01-01 → (year, month, day) (H. Hinnant's civil_from_days).
@@ -207,6 +236,7 @@ pub fn wire(ui: &MainWindow, app: &App) {
     ui.on_friend_open(move |p| {
         let Some(ui) = ui_w.upgrade() else { return };
         OPEN.with(|o| *o.borrow_mut() = Some(p.to_string()));
+        UNREAD_AT.with(|u| *u.borrow_mut() = None);
         TAB.with(|t| *t.borrow_mut() = "chat".into());
         REPLYING.with(|r| *r.borrow_mut() = None);
         ui.set_friend_chat_replying("".into());
@@ -314,6 +344,26 @@ pub fn wire(ui: &MainWindow, app: &App) {
             ui.set_friend_chat_replying("".into());
             return;
         }
+        // Esc (Telegram): the answer or the change is dropped.
+        if action == "escape" {
+            REPLYING.with(|r| *r.borrow_mut() = None);
+            ui.set_friend_chat_replying("".into());
+            if EDITING.with(|e| e.borrow_mut().take()).is_some() {
+                ui.set_friend_chat_editing(false);
+                ui.set_friend_chat_text("".into());
+            }
+            return;
+        }
+        // ↑ in an empty field (Telegram): change my last message.
+        let i = if action == "edit-last" {
+            match CHAT_ROWS.with(|r| r.borrow().iter().rposition(|(_, mine, text)| *mine && !text.trim().is_empty())) {
+                Some(at) => at as i32,
+                None => return,
+            }
+        } else {
+            i
+        };
+        let action = if action == "edit-last" { slint::SharedString::from("edit") } else { action };
         let Some((id, _mine, text)) = CHAT_ROWS.with(|r| r.borrow().get(i as usize).cloned()) else { return };
         let res = match action.as_str() {
             "copy" => {
@@ -785,8 +835,17 @@ fn render(ui: &MainWindow, app: &App) {
 
 /// The conversation with `peer` (the newest 300 messages); opening it reads the friend's messages.
 fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
+    // The unread line is placed once, when the chat opens (before opening marks everything read).
+    let fresh = UNREAD_AT.with(|u| u.borrow().as_ref().is_none_or(|(p, _)| p != peer));
+    if fresh {
+        let first = app.chat_first_unread(peer);
+        UNREAD_AT.with(|u| *u.borrow_mut() = Some((peer.to_string(), first.clone())));
+        ui.set_friend_chat_jump(-1);
+    }
+    let unread_id = UNREAD_AT.with(|u| u.borrow().as_ref().and_then(|(_, id)| id.clone()));
     app.chat_opened(peer);
     let rows = app.chat_messages(peer, 300);
+    let index_of: std::collections::HashMap<&str, usize> = rows.iter().enumerate().map(|(i, r)| (r.id.as_str(), i)).collect();
     // Answers quote what they answer: who wrote it and its text (a message beyond the loaded ones: «сообщение»).
     let by_id: std::collections::HashMap<&str, &drx_app::chats::ChatRow> = rows.iter().map(|r| (r.id.as_str(), r)).collect();
     let quote = |re: &Option<String>| -> (String, String) {
@@ -814,7 +873,12 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
         .unwrap_or_else(|| "Собеседник".into());
     let items: Vec<ChatItem> = rows
         .iter()
-        .map(|m| {
+        .enumerate()
+        .map(|(i, m)| {
+            let prev = i.checked_sub(1).map(|p| &rows[p]);
+            let next = rows.get(i + 1);
+            let new_day = prev.is_none_or(|p| local_day(p.ts) != local_day(m.ts));
+            let unread_bar = unread_id.as_deref() == Some(m.id.as_str());
             let music = m.music.as_ref();
             let cover = music
                 .and_then(|c| c.cover.as_deref())
@@ -833,7 +897,12 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
                 text: if pics.is_empty() { drx_social::chat::plain_stickers(&m.text).into() } else { "".into() },
                 sticker_ratio: pics.iter().map(|p| p.ratio).sum(),
                 stickers: ModelRc::new(VecModel::from(pics)),
-                time: clock(m.ts).into(),
+                time: hm(m.ts).into(),
+                day: if new_day { day_badge(local_day(m.ts)).into() } else { "".into() },
+                first: unread_bar || prev.is_none_or(|p| !attaches(p, m)),
+                last: next.is_none_or(|n| !attaches(m, n) || unread_id.as_deref() == Some(n.id.as_str())),
+                unread_bar,
+                reply_index: m.reply_to.as_deref().and_then(|r| index_of.get(r)).map_or(-1, |i| *i as i32),
                 edited: m.edited,
                 state: m.state as i32,
                 read: m.read,
@@ -854,6 +923,10 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
         .collect();
     CHAT_ROWS.with(|c| *c.borrow_mut() = rows.iter().map(|m| (m.id.clone(), m.mine, m.text.clone())).collect());
     CHAT_MUSIC.with(|c| *c.borrow_mut() = rows.into_iter().map(|m| m.music).collect());
+    // The first look at a chat with unread messages starts at the unread line (Telegram).
+    if fresh && let Some(at) = items.iter().position(|m| m.unread_bar) {
+        ui.set_friend_chat_jump(at as i32);
+    }
     ui.set_friend_chat(ModelRc::new(VecModel::from(items)));
 }
 

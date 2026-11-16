@@ -412,6 +412,18 @@ impl App {
     }
 
     /// The chat is on screen: the friend's messages are read; they hear it when the settings allow.
+    /// The oldest of the friend's messages not read yet (where Telegram puts «Непрочитанные сообщения»).
+    pub fn chat_first_unread(&self, peer: &str) -> Option<String> {
+        let (store, f) = (self.chat_store()?, self.friends()?);
+        let c = store.db.lock().expect("chat db");
+        c.query_row(
+            "SELECT id FROM message WHERE owner = ?1 AND peer = ?2 AND mine = 0 AND read = 0 ORDER BY ts LIMIT 1",
+            params![f.me(), peer],
+            |r| r.get(0),
+        )
+        .ok()
+    }
+
     pub fn chat_opened(&self, peer: &str) {
         let (Some(store), Some(f)) = (self.chat_store(), self.friends()) else { return };
         let me = f.me();

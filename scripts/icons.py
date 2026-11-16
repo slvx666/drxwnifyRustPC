@@ -72,10 +72,14 @@ ICONS = {
     "message": 0xEAEF,  # message
     "circle-check": 0xEA67,  # circle-check
     "alert-circle": 0xEA05,  # alert-circle
+    "checks": 0,  # drawn below: Telegram's «read» double tick
 }
 OPTICAL = {"play"}
 # Drawn here instead of taken from the font: tabler's pause bars stand so close that at 22 px the gap smudges.
 CUSTOM = {
+    # Two ticks, the second's short arm hidden under the first (Telegram's «read»).
+    "checks": "M60 530L130 460L300 630L610 280L680 345L300 770Z"
+              "M330 600L400 530L470 600L790 280L860 345L470 740Z",
     "pause": "M265 180Q265 160 285 160H405Q425 160 425 180V820Q425 840 405 840H285Q265 840 265 820Z"
              "M575 180Q575 160 595 160H715Q735 160 735 180V820Q735 840 715 840H595Q575 840 575 820Z",
 }
