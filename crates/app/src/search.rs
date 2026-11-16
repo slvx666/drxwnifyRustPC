@@ -696,6 +696,10 @@ impl App {
 
     /// Adds a query to the history (a repeat moves to the top).
     pub async fn remember_search(&self, query: &str) -> AppResult<()> {
+        // «Пауза истории поиска» (pauseSearchHistory).
+        if self.pref_bool("pauseSearchHistory").unwrap_or(false) {
+            return Ok(());
+        }
         let q = query.trim().to_string();
         self.store()
             .call(move |c| {

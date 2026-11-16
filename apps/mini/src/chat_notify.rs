@@ -55,7 +55,7 @@ fn check(ui: &MainWindow, app: &App, platform: Option<&Platform>) {
     let fresh: Vec<&drx_app::chats::ChatPreview> =
         previews.iter().filter(|p| !p.mine && p.unread > 0 && p.ts > seen).collect();
     SEEN.with(|s| s.set(newest.max(seen)));
-    if fresh.is_empty() {
+    if fresh.is_empty() || !app.chat_notify_on() {
         return;
     }
     use slint::winit_030::WinitWindowAccessor;

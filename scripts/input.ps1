@@ -46,6 +46,8 @@ public static class DrxIn {
     public static void Up(ushort vk) { One(vk, 2); }
 }
 "@
+# The owner is playing (Apex: r5apex, r5apex_dx12): no input at all — the cursor belongs to the game.
+if (Get-Process -Name 'r5apex*' -ErrorAction SilentlyContinue) { Write-Error "Apex is running: no input sent"; exit 3 }
 # By title: the process also owns winit's invisible helper window, which MainWindowHandle may pick.
 $h = [DrxIn]::Find("Drxwnify Mini", [uint32]$WinPid)
 if ($h -eq [IntPtr]::Zero) { Write-Error "no Mini window"; exit 1 }

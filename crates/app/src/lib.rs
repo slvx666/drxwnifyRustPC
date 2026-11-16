@@ -18,6 +18,7 @@ pub mod sleep;
 pub mod downloads;
 pub mod sponsorblock;
 pub mod sound;
+pub use history::{HISTORY_DURATION_KEY, PAUSE_HISTORY_KEY};
 mod queue_store;
 mod search;
 pub mod social;
@@ -163,6 +164,8 @@ pub enum AppEvent {
     LibraryChanged,
     /// An image requested with [`App::request_image`] is decoded and in the cache.
     ImageReady { url: String, size: u32 },
+    /// A short word for the user (a toast), e.g. «Пропущено: заставка».
+    Notice(String),
 }
 
 struct Inner {
@@ -323,6 +326,8 @@ impl App {
     pub fn apply_playback_prefs(&self) {
         let on = self.pref_bool("autoSkipNextOnError").unwrap_or(false);
         self.inner.playback.skip_on_error.store(on, std::sync::atomic::Ordering::Relaxed);
+        *self.inner.playback.lyrics_sources.lock().expect("lyrics sources") =
+            (self.pref_bool("enableLrclib").unwrap_or(true), self.pref_bool("enableKugou").unwrap_or(true));
         self.apply_sound();
     }
     /// A number setting stored as a float in `settings.preferences_pb`.

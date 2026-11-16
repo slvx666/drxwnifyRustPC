@@ -18,7 +18,23 @@ const DEFAULT_CATEGORIES: &str = "music_offtopic";
 pub struct Segment {
     pub start: f64,
     pub end: f64,
+    pub category: String,
 }
+
+/// Every category the phone offers (SponsorBlockSettings), with a Russian name.
+pub const CATEGORIES: [(&str, &str); 8] = [
+    ("music_offtopic", "Немузыкальная часть"),
+    ("intro", "Заставка"),
+    ("outro", "Титры"),
+    ("preview", "Анонс"),
+    ("sponsor", "Реклама спонсора"),
+    ("selfpromo", "Самореклама"),
+    ("interaction", "Призыв подписаться"),
+    ("filler", "Отступления"),
+];
+pub const TOAST_KEY: &str = "sponsorBlockShowToast";
+pub const CATEGORIES_PREF: &str = CATEGORIES_KEY;
+pub const DEFAULT: &str = DEFAULT_CATEGORIES;
 
 /// The segments of `video` among a hash-prefix answer, in `categories`, «skip» ones only, by start.
 pub fn pick(answer: &Value, video: &str, categories: &[String]) -> Vec<Segment> {
@@ -33,7 +49,8 @@ pub fn pick(answer: &Value, video: &str, categories: &[String]) -> Vec<Segment> 
         .filter_map(|s| {
             let seg = s.get("segment")?.as_array()?;
             let (a, b) = (seg.first()?.as_f64()?, seg.get(1)?.as_f64()?);
-            (b > a).then_some(Segment { start: a, end: b })
+            let category = s.get("category").and_then(Value::as_str).unwrap_or_default().to_string();
+            (b > a).then_some(Segment { start: a, end: b, category })
         })
         .collect();
     out.sort_by(|a, b| a.start.total_cmp(&b.start));
@@ -94,6 +111,11 @@ impl App {
                         && let Some(s) = segments.iter().find(|s| c.position_s >= s.start && c.position_s < s.end - 0.2)
                     {
                         app.seek(s.end);
+                        // «Сообщать о пропуске» (sponsorBlockShowToast): «Пропущено: заставка».
+                        if app.pref_bool(TOAST_KEY).unwrap_or(false) {
+                            let name = CATEGORIES.iter().find(|(k, _)| *k == s.category).map_or("вставка", |(_, n)| n);
+                            let _ = app.inner.events.send(crate::AppEvent::Notice(format!("Пропущено: {}", name.to_lowercase())));
+                        }
                     }
                 }
                 let wait = if segments.is_empty() { Duration::from_secs(3600) } else { Duration::from_millis(400) };
@@ -118,6 +140,7 @@ mod tests {
         )
         .unwrap();
         let s = pick(&v, "abc", &["music_offtopic".into()]);
-        assert_eq!(s, vec![Segment { start: 0.0, end: 12.5 }, Segment { start: 200.5, end: 230.0 }]);
+        let m = |a: f64, b: f64| Segment { start: a, end: b, category: "music_offtopic".into() };
+        assert_eq!(s, vec![m(0.0, 12.5), m(200.5, 230.0)]);
     }
 }

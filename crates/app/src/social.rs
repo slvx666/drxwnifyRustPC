@@ -185,6 +185,33 @@ impl App {
 }
 
 impl App {
+    /// Privacy choices (FriendsHub.setPrivacy): kept in friends.xml as the phone does (the backup carries them);
+    /// a narrowed field is cleared for those who saw it.
+    pub fn set_privacy(&self, p: drx_social::friends::Privacy) {
+        let Some(f) = self.friends() else { return };
+        let old = self.shared(drx_core::keys::sp::FRIENDS).get_str("privacy").map(str::to_string);
+        let json = p.merge_json(old.as_deref());
+        self.edit_shared_prefs(drx_core::keys::sp::FRIENDS, move |sp| {
+            sp.values.insert("privacy".into(), drx_core::shared_prefs::SpValue::String(json));
+        });
+        let publish = may_publish();
+        self.runtime.spawn(async move { f.set_privacy(p, publish).await });
+    }
+
+    /// «Уведомления о сообщениях» (chat.xml `notify`, as ChatHub).
+    pub fn chat_notify_on(&self) -> bool {
+        match self.shared("chat").values.get("notify") {
+            Some(drx_core::shared_prefs::SpValue::Bool(b)) => *b,
+            _ => true,
+        }
+    }
+
+    pub fn set_chat_notify(&self, on: bool) {
+        self.edit_shared_prefs("chat", move |sp| {
+            sp.values.insert("notify".into(), drx_core::shared_prefs::SpValue::Bool(on));
+        });
+    }
+
     fn save_friends(&self, f: &Friends) {
         let (list, dismissed) = (f.friends_json(), f.dismissed());
         self.edit_shared_prefs(drx_core::keys::sp::FRIENDS, move |p| {

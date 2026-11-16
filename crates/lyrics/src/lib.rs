@@ -74,9 +74,16 @@ pub mod kugou;
 pub use kugou::KuGou;
 
 /// LrcLib first; when it has nothing synced, KuGou (synced lyrics beat plain ones), as the phone's provider order.
-pub async fn find_any(http: &Http, title: &str, artist: &str, duration_s: Option<u64>) -> Option<Lyrics> {
-    let first = LrcLib::new(http.clone()).find(title, artist, duration_s).await;
-    if matches!(first, Some(Lyrics::Synced(_))) {
+pub async fn find_any(
+    http: &Http,
+    title: &str,
+    artist: &str,
+    duration_s: Option<u64>,
+    lrclib: bool,
+    kugou: bool,
+) -> Option<Lyrics> {
+    let first = if lrclib { LrcLib::new(http.clone()).find(title, artist, duration_s).await } else { None };
+    if matches!(first, Some(Lyrics::Synced(_))) || !kugou {
         return first;
     }
     match KuGou::new(http.clone()).find(title, artist, duration_s).await {

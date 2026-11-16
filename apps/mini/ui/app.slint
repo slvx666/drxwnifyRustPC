@@ -172,6 +172,17 @@ export struct FlagItem {
     label: string,
     hint: string,
     on: bool,
+    header: string, // a section caption above this row
+    options: [string], // a choice (chips) instead of a switch
+    marks: [bool], // which chips are picked
+}
+
+// Settings rows after the sound section, and the callbacks of every settings row.
+export global SettingsUi {
+    in property <[FlagItem]> more;
+    in property <length> start-y; // developer check without input: the page opens scrolled this far
+    callback set-flag(string, bool);
+    callback pick(string, int);
 }
 
 // The sound section of the settings (the phone's keys): normalisation, crossfade, balance, graphic equaliser.
@@ -1164,9 +1175,55 @@ component EqBand inherits VerticalLayout {
     Text { text: root.label; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; horizontal-alignment: center; }
 }
 
+// A settings row from the core: a switch, or chips to pick from (one or several); a caption above it when it opens
+// a section.
+component FlagRow inherits VerticalLayout {
+    in property <FlagItem> f;
+    spacing: Grid.gap;
+    if root.f.header != "": VerticalLayout {
+        spacing: Grid.gap;
+        Rectangle { height: 8px; }
+        Caption { text: root.f.header; }
+    }
+    SettingRow {
+        label: root.f.label;
+        hint: root.f.hint;
+        if root.f.options.length == 0: Middle { Toggle { on: root.f.on; toggled(v) => { SettingsUi.set-flag(root.f.key, v); } } }
+    }
+    if root.f.options.length > 0: strip := ArrowStrip {
+        property <int> hover-i: -1;
+        height: 40px;
+        content-w: row.preferred-width;
+        hot: self.hover-i >= 0;
+        arrow-y: 0px;
+        row := HorizontalLayout {
+            spacing: 8px;
+            height: 40px;
+            for o[i] in root.f.options: cm := Middle {
+                property <bool> sel: root.f.marks[i];
+                Rectangle {
+                    height: 32px;
+                    width: ct.preferred-width + 24px;
+                    border-radius: min(Theme.chip-radius, 16px);
+                    background: cm.sel ? Theme.accent : (ca.has-hover ? Theme.fill-hover : Theme.fill);
+                    ct := Text { text: o; font-family: Theme.body-font; font-size: 14px; color: cm.sel ? Theme.bg : Theme.text; }
+                    ca := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { SettingsUi.pick(root.f.key, i); }
+                        changed has-hover => {
+                            if self.has-hover { strip.hover-i = i; } else if strip.hover-i == i { strip.hover-i = -1; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 component SettingsPage inherits Flickable {
     // Scrolled by the wheel only: a drag belongs to the sliders (equaliser bands), not to the page.
     interactive: false;
+    viewport-y: -SettingsUi.start-y;
     // Its content would cap the window (Settings squeezed it to the minimum width and stopped «maximise»).
     min-width: 0;
     max-width: 100000px;
@@ -1244,13 +1301,7 @@ component SettingsPage inherits Flickable {
                 }
             }
         }
-        Rectangle { height: 8px; }
-        Caption { text: "ВОСПРОИЗВЕДЕНИЕ"; }
-        for f in root.flags: SettingRow {
-            label: f.label;
-            hint: f.hint;
-            Middle { Toggle { on: f.on; toggled(v) => { root.set-flag(f.key, v); } } }
-        }
+        for f in root.flags: FlagRow { f: f; }
         Rectangle { height: 8px; }
         Caption { text: "ЗВУК"; }
         SettingRow {
@@ -1348,6 +1399,7 @@ component SettingsPage inherits Flickable {
                 picked(v) => { SoundUi.set-gain(i, v); }
             }
         }
+        for f in SettingsUi.more: FlagRow { f: f; }
         Rectangle { height: 8px; }
         Caption { text: "ОФОРМЛЕНИЕ"; }
         SettingRow {

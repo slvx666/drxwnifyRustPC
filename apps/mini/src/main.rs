@@ -868,6 +868,7 @@ fn main() {
                         }
                         AppEvent::LibraryChanged => ui.invoke_library_panel_changed(),
                         AppEvent::ImageReady { .. } => ui.invoke_images_changed(),
+                        AppEvent::Notice(text) => ui.set_toast(text.into()),
                     }
                 });
             }
@@ -889,7 +890,12 @@ fn main() {
     ui.set_friends_available(app.friends().is_some());
     app.keep_queue_saved();
     let demo_page = std::env::var("DRX_DEMO").ok();
-    if demo_page.as_deref() == Some("history") {
+    // DRX_DEMO=settings[:<px>]: the settings page, scrolled that far (checks by screenshot, no input).
+    if let Some(rest) = demo_page.as_deref().and_then(|d| d.strip_prefix("settings")) {
+        nav::go(&ui, &app, &songs, nav::Page::settings());
+        let y: f32 = rest.trim_start_matches(':').parse().unwrap_or(0.0);
+        ui.global::<SettingsUi>().set_start_y(y);
+    } else if demo_page.as_deref() == Some("history") {
         nav::go(&ui, &app, &songs, nav::Page::history());
     } else if demo_page.as_deref() == Some("stats") {
         nav::go(&ui, &app, &songs, nav::Page::stats());

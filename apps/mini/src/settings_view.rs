@@ -4,7 +4,7 @@
 use crate::{AccountRow, MainWindow, ThemeChip};
 use drx_app::App;
 use drx_catalog::model::Source;
-use slint::{ModelRc, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
 
 fn key_of(s: Source) -> &'static str {
     match s {
@@ -67,34 +67,209 @@ const FLAGS: &[(&str, &str, &str, bool)] = &[
     (crate::discord_ui::KEY, "Статус в Discord", "Что играет — в профиле Discord (нужен запущенный Discord на этом ПК)", false),
 ];
 
+fn switch(key: &str, label: &str, hint: &str, on: bool, header: &str) -> crate::FlagItem {
+    crate::FlagItem {
+        key: key.into(),
+        label: label.into(),
+        hint: hint.into(),
+        on,
+        header: header.into(),
+        options: ModelRc::default(),
+        marks: ModelRc::default(),
+    }
+}
+
+fn choice(key: &str, label: &str, hint: &str, options: &[&str], marks: Vec<bool>, header: &str) -> crate::FlagItem {
+    let options: Vec<slint::SharedString> = options.iter().map(|o| (*o).into()).collect();
+    crate::FlagItem {
+        key: key.into(),
+        label: label.into(),
+        hint: hint.into(),
+        on: false,
+        header: header.into(),
+        options: ModelRc::new(VecModel::from(options)),
+        marks: ModelRc::new(VecModel::from(marks)),
+    }
+}
+
+/// «Засчитывать прослушивание после» (historyDuration, seconds; the phone's slider goes 1..100).
+const HISTORY_SECONDS: [f32; 5] = [10.0, 20.0, 30.0, 45.0, 60.0];
+/// The audiences this side offers (VERIFIED is the developer's own).
+const AUDIENCES: [(drx_social::friends::Audience, &str); 3] = [
+    (drx_social::friends::Audience::Nobody, "Никто"),
+    (drx_social::friends::Audience::Friends, "Друзья"),
+    (drx_social::friends::Audience::Everyone, "Все"),
+];
+
+fn sponsor_categories(app: &App) -> Vec<String> {
+    app.pref_string(drx_app::sponsorblock::CATEGORIES_PREF)
+        .unwrap_or_else(|| drx_app::sponsorblock::DEFAULT.into())
+        .split(',')
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+        .collect()
+}
+
 pub fn fill_flags(ui: &MainWindow, app: &App) {
     let rows: Vec<crate::FlagItem> = FLAGS
         .iter()
-        .map(|(key, label, hint, default)| crate::FlagItem {
-            key: (*key).into(),
-            label: (*label).into(),
-            hint: (*hint).into(),
-            on: app.pref_bool(key).unwrap_or(*default),
+        .enumerate()
+        .map(|(i, (key, label, hint, default))| {
+            switch(key, label, hint, app.pref_bool(key).unwrap_or(*default), if i == 0 { "ВОСПРОИЗВЕДЕНИЕ" } else { "" })
         })
         .collect();
     ui.set_settings_flags(ModelRc::new(VecModel::from(rows)));
+
+    let mut more = Vec::new();
+    let secs = app.pref_f32(drx_app::HISTORY_DURATION_KEY).unwrap_or(30.0);
+    let near = HISTORY_SECONDS
+        .iter()
+        .enumerate()
+        .min_by(|a, b| (a.1 - secs).abs().total_cmp(&(b.1 - secs).abs()))
+        .map_or(2, |(i, _)| i);
+    more.push(switch(
+        drx_app::PAUSE_HISTORY_KEY,
+        "Не записывать историю прослушиваний",
+        "Пока включено, прослушанное не попадает в историю и к друзьям",
+        app.pref_bool(drx_app::PAUSE_HISTORY_KEY).unwrap_or(false),
+        "ИСТОРИЯ",
+    ));
+    more.push(choice(
+        drx_app::HISTORY_DURATION_KEY,
+        "Засчитывать прослушивание после",
+        "Короткие треки — почти целиком",
+        &["10 с", "20 с", "30 с", "45 с", "60 с"],
+        (0..HISTORY_SECONDS.len()).map(|i| i == near).collect(),
+        "",
+    ));
+    more.push(switch(
+        "pauseSearchHistory",
+        "Не запоминать поиски",
+        "Новые запросы не попадают в историю поиска",
+        app.pref_bool("pauseSearchHistory").unwrap_or(false),
+        "",
+    ));
+    more.push(switch("enableLrclib", "LRCLIB", "Синхронные тексты, основной источник", app.pref_bool("enableLrclib").unwrap_or(true), "ТЕКСТЫ"));
+    more.push(switch("enableKugou", "KuGou", "Если в LRCLIB нет синхронного текста", app.pref_bool("enableKugou").unwrap_or(true), ""));
+    let cats = sponsor_categories(app);
+    let names: Vec<&str> = drx_app::sponsorblock::CATEGORIES.iter().map(|(_, n)| *n).collect();
+    more.push(choice(
+        "sb:cats",
+        "Что пропускать",
+        "В клипах с YouTube, когда включено «Пропускать немузыкальные вставки»",
+        &names,
+        drx_app::sponsorblock::CATEGORIES.iter().map(|(k, _)| cats.iter().any(|c| c == k)).collect(),
+        "SPONSORBLOCK",
+    ));
+    more.push(switch(
+        drx_app::sponsorblock::TOAST_KEY,
+        "Сообщать о пропуске",
+        "Короткое уведомление, что именно пропущено",
+        app.pref_bool(drx_app::sponsorblock::TOAST_KEY).unwrap_or(false),
+        "",
+    ));
+    if let Some(f) = app.friends() {
+        let p = f.privacy();
+        let marks = |a: drx_social::friends::Audience| AUDIENCES.iter().map(|(x, _)| *x == a).collect::<Vec<bool>>();
+        let opts: Vec<&str> = AUDIENCES.iter().map(|(_, n)| *n).collect();
+        more.push(choice("privacy:now", "Кто видит, что я слушаю", "То, что публикует этот компьютер", &opts, marks(p.now), "ДРУЗЬЯ И ПРИВАТНОСТЬ"));
+        more.push(choice("privacy:history", "Кто видит историю прослушиваний", "", &opts, marks(p.history), ""));
+        more.push(switch("privacy:along", "Разрешить слушать вместе со мной", "Друзья могут включить «Слушать вместе»", p.listen_along, ""));
+        more.push(switch("privacy:read", "Отметки «прочитано» и «печатает…»", "Друзья видят, что вы прочитали и пишете ответ", p.read_receipts, ""));
+        more.push(switch("chat:notify", "Уведомления о сообщениях", "Уведомление Windows, когда окно свёрнуто", app.chat_notify_on(), ""));
+    }
+    ui.global::<crate::SettingsUi>().set_more(ModelRc::new(VecModel::from(more)));
+}
+
+fn set_flag(ui: &MainWindow, app: &App, key: &str, on: bool) {
+    match key {
+        "privacy:along" | "privacy:read" => {
+            if let Some(f) = app.friends() {
+                let mut p = f.privacy();
+                if key == "privacy:along" {
+                    p.listen_along = on;
+                } else {
+                    p.read_receipts = on;
+                }
+                app.set_privacy(p);
+            }
+        }
+        "chat:notify" => app.set_chat_notify(on),
+        _ => {
+            if let Err(e) = app.set_pref(key, drx_core::prefs::PrefValue::Bool(on)) {
+                ui.set_toast(format!("Не удалось сохранить: {e}").into());
+            }
+            app.apply_playback_prefs();
+            if key == "persistentQueue" {
+                app.save_queue();
+            }
+            if key == crate::discord_ui::KEY {
+                crate::discord_ui::set_enabled(app, on);
+            }
+        }
+    }
+    fill_flags(ui, app);
+}
+
+fn pick(ui: &MainWindow, app: &App, key: &str, i: usize) {
+    use drx_core::prefs::PrefValue;
+    match key {
+        drx_app::HISTORY_DURATION_KEY => {
+            if let Some(s) = HISTORY_SECONDS.get(i) {
+                let _ = app.set_pref(key, PrefValue::Float(*s));
+            }
+        }
+        "sb:cats" => {
+            if let Some((cat, _)) = drx_app::sponsorblock::CATEGORIES.get(i) {
+                let mut cats = sponsor_categories(app);
+                if let Some(at) = cats.iter().position(|c| c == cat) {
+                    cats.remove(at);
+                } else {
+                    cats.push((*cat).to_string());
+                }
+                let _ = app.set_pref(drx_app::sponsorblock::CATEGORIES_PREF, PrefValue::String(cats.join(",")));
+            }
+        }
+        "privacy:now" | "privacy:history" => {
+            if let (Some(f), Some((a, _))) = (app.friends(), AUDIENCES.get(i)) {
+                let mut p = f.privacy();
+                if key == "privacy:now" {
+                    p.now = *a;
+                } else {
+                    p.history = *a;
+                }
+                app.set_privacy(p);
+            }
+        }
+        _ => {}
+    }
+    fill_flags(ui, app);
 }
 
 pub fn wire(ui: &MainWindow, app: &App) {
-    let (app2, ui_w) = (app.clone(), slint::ComponentHandle::as_weak(ui));
-    ui.on_set_settings_flag(move |key, on| {
-        let Some(ui) = ui_w.upgrade() else { return };
-        if let Err(e) = app2.set_pref(&key, drx_core::prefs::PrefValue::Bool(on)) {
-            ui.set_toast(format!("Не удалось сохранить: {e}").into());
+
+    {
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_set_settings_flag(move |key, on| {
+            if let Some(ui) = ui_w.upgrade() {
+                set_flag(&ui, &app2, &key, on);
+            }
+        });
+    }
+    let g = ui.global::<crate::SettingsUi>();
+    {
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        g.on_set_flag(move |key, on| {
+            if let Some(ui) = ui_w.upgrade() {
+                set_flag(&ui, &app2, &key, on);
+            }
+        });
+    }
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    g.on_pick(move |key, i| {
+        if let Some(ui) = ui_w.upgrade() {
+            pick(&ui, &app2, &key, i.max(0) as usize);
         }
-        app2.apply_playback_prefs();
-        if key == "persistentQueue" {
-            app2.save_queue();
-        }
-        if key == crate::discord_ui::KEY {
-            crate::discord_ui::set_enabled(&app2, on);
-        }
-        fill_flags(&ui, &app2);
     });
 }
 

@@ -37,7 +37,17 @@ pub enum Audience {
 }
 
 impl Audience {
-    fn from_name(s: &str) -> Audience {
+    /// The phone's enum name.
+    pub fn name(self) -> &'static str {
+        match self {
+            Audience::Nobody => "NOBODY",
+            Audience::Verified => "VERIFIED",
+            Audience::Friends => "FRIENDS",
+            Audience::Everyone => "EVERYONE",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Audience {
         match s {
             "NOBODY" => Audience::Nobody,
             "VERIFIED" => Audience::Verified,
@@ -73,6 +83,22 @@ impl Default for Privacy {
 }
 
 impl Privacy {
+    /// Writes these choices into the phone's JSON `old` (keys this side does not know are kept).
+    pub fn merge_json(&self, old: Option<&str>) -> String {
+        let mut o = old
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}));
+        o["now"] = json!(self.now.name());
+        o["history"] = json!(self.history.name());
+        o["playlists"] = json!(self.playlists.name());
+        o["stats"] = json!(self.stats.name());
+        o["discoverable"] = json!(self.discoverable);
+        o["along"] = json!(self.listen_along);
+        o["read"] = json!(self.read_receipts);
+        o.to_string()
+    }
+
     /// The phone's JSON (`{"now","history","playlists","stats","discoverable","along","read"}`).
     pub fn from_json(s: &str) -> Privacy {
         let Ok(o) = serde_json::from_str::<Value>(s) else {
@@ -750,6 +776,22 @@ impl Friends {
         });
     }
 
+    /// New privacy choices (FriendsHub.setPrivacy): what is no longer shared with someone is overwritten with
+    /// nothing for those who saw it. `publish` false (a test run) only keeps the choice.
+    pub async fn set_privacy(&self, p: Privacy, publish: bool) {
+        let before = std::mem::replace(&mut *self.inner.privacy.lock().expect("privacy"), p.clone());
+        if !publish {
+            return;
+        }
+        let narrowed = |old: Audience, new: Audience| (new as u8) < (old as u8);
+        if narrowed(before.now, p.now) {
+            self.publish_field("now", "", before.now).await;
+        }
+        if narrowed(before.history, p.history) {
+            self.publish_field("history", "", before.history).await;
+        }
+    }
+
     /// What plays now (already debounced by the caller), to whoever may see it.
     pub async fn publish_now(&self, mut now: NowPlaying) {
         let privacy = self.privacy();
@@ -786,6 +828,17 @@ fn now_s() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn privacy_json_keeps_unknown_keys() {
+        let mut p = Privacy::default();
+        p.now = Audience::Nobody;
+        p.read_receipts = false;
+        let out = p.merge_json(Some(r#"{"now":"EVERYONE","extra":7}"#));
+        let back = Privacy::from_json(&out);
+        assert_eq!(back, p);
+        assert!(out.contains("\"extra\":7"));
+    }
 
     #[test]
     fn privacy_and_friends_parse() {
