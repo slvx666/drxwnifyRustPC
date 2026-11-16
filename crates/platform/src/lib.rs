@@ -235,3 +235,15 @@ pub fn copy_text(text: &str) -> bool {
         false
     }
 }
+
+/// The user's «Загрузки» folder (saved covers), wherever they moved it.
+pub fn downloads_dir() -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    {
+        windows_impl::downloads_dir()
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join("Downloads"))
+    }
+}

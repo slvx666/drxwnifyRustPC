@@ -337,6 +337,10 @@ component Cover inherits Rectangle {
     background: root.has-source ? transparent : root.placeholder-bg;
     if !root.has-source: Icon { icon: root.placeholder; size: root.placeholder-size; color: root.placeholder-color; }
     if root.has-source: Image { source: root.source; width: root.size; height: root.size; image-fit: ImageFit.cover; }
+    // A cover that can be looked at (CoverViewer): a click opens it big.
+    in property <bool> zoomable;
+    callback zoom();
+    if root.zoomable && root.has-source: TouchArea { mouse-cursor: pointer; clicked => { root.zoom(); } }
 }
 
 component SectionTitle inherits Text {
@@ -1508,6 +1512,7 @@ component MainArea inherits VerticalLayout {
     in property <image> cover;
     in property <bool> has-cover;
     in property <bool> is-page; // a list page: the heading gets a cover
+    callback zoom-cover();
     in property <string> kind-label; // «АЛЬБОМ», «ПЛЕЙЛИСТ», «ИСПОЛНИТЕЛЬ»…
     in property <bool> liked-cover; // the liked list: a heart on the accent instead of a cover
     in property <bool> can-play; // Play / Shuffle buttons
@@ -1608,6 +1613,8 @@ component MainArea inherits VerticalLayout {
             size: 184px;
             source: root.cover;
             has-source: root.has-cover;
+            zoomable: !root.liked-cover;
+            zoom => { root.zoom-cover(); }
             placeholder: root.liked-cover ? Icons.heart-filled : Icons.music;
             placeholder-color: root.liked-cover ? Theme.on-accent : Theme.mute;
             placeholder-bg: root.liked-cover ? Theme.accent : Theme.fill-hover;
@@ -1943,6 +1950,7 @@ component RightPanel inherits VerticalLayout {
     in property <bool> liked;
     in property <bool> can-like;
     callback toggle-like();
+    callback zoom-cover();
     property <length> cover-size: root.width - 2 * Grid.pad;
     padding: Grid.pad;
     padding-bottom: 0;
@@ -1950,7 +1958,7 @@ component RightPanel inherits VerticalLayout {
     Header { SectionTitle { text: "Сейчас играет"; } }
     HorizontalLayout {
         alignment: start;
-        Cover { size: root.cover-size; source: root.cover; has-source: root.has-cover; placeholder-size: 64px; }
+        Cover { size: root.cover-size; source: root.cover; has-source: root.has-cover; placeholder-size: 64px; zoomable: true; zoom => { root.zoom-cover(); } }
     }
     HorizontalLayout {
         spacing: Grid.gap;
@@ -2216,6 +2224,9 @@ component Avatar inherits Rectangle {
     background: root.has-source ? transparent : Theme.accent;
     if root.has-source: Image { width: root.size; height: root.size; source: root.source; image-fit: cover; }
     if !root.has-source: Text { text: root.initial; font-family: Theme.heading-font; font-weight: 700; font-size: root.size * 0.42; color: Theme.on-accent; }
+    in property <bool> zoomable;
+    callback zoom();
+    if root.zoomable && root.has-source: TouchArea { mouse-cursor: pointer; clicked => { root.zoom(); } }
 }
 
 // One chat message (pc/ FriendChat): mine on the right in the accent's tint, the friend's on the left; a shared
@@ -2345,6 +2356,7 @@ component FriendsView inherits Rectangle {
     in property <string> f-initial;
     in property <string> f-status;
     in property <image> f-avatar;
+    callback view-avatar();
     in property <bool> f-has-avatar;
     in property <string> f-tab; // chat | history | likes | playlists
     in property <[ChatItem]> f-chat;
@@ -2561,7 +2573,7 @@ component FriendsView inherits Rectangle {
             padding-right: Grid.pad;
             spacing: 16px;
             Middle { IconButton { icon: Icons.chevron-left; filled: true; clicked => { root.back(); } } }
-            Middle { Avatar { size: 84px; source: root.f-avatar; has-source: root.f-has-avatar; initial: root.f-initial; } }
+            Middle { Avatar { size: 84px; source: root.f-avatar; has-source: root.f-has-avatar; initial: root.f-initial; zoomable: true; zoom => { root.view-avatar(); } } }
             VerticalLayout {
                 alignment: center;
                 spacing: 4px;
@@ -3021,6 +3033,16 @@ export component MainWindow inherits Window {
     callback playing-changed();
     callback library-panel-changed();
     callback images-changed();
+    // The picture viewer (CoverViewer / PhotoViewerOverlay): a cover or an avatar big over the window.
+    callback view-picture(string); // "page", "now", "friend"
+    in-out property <bool> viewer-open;
+    in property <image> viewer-image;
+    in property <bool> viewer-has-image;
+    in property <string> viewer-title;
+    in property <bool> viewer-saving;
+    in property <length> viewer-max: 1000px; // a small picture is not blown up
+    callback viewer-download();
+    callback viewer-closed();
 
     Backdrop { }
     // Window-wide shortcuts while no field has the focus (the search field hands it back here when it lets go).
@@ -3107,6 +3129,7 @@ export component MainWindow inherits Window {
                         now-id: root.now-id;
                         empty-library: root.empty-library;
                         is-page: root.view-is-page;
+                        zoom-cover => { root.view-picture("page"); }
                         kind-label: root.view-kind;
                         liked-cover: root.view-liked-cover;
                         can-play: root.view-can-play && !root.view-home && !root.view-settings && !root.view-search && !root.view-history && !root.view-stats;
@@ -3213,6 +3236,7 @@ export component MainWindow inherits Window {
                         f-initial: root.friend-initial;
                         f-status: root.friend-status;
                         f-avatar: root.friend-avatar;
+                        view-avatar => { root.view-picture("friend"); }
                         f-has-avatar: root.friend-has-avatar;
                         f-tab: root.friend-tab;
                         f-chat: root.friend-chat;
@@ -3286,6 +3310,7 @@ export component MainWindow inherits Window {
                         liked: root.now-liked;
                         can-like: root.now-can-like;
                         toggle-like => { root.toggle-now-like(); }
+                        zoom-cover => { root.view-picture("now"); }
                     }
                 }
                 HLine { }
@@ -3593,6 +3618,62 @@ export component MainWindow inherits Window {
                 Text { text: "Очистить историю"; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; }
                 cta := TouchArea { mouse-cursor: pointer; clicked => { root.clear-search-history(); } }
             }
+        }
+    }
+    if root.viewer-open: Rectangle {
+        // Opaque: the software renderer blends a translucent layer badly over the panels' translucent fills.
+        background: Theme.bg.darker(0.55);
+        property <length> side: max(120px, min(root.viewer-max, min(root.width - 160px, root.height - 200px)));
+        TouchArea { clicked => { root.viewer-open = false; root.viewer-closed(); } }
+        vw-keys := FocusScope {
+            key-pressed(e) => {
+                if e.text == Key.Escape { root.viewer-open = false; root.viewer-closed(); return accept; }
+                reject
+            }
+        }
+        init => { vw-keys.focus(); }
+        Rectangle {
+            x: (parent.width - parent.side) / 2;
+            y: (parent.height - parent.side) / 2 - 24px;
+            width: parent.side;
+            height: parent.side;
+            // Clicks on the picture keep it open.
+            TouchArea { }
+            if root.viewer-has-image: Image { width: parent.width; height: parent.height; source: root.viewer-image; image-fit: contain; }
+            if !root.viewer-has-image: Text { text: "Загрузка…"; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; }
+        }
+        HorizontalLayout {
+            x: Grid.gutter + 8px;
+            y: (parent.height + parent.side) / 2 - 24px + 16px;
+            width: parent.width - 2 * (Grid.gutter + 8px);
+            height: 40px;
+            alignment: center;
+            spacing: 16px;
+            Text { text: root.viewer-title; vertical-alignment: center; font-family: Theme.heading-font; font-weight: 700; font-size: 16px; color: Theme.text; overflow: elide; max-width: max(80px, parent.width - 200px); }
+            Rectangle {
+                width: vw-dl-row.preferred-width + 32px;
+                height: 38px;
+                border-radius: min(Theme.chip-radius, 19px);
+                background: vw-dl.has-hover ? Theme.fill-hover : Theme.fill;
+                vw-dl-row := HorizontalLayout {
+                    alignment: center;
+                    spacing: 8px;
+                    Middle { Icon { icon: Icons.download; size: 17px; color: Theme.text; } }
+                    Text { text: root.viewer-saving ? "Сохраняю…" : "Скачать"; vertical-alignment: center; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.text; }
+                }
+                vw-dl := TouchArea { mouse-cursor: pointer; clicked => { if !root.viewer-saving { root.viewer-download(); } } }
+            }
+        }
+        // Close, top right (and Esc, and a click beside the picture).
+        Rectangle {
+            x: parent.width - self.width - Grid.gutter - root.window-inset - 12px;
+            y: root.window-inset + 52px;
+            width: 40px;
+            height: 40px;
+            border-radius: 20px;
+            background: vw-x.has-hover ? Theme.fill-hover : Theme.fill;
+            Icon { icon: Icons.x; size: 18px; color: Theme.text; }
+            vw-x := TouchArea { mouse-cursor: pointer; clicked => { root.viewer-open = false; root.viewer-closed(); } }
         }
     }
     if root.toast != "": Rectangle {

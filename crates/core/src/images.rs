@@ -92,7 +92,86 @@ pub fn normalize_url(url: &str, size: u32) -> String {
     url.to_string()
 }
 
+/// The biggest variant of `url` its service serves under a predictable address (CoverSaver.largest): the picture
+/// shown in a row is often a 300 px thumbnail of a much bigger original.
+pub fn largest(url: &str) -> String {
+    if url.contains("i.scdn.co/image/") {
+        // Spotify: 300 px (…1e02…) / 64 px (…4851…) → 640 px (…b273…).
+        return url
+            .replace("ab67616d00001e02", "ab67616d0000b273")
+            .replace("ab67616d00004851", "ab67616d0000b273");
+    }
+    if url.contains("googleusercontent.com") || url.contains("ggpht.com") {
+        // Google / YouTube Music artwork carries its size at the end ("=w544-h544…").
+        if let Some(at) = url.rfind("=w") {
+            let tail = &url[at + 2..];
+            if !tail.contains('/') && tail.split('-').next().is_some_and(|w| w.chars().all(|c| c.is_ascii_digit())) {
+                return format!("{}=w1200-h1200-l90-rj", &url[..at]);
+            }
+        }
+        return url.to_string();
+    }
+    if url.contains("i.ytimg.com/vi/") {
+        for small in ["/hqdefault.jpg", "/mqdefault.jpg", "/sddefault.jpg", "/default.jpg"] {
+            if let Some(base) = url.strip_suffix(small) {
+                return format!("{base}/maxresdefault.jpg");
+            }
+        }
+        return url.to_string();
+    }
+    if url.contains("%%") {
+        return normalize_url(url, 1000);
+    }
+    url.to_string()
+}
+
+/// The shorter side of a local picture (`file:` address) in pixels, read from its header; None for web images.
+pub fn local_side(url: &str) -> Option<u32> {
+    let path = url.strip_prefix(LOCAL_PREFIX)?;
+    let (w, h) = image::ImageReader::open(path).ok()?.with_guessed_format().ok()?.into_dimensions().ok()?;
+    Some(w.min(h))
+}
+
+/// A file extension for an image by its first bytes (jpg when unknown).
+pub fn image_extension(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        "png"
+    } else if bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "webp"
+    } else if bytes.starts_with(b"GIF8") {
+        "gif"
+    } else {
+        "jpg"
+    }
+}
+
 impl Images {
+    /// The original file of a picture in its largest size (falls back to `url` itself when the large one is
+    /// missing — YouTube has no maxres thumbnail for some videos). For saving, not for showing.
+    pub async fn original(&self, url: &str) -> Option<Vec<u8>> {
+        if let Some(path) = url.strip_prefix(LOCAL_PREFIX) {
+            return tokio::fs::read(path).await.ok();
+        }
+        let big = largest(url);
+        let real = normalize_url(url, 1000);
+        for u in [big, real] {
+            let got = async {
+                self.http
+                    .send(self.http.request(crate::http::Method::GET, &u))
+                    .await
+                    .ok()?
+                    .bytes()
+                    .await
+                    .ok()
+            }
+            .await;
+            if let Some(b) = got.filter(|b| image::guess_format(b).is_ok()) {
+                return Some(b.to_vec());
+            }
+        }
+        None
+    }
+
     pub fn new(http: Http, cache_dir: PathBuf, memory_limit: usize) -> Self {
         Self {
             http,
@@ -181,6 +260,24 @@ pub fn decode_square(bytes: &[u8], size: u32) -> Option<Pixels> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn largest_variants() {
+        assert_eq!(
+            largest("https://i.scdn.co/image/ab67616d00001e02abc"),
+            "https://i.scdn.co/image/ab67616d0000b273abc"
+        );
+        assert_eq!(
+            largest("https://lh3.googleusercontent.com/x=w120-h120-l90-rj"),
+            "https://lh3.googleusercontent.com/x=w1200-h1200-l90-rj"
+        );
+        assert_eq!(
+            largest("https://i.ytimg.com/vi/abc/hqdefault.jpg"),
+            "https://i.ytimg.com/vi/abc/maxresdefault.jpg"
+        );
+        assert_eq!(largest("avatars.yandex.net/x/%%"), "https://avatars.yandex.net/x/1000x1000");
+        assert_eq!(image_extension(&[0x89, b'P', b'N', b'G', 0]), "png");
+    }
 
     #[test]
     fn yandex_template() {

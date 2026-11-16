@@ -72,8 +72,24 @@ fn civil(z: i64) -> (i64, i64, i64) {
     (yoe + era * 400 + i64::from(m <= 2), m, d)
 }
 
+thread_local! {
+    /// The open friend page's avatar (address, name) for the picture viewer.
+    static SHOWN_AVATAR: std::cell::RefCell<Option<(String, String)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The friend page's avatar for the picture viewer: (address, name).
+pub fn shown_avatar() -> Option<(String, String)> {
+    SHOWN_AVATAR.with(|s| s.borrow().clone())
+}
+
 /// A friend's picture: the base64 JPEG written once to the cache and loaded like a cover.
 fn avatar(app: &App, pubkey: &str, b64: Option<&str>, size: f32) -> Option<slint::Image> {
+    let url = avatar_url(app, pubkey, b64)?;
+    crate::cover_r(app, &url, (size * 2.0) as u32, crate::theme_r(size, (size * 2.0) as u32, size))
+}
+
+/// The cached file of a friend's picture as an image address (`file:` + path).
+fn avatar_url(app: &App, pubkey: &str, b64: Option<&str>) -> Option<String> {
     use base64::Engine;
     let b64 = b64?;
     let dir = app.profile().cache_dir().join("avatars");
@@ -83,8 +99,7 @@ fn avatar(app: &App, pubkey: &str, b64: Option<&str>, size: f32) -> Option<slint
         let _ = std::fs::create_dir_all(&dir);
         std::fs::write(&path, bytes).ok()?;
     }
-    let url = format!("{}{}", drx_core::images::LOCAL_PREFIX, path.display());
-    crate::cover_r(app, &url, (size * 2.0) as u32, crate::theme_r(size, (size * 2.0) as u32, size))
+    Some(format!("{}{}", drx_core::images::LOCAL_PREFIX, path.display()))
 }
 
 /// A name as the app's fonts can draw it: mathematical bold, italic, script… letters (U+1D400–U+1D7FF, which
@@ -544,6 +559,8 @@ fn render(ui: &MainWindow, app: &App) {
         }
         None => ui.set_friend_has_avatar(false),
     }
+    let shown = avatar_url(app, &p, d.and_then(|d| d.avatar.as_deref())).map(|u| (u, name.clone()));
+    SHOWN_AVATAR.with(|s| *s.borrow_mut() = shown);
     ui.set_friend_initial(initial(&name).into());
     ui.set_friend_name(name.into());
     ui.set_friend_likes(d.and_then(|d| d.likes.as_ref()).map(|l| l.total.to_string()).unwrap_or_default().into());

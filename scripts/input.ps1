@@ -1,10 +1,22 @@
 # Developer checks with real input: mouse into the Mini window at client coordinates (the window may sit on the
 # second monitor; the cursor moves there). Pair with shotwin.ps1 -Client. Run Mini with DRX_MUTE=1 so clicks stay silent.
-param([string]$Do = "wheel", [int]$X, [int]$Y, [int]$Amount = -3, [string]$Text = "", [int]$Key = 0, [switch]$Ctrl, [int]$Dx = 0, [int]$Dy = 0)
+param([string]$Do = "wheel", [int]$X, [int]$Y, [int]$Amount = -3, [string]$Text = "", [int]$Key = 0, [switch]$Ctrl, [int]$Dx = 0, [int]$Dy = 0, [int]$WinPid = [int]("0" + $env:DRX_WIN_PID))
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public static class DrxIn {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string c, string t);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    // The window with this title; with pid > 0 only that process's (two Minis with different profiles share the title).
+    public static IntPtr Find(string title, uint pid) {
+        IntPtr w = IntPtr.Zero;
+        while (true) {
+            w = FindWindowEx(IntPtr.Zero, w, null, title);
+            if (w == IntPtr.Zero || pid == 0) return w;
+            uint p; GetWindowThreadProcessId(w, out p);
+            if (p == pid) return w;
+        }
+    }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string t);
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
@@ -35,7 +47,7 @@ public static class DrxIn {
 }
 "@
 # By title: the process also owns winit's invisible helper window, which MainWindowHandle may pick.
-$h = [DrxIn]::FindWindow([NullString]::Value, "Drxwnify Mini")
+$h = [DrxIn]::Find("Drxwnify Mini", [uint32]$WinPid)
 if ($h -eq [IntPtr]::Zero) { Write-Error "no Mini window"; exit 1 }
 $pt = New-Object DrxIn+POINT; $pt.X = $X; $pt.Y = $Y
 [void][DrxIn]::ClientToScreen($h, [ref]$pt)

@@ -916,6 +916,31 @@ impl App {
         self.inner.playback.toggle();
     }
 
+    /// «Скачать» in the picture viewer (CoverSaver.save): the largest original into `dir` («Загрузки») as
+    /// `<name>.<ext>` (` (2)`, ` (3)`… when taken). Returns the file written.
+    pub async fn save_image(&self, url: &str, name: &str, dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
+        let bytes = self.inner.images.original(url).await.ok_or("картинка не скачалась")?;
+        let ext = drx_core::images::image_extension(&bytes);
+        let base: String = name
+            .chars()
+            .map(|c| if "\\/:*?\"<>|".contains(c) || c.is_control() { '_' } else { c })
+            .collect::<String>()
+            .trim()
+            .trim_end_matches('.')
+            .chars()
+            .take(120)
+            .collect();
+        let base = if base.is_empty() { "cover".to_string() } else { base };
+        let mut path = dir.join(format!("{base}.{ext}"));
+        let mut n = 2;
+        while path.exists() {
+            path = dir.join(format!("{base} ({n}).{ext}"));
+            n += 1;
+        }
+        tokio::fs::write(&path, &bytes).await.map_err(|e| e.to_string())?;
+        Ok(path)
+    }
+
     /// «Перемешать» on a page: the list in random order (shuffle turns on).
     pub async fn play_list_shuffled(&self, handle: ListHandle) -> AppResult<()> {
         let items = self.list_items(handle).await?;

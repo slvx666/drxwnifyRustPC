@@ -18,6 +18,7 @@ mod search_view;
 mod settings_view;
 mod stats_view;
 mod themes;
+mod viewer;
 
 use drx_app::{App, AppEvent, Command, CommandOutcome, EditionProfile, LibraryKind, ListSpec};
 use drx_core::paths::Profile;
@@ -809,6 +810,7 @@ fn main() {
                 artist_view::refresh_covers(&ui, &app3, &songs3);
                 history_view::refresh_covers(&ui);
                 stats_view::refresh_covers(&ui, &app3);
+                viewer::refresh(&ui, &app3);
                 let url = ui.get_view_cover_url().to_string();
                 if !url.is_empty()
                     && let Some(c) = cover_r(
@@ -948,6 +950,7 @@ fn main() {
     track_menu::wire(&ui, &app);
     playlists_ui::wire(&ui, &app);
     friends_view::wire(&ui, &app);
+    viewer::wire(&ui, &app);
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());
         ui.on_open_friends(move || {
