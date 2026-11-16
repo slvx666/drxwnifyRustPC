@@ -20,6 +20,8 @@ pub struct VoiceShared {
     pub played: AtomicU64,
     /// Set by the decoder thread when no more samples will come.
     pub input_done: AtomicBool,
+    /// Frames the decoder cut as silence («Пропускать тишину»): they count as played for the clock.
+    pub skipped: AtomicU64,
 }
 
 pub struct VoiceIn {

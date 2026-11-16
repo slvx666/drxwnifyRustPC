@@ -15,6 +15,7 @@ pub fn fill(ui: &MainWindow, app: &App) {
         crossfade_s: s.crossfade_s,
         album: s.crossfade_album,
         balance: s.balance,
+        skip_silence: s.skip_silence,
         eq_on: s.eq_on,
         gains: ModelRc::new(VecModel::from(s.gains.to_vec())),
         eq_name: preset_name(&s.gains).into(),

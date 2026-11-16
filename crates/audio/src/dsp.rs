@@ -313,9 +313,79 @@ impl SilenceDetector {
     }
 }
 
+/// «Пропускать тишину» (ExoPlayer's SilenceSkippingAudioProcessor with its defaults, as the phone's skipSilence):
+/// a quiet run (every sample under 1024/32768) of 150 ms or more is cut, keeping 20 ms of it; shorter pauses stay.
+pub struct SilenceSkipper {
+    run: usize,
+    held: Vec<f32>,
+    min_frames: usize,
+    pad_frames: usize,
+}
+
+impl SilenceSkipper {
+    pub const THRESHOLD: f32 = 1024.0 / 32768.0;
+
+    pub fn new(rate: u32) -> Self {
+        Self { run: 0, held: Vec::new(), min_frames: rate as usize * 15 / 100, pad_frames: rate as usize / 50 }
+    }
+
+    pub fn reset(&mut self) {
+        self.run = 0;
+        self.held.clear();
+    }
+
+    /// Interleaved stereo in, what is kept appended to `out`; returns the frames cut.
+    pub fn process(&mut self, input: &[f32], out: &mut Vec<f32>) -> u64 {
+        let mut cut = 0u64;
+        for f in input.chunks_exact(2) {
+            if f[0].abs() < Self::THRESHOLD && f[1].abs() < Self::THRESHOLD {
+                self.run += 1;
+                if self.run <= self.min_frames {
+                    self.held.extend_from_slice(f);
+                    if self.run == self.min_frames {
+                        // Long enough: keep the padding, cut the rest of what was held.
+                        out.extend_from_slice(&self.held[..self.pad_frames * 2]);
+                        cut += (self.min_frames - self.pad_frames) as u64;
+                        self.held.clear();
+                    }
+                } else {
+                    cut += 1;
+                }
+            } else {
+                if !self.held.is_empty() {
+                    out.append(&mut self.held);
+                }
+                self.run = 0;
+                out.extend_from_slice(f);
+            }
+        }
+        cut
+    }
+
+    /// The stream ended: a short quiet tail is played after all.
+    pub fn finish(&mut self, out: &mut Vec<f32>) {
+        out.append(&mut self.held);
+        self.run = 0;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn silence_skipper_cuts_long_pauses_only() {
+        let mut s = SilenceSkipper::new(1000); // 150 frames min, 20 padding
+        let mut input = vec![0.5f32; 20];
+        input.extend(vec![0.0; 2 * 100]); // a short pause: kept
+        input.extend(vec![0.5; 20]);
+        input.extend(vec![0.0; 2 * 400]); // a long one: 20 frames stay
+        input.extend(vec![0.5; 20]);
+        let mut out = Vec::new();
+        let cut = s.process(&input, &mut out);
+        assert_eq!(cut, 380);
+        assert_eq!(out.len(), 20 + 200 + 20 + 40 + 20);
+    }
 
     #[test]
     fn normalization_clamps_like_android() {

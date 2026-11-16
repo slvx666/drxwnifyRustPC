@@ -16,6 +16,7 @@ pub const CROSSFADE_KEY: &str = "crossfadeEnabled";
 pub const CROSSFADE_LEN_KEY: &str = "crossfadeDurationFloat";
 pub const CROSSFADE_ALBUM_KEY: &str = "crossfadeGapless";
 pub const BALANCE_KEY: &str = "stereoBalance";
+pub const SKIP_SILENCE_KEY: &str = "skipSilence";
 
 const EQ_FILE: &str = "nanosonic_eq_profiles";
 const EQ_PROFILES: &str = "eq_profiles";
@@ -170,6 +171,8 @@ pub struct SoundSettings {
     pub crossfade_album: bool,
     /// −1..1.
     pub balance: f32,
+    /// Pauses in a track are cut (skipSilence).
+    pub skip_silence: bool,
     /// The equaliser is on (some profile is active).
     pub eq_on: bool,
     /// The graphic equaliser's gains (the saved ones even while off; flat if never set).
@@ -213,6 +216,7 @@ impl App {
             crossfade_s: self.pref_f32(CROSSFADE_LEN_KEY).unwrap_or(5.0).clamp(1.0, 15.0),
             crossfade_album: self.pref_bool(CROSSFADE_ALBUM_KEY).unwrap_or(true),
             balance: self.pref_f32(BALANCE_KEY).unwrap_or(0.0).clamp(-1.0, 1.0),
+            skip_silence: self.pref_bool(SKIP_SILENCE_KEY).unwrap_or(false),
             eq_on: active_p.is_some(),
             gains,
             other_profile: active_p.filter(|p| p.id != GRAPHIC_ID).map(|p| p.name.clone()),
@@ -224,6 +228,7 @@ impl App {
         let s = self.sound_settings();
         let pb = &self.inner.playback;
         pb.normalize.store(s.normalize, std::sync::atomic::Ordering::Relaxed);
+        drx_audio::player::set_skip_silence(s.skip_silence);
         pb.set_transitions(Transitions {
             crossfade_s: if s.crossfade { s.crossfade_s } else { 0.0 },
             album_gapless: s.crossfade_album,

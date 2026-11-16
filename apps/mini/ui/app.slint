@@ -199,6 +199,7 @@ export struct SoundData {
     crossfade-s: float,
     album: bool,
     balance: float, // −1..1
+    skip-silence: bool,
     eq-on: bool,
     gains: [float], // 10 bands, dB
     eq-name: string, // the preset the gains match, or «Своя»
@@ -1329,6 +1330,11 @@ component SettingsPage inherits Flickable {
             label: "Нормализация громкости";
             hint: "Треки с YouTube звучат одинаково громко";
             Middle { Toggle { on: SoundUi.data.normalize; toggled(v) => { SoundUi.set-bool("audioNormalization", v); } } }
+        }
+        SettingRow {
+            label: "Пропускать тишину";
+            hint: "Паузы внутри трека длиннее 0,15 с вырезаются";
+            Middle { Toggle { on: SoundUi.data.skip-silence; toggled(v) => { SoundUi.set-bool("skipSilence", v); } } }
         }
         SettingRow {
             label: "Кроссфейд";

@@ -20,6 +20,13 @@ const IDLE_RELEASE: Duration = Duration::from_secs(5);
 
 pub type TrackId = u64;
 
+/// «Пропускать тишину» for every track being decoded (the setting can change while one plays).
+static SKIP_SILENCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_skip_silence(on: bool) {
+    SKIP_SILENCE.store(on, Ordering::Relaxed);
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlayerEvent {
     Started(TrackId),
@@ -331,7 +338,8 @@ impl Player {
             Some(t) => PlaybackClock {
                 track: Some(t.id),
                 position_s: t.offset_s
-                    + t.shared.played.load(Ordering::Relaxed) as f64 / RATE as f64,
+                    + (t.shared.played.load(Ordering::Relaxed) + t.shared.skipped.load(Ordering::Relaxed)) as f64
+                        / RATE as f64,
                 duration_s: t.duration_s,
                 playing: !st.paused,
                 at: Instant::now(),
@@ -368,6 +376,8 @@ fn decode_loop(
     let mut rs = (dec.sample_rate() != RATE).then(|| Resampler::new(dec.sample_rate(), RATE));
     let mut pending: Vec<f32> = Vec::new();
     let mut ended = false;
+    let mut skipper = crate::dsp::SilenceSkipper::new(RATE);
+    let mut raw: Vec<f32> = Vec::new();
     loop {
         // Seek: new voice with a fresh ring, so old buffered audio is dropped at once.
         match ctl.try_recv() {
@@ -375,6 +385,7 @@ fn decode_loop(
                 let at = dec.seek(s).unwrap_or(s);
                 rs = (dec.sample_rate() != RATE).then(|| Resampler::new(dec.sample_rate(), RATE));
                 pending.clear();
+                skipper.reset();
                 ended = false;
                 let (p, c) = rtrb::RingBuffer::new(RING_SAMPLES);
                 prod = p;
@@ -401,20 +412,32 @@ fn decode_loop(
             return;
         }
         if pending.is_empty() && !ended {
+            let skip = SKIP_SILENCE.load(Ordering::Relaxed);
+            let target = if skip { &mut raw } else { &mut pending };
             match dec.next_chunk() {
                 Ok(Some(c)) => match &mut rs {
-                    Some(r) => r.push(c.samples, &mut pending),
-                    None => pending.extend_from_slice(c.samples),
+                    Some(r) => r.push(c.samples, target),
+                    None => target.extend_from_slice(c.samples),
                 },
                 Ok(None) => {
                     if let Some(r) = &mut rs {
-                        r.finish(&mut pending);
+                        r.finish(target);
                     }
                     ended = true;
                 }
                 Err(e) => {
                     tracing::warn!("decode error: {e}");
                     ended = true;
+                }
+            }
+            if skip {
+                let cut = skipper.process(&raw, &mut pending);
+                raw.clear();
+                if ended {
+                    skipper.finish(&mut pending);
+                }
+                if cut > 0 {
+                    shared.skipped.fetch_add(cut, Ordering::Relaxed);
                 }
             }
         }
@@ -438,6 +461,7 @@ fn decode_loop(
                     let at = dec.seek(s).unwrap_or(s);
                     rs = (dec.sample_rate() != RATE)
                         .then(|| Resampler::new(dec.sample_rate(), RATE));
+                    skipper.reset();
                     ended = false;
                     let (p, c) = rtrb::RingBuffer::new(RING_SAMPLES);
                     prod = p;
