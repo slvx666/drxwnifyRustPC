@@ -87,7 +87,12 @@ pub fn register_scheme() {
 pub fn launch_argument() -> String {
     std::env::args()
         .skip(1)
-        .find(|a| a.starts_with("drxwnify://") || a.contains("drxwnify.pages.dev/") || a.contains("open.spotify.com/"))
+        .find(|a| {
+            a.starts_with("drxwnify://")
+                || a.contains("drxwnify.pages.dev/")
+                || a.contains("open.spotify.com/")
+                || a.starts_with(drx_together::LINK_PREFIX)
+        })
         .unwrap_or_default()
 }
 

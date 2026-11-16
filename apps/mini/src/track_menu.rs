@@ -60,6 +60,13 @@ fn act(ui: &MainWindow, app: &App, action: &str, id: String) {
                 .into(),
             );
         }
+        "suggest" => {
+            let Some(t) = app.runtime().block_on(app.known_track(&id)) else {
+                return;
+            };
+            app.room_suggest(&t);
+            ui.set_toast("Предложено хосту комнаты".into());
+        }
         "share" => {
             let Some(t) = app.runtime().block_on(app.known_track(&id)) else {
                 return;

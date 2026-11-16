@@ -13,6 +13,7 @@ pub mod lists;
 pub mod playback;
 pub mod playlists;
 pub mod radio;
+pub mod rooms;
 mod search;
 pub mod social;
 pub mod songs;
@@ -186,6 +187,9 @@ struct Inner {
     /// The friend followed by «слушать вместе» and the task that follows them.
     listen_along: Mutex<Option<(String, tokio::task::JoinHandle<()>)>>,
     listen_along_version: watch::Sender<u64>,
+    /// The «Слушать вместе» room, while in one.
+    room: Mutex<Option<rooms::RoomSession>>,
+    room_version: watch::Sender<u64>,
     chats: std::sync::OnceLock<Option<Arc<chats::ChatStore>>>,
 }
 
@@ -234,6 +238,8 @@ impl App {
             history_publish: Mutex::default(),
             listen_along: Mutex::default(),
             listen_along_version: watch::channel(0).0,
+            room: Mutex::default(),
+            room_version: watch::channel(0).0,
             chats: std::sync::OnceLock::new(),
             lists: lists::Lists::default(),
             profile,

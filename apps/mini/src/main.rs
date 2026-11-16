@@ -12,6 +12,7 @@ mod lazy_songs;
 mod likes_ui;
 mod playlists_ui;
 mod portrait_view;
+mod rooms_ui;
 mod track_menu;
 mod nav;
 mod os;
@@ -953,6 +954,7 @@ fn main() {
     friends_view::wire(&ui, &app);
     viewer::wire(&ui, &app);
     portrait_view::wire(&ui, &app);
+    rooms_ui::wire(&ui, &app);
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());
         ui.on_open_friends(move || {
@@ -979,6 +981,15 @@ fn main() {
         ui.on_open_link(move |link| {
             let Some(ui) = ui_w.upgrade() else { return };
             let link = link.trim().to_string();
+            // A room link (the phone's metrolist.meowery.eu/listen?code=…, or drxwnify://listen?code=…): join it.
+            if link.starts_with(drx_together::LINK_PREFIX) || link.starts_with("drxwnify://listen") {
+                let code = drx_together::normalize_code(&link);
+                if code.len() >= 4 {
+                    nav::go_page(&ui, &app2, nav::Page::friends());
+                    app2.room_start(&ui.get_friends_me_name(), Some(&code));
+                    return;
+                }
+            }
             let invite = link
                 .strip_prefix("drxwnify://add/")
                 .or_else(|| link.strip_prefix(drx_social::friends::INVITE_BASE))

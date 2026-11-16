@@ -190,6 +190,32 @@ export struct GenreRow {
     items: [GenreItem],
 }
 
+// A «Слушать вместе» room as the friends page shows it.
+export struct RoomPerson {
+    id: string,
+    name: string,
+    host: bool,
+    me: bool,
+    online: bool,
+}
+
+export struct RoomAsk {
+    id: string,     // a user (join request) or a suggestion
+    name: string,
+    title: string,  // a suggested track: «Artist — Title»
+}
+
+export struct RoomData {
+    active: bool,   // in a room or on the way in
+    code: string,
+    role: string,   // host | guest | "" (waiting)
+    status: string,
+    users: [RoomPerson],
+    requests: [RoomAsk],
+    suggestions: [RoomAsk],
+    buffering: string,
+}
+
 export struct PortraitData {
     periods: [SourceChip],  // Неделя / Месяц / Год
     months: [SourceChip],   // the months of the last year that have a portrait
@@ -2515,6 +2541,133 @@ component PortraitView inherits Flickable {
     }
 }
 
+// «Слушать вместе» in a room (Android ListenTogetherScreen): create one or join by code / link; inside — the code,
+// who is there (the host can hand over or remove), join requests and track suggestions for the host.
+component RoomCard inherits Rectangle {
+    in property <RoomData> room;
+    in-out property <string> join-text;
+    callback action(string, string); // create, join, leave, link, resync, approve, reject, kick, host, take, drop
+    border-radius: Grid.item-radius;
+    background: Theme.fill;
+    height: rc-col.preferred-height;
+    rc-col := VerticalLayout {
+        padding: 14px;
+        spacing: 10px;
+        if !root.room.active: HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                Text { text: "Слушать вместе в комнате"; font-family: Theme.heading-font; font-weight: 700; font-size: 16px; color: Theme.text; }
+                Text { text: "Комната на общем сервере: хост ставит музыку, остальные слышат то же самое"; font-family: Theme.body-font; font-size: 13px; color: Theme.mute; overflow: elide; }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Middle { Pill { label: "Создать"; primary: true; clicked => { root.action("create", ""); } } }
+            Middle { Rectangle {
+                width: 220px;
+                height: 34px;
+                border-radius: 10px;
+                background: Theme.fill-hover;
+                border-color: rc-input.has-focus ? Theme.accent : Theme.panel-border;
+                border-width: 1px;
+                if root.join-text == "": Text {
+                    x: 10px;
+                    height: parent.height;
+                    text: "Код или ссылка";
+                    font-family: Theme.body-font; font-size: 14px; color: Theme.mute;
+                    vertical-alignment: center;
+                }
+                rc-input := TextInput {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height;
+                    text <=> root.join-text;
+                    font-family: Theme.body-font; font-size: 14px; color: Theme.text;
+                    vertical-alignment: center;
+                    single-line: true;
+                    accepted => { root.action("join", self.text); }
+                }
+            } }
+            Middle { Pill { label: "Войти"; clicked => { root.action("join", root.join-text); } } }
+        }
+        if root.room.active: HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                horizontal-stretch: 1;
+                Text {
+                    text: root.room.code == "" ? "Комната" : "Комната " + root.room.code;
+                    font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text;
+                }
+                Text {
+                    text: root.room.status != "" ? root.room.status
+                        : root.room.role == "host" ? "ты хост: что играет у тебя, слышат все"
+                        : root.room.role == "guest" ? "ты гость: играет то, что у хоста" : "";
+                    font-family: Theme.mono-font; font-size: 13px;
+                    color: root.room.status != "" ? Theme.mute : Theme.accent;
+                    overflow: elide;
+                }
+            }
+            if root.room.code != "": Middle { Pill { label: "Ссылка"; clicked => { root.action("link", ""); } } }
+            if root.room.role == "guest": Middle { Pill { label: "Синхронизировать"; clicked => { root.action("resync", ""); } } }
+            Middle { Pill { label: root.room.role == "" ? "Отмена" : "Выйти"; clicked => { root.action("leave", ""); } } }
+        }
+        if root.room.active && root.room.users.length > 0: HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            for u in root.room.users: Rectangle {
+                height: 32px;
+                width: ru-row.preferred-width + 24px;
+                border-radius: 16px;
+                background: u.host ? Theme.accent : Theme.fill-hover;
+                ru-row := HorizontalLayout {
+                    alignment: center;
+                    spacing: 6px;
+                    Text {
+                        text: u.name + (u.me ? " (ты)" : "") + (u.host ? " · хост" : "") + (u.online ? "" : " · нет связи");
+                        font-family: Theme.body-font; font-weight: 600; font-size: 13px;
+                        color: u.host ? Theme.on-accent : Theme.text;
+                        vertical-alignment: center;
+                    }
+                    if root.room.role == "host" && !u.me: Middle {
+                        Rectangle {
+                            width: 20px; height: 20px; border-radius: 10px;
+                            background: ru-h.has-hover ? Theme.fill : transparent;
+                            Icon { icon: Icons.user-circle; size: 13px; color: Theme.dim; }
+                            ru-h := TouchArea { mouse-cursor: pointer; clicked => { root.action("host", u.id); } }
+                        }
+                    }
+                    if root.room.role == "host" && !u.me: Middle {
+                        Rectangle {
+                            width: 20px; height: 20px; border-radius: 10px;
+                            background: ru-k.has-hover ? Theme.fill : transparent;
+                            Icon { icon: Icons.x; size: 12px; color: Theme.dim; }
+                            ru-k := TouchArea { mouse-cursor: pointer; clicked => { root.action("kick", u.id); } }
+                        }
+                    }
+                }
+            }
+        }
+        for r in root.room.requests: HorizontalLayout {
+            spacing: 10px;
+            Text { horizontal-stretch: 1; text: r.name + " просится в комнату"; font-family: Theme.body-font; font-size: 14px; color: Theme.text; vertical-alignment: center; overflow: elide; }
+            Middle { Pill { label: "Впустить"; primary: true; clicked => { root.action("approve", r.id); } } }
+            Middle { Pill { label: "Отклонить"; clicked => { root.action("reject", r.id); } } }
+        }
+        for s in root.room.suggestions: HorizontalLayout {
+            spacing: 10px;
+            Text { horizontal-stretch: 1; text: s.name + " предлагает: " + s.title; font-family: Theme.body-font; font-size: 14px; color: Theme.text; vertical-alignment: center; overflow: elide; }
+            Middle { Pill { label: "Следующим"; primary: true; clicked => { root.action("take", s.id); } } }
+            Middle { Pill { label: "Нет"; clicked => { root.action("drop", s.id); } } }
+        }
+        if root.room.buffering != "": Text {
+            text: "Ждём, пока загрузится у: " + root.room.buffering;
+            font-family: Theme.body-font; font-size: 13px; color: Theme.mute;
+        }
+    }
+}
+
 // Friends (pc/ FriendsScreen): one's own profile, requests, friends' cards; a friend's page with history,
 // likes and playlists. Over Nostr: no server of our own.
 component FriendsView inherits Rectangle {
@@ -2535,6 +2688,9 @@ component FriendsView inherits Rectangle {
     in property <bool> f-has-avatar;
     in property <string> f-tab; // chat | portrait | history | likes | playlists
     in property <PortraitData> f-portrait;
+    in property <RoomData> room;
+    in-out property <string> room-join-text;
+    callback room-action(string, string);
     in property <[GenreItem]> f-tags; // their three main genres, under the name
     callback portrait-period(int);
     in property <[ChatItem]> f-chat;
@@ -2637,6 +2793,11 @@ component FriendsView inherits Rectangle {
                     }
                 }
                 Middle { Pill { label: "Добавить"; primary: true; clicked => { root.add(root.add-text); } } }
+            }
+            RoomCard {
+                room: root.room;
+                join-text <=> root.room-join-text;
+                action(a, x) => { root.room-action(a, x); }
             }
             if root.requests.length > 0: Text { text: "Заявки · " + root.requests.length; font-family: Theme.heading-font; font-weight: 700; font-size: 16px; color: Theme.text; }
             for r in root.requests: HorizontalLayout {
@@ -3194,6 +3355,10 @@ export component MainWindow inherits Window {
     in-out property <bool> chat-menu-mine;
     in property <string> friend-likes;
     in property <PortraitData> friend-portrait;
+    in property <RoomData> room;
+    in-out property <string> room-join-text;
+    callback room-action(string, string);
+    in property <bool> room-guest; // a guest can suggest tracks (the track menu)
     in property <[GenreItem]> friend-tags;
     callback friend-portrait-period(int);
     in property <[SongItem]> friend-tracks;
@@ -3475,6 +3640,9 @@ export component MainWindow inherits Window {
                         remove => { root.friend-remove(); }
                         f-likes: root.friend-likes;
                         f-portrait: root.friend-portrait;
+                        room: root.room;
+                        room-join-text <=> root.room-join-text;
+                        room-action(a, x) => { root.room-action(a, x); }
                         f-tags: root.friend-tags;
                         portrait-period(i) => { root.friend-portrait-period(i); }
                         f-tracks: root.friend-tracks;
@@ -3595,6 +3763,7 @@ export component MainWindow inherits Window {
                 if root.menu-has-artist: MenuItem { icon: Icons.user-circle; label: "К исполнителю"; clicked => { root.track-menu-action("artist", root.menu-id); } }
                 if root.menu-has-album: MenuItem { icon: Icons.album; label: "К альбому"; clicked => { root.track-menu-action("album", root.menu-id); } }
                 MenuItem { icon: Icons.link; label: "Поделиться"; clicked => { root.track-menu-action("share", root.menu-id); } }
+                if root.room-guest: MenuItem { icon: Icons.users; label: "Предложить в комнату"; clicked => { root.track-menu-action("suggest", root.menu-id); } }
             }
         }
     }
