@@ -231,6 +231,13 @@ export global StatsUi {
     callback act();
 }
 
+// «Темп и тон» in the player bar.
+export global TempoUi {
+    in property <float> tempo: 1;
+    in property <int> pitch;
+    callback set(float, int);
+}
+
 export struct LyricLine {
     text: string,
     time-ms: int,
@@ -2774,6 +2781,60 @@ component PlayerBar inherits HorizontalLayout {
             text: root.sleep-label;
             font-family: Theme.body-font; font-size: 13px; color: Theme.accent;
             vertical-alignment: center;
+        }
+        // «Темп и тон» (the phone's player menu): the speed as a word, lit when not as recorded.
+        Middle {
+            Rectangle {
+                property <bool> changed: TempoUi.tempo != 1 || TempoUi.pitch != 0;
+                width: max(36px, tl.preferred-width + 14px);
+                height: 32px;
+                border-radius: 16px;
+                background: tpa.has-hover ? Theme.fill-hover : transparent;
+                tl := Text {
+                    text: round(TempoUi.tempo * 100) / 100 + "×";
+                    font-family: Theme.body-font; font-weight: 700; font-size: 13px;
+                    color: parent.changed ? Theme.accent : (tpa.has-hover ? Theme.text : Theme.dim);
+                }
+                tpa := TouchArea { mouse-cursor: pointer; clicked => { tempo-menu.show(); } }
+                tempo-menu := PopupWindow {
+                    width: 260px;
+                    height: tm-col.preferred-height;
+                    x: parent.width - self.width;
+                    y: -self.height - 10px;
+                    close-policy: close-on-click-outside;
+                    Rectangle {
+                        border-radius: Grid.item-radius;
+                        background: Theme.menu;
+                        border-color: Theme.panel-border;
+                        border-width: 1px;
+                        drop-shadow-blur: 16px;
+                        drop-shadow-color: #00000060;
+                    }
+                    tm-col := VerticalLayout {
+                        padding: 12px;
+                        spacing: 10px;
+                        Text { text: "Темп и тон"; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.text; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Темп"; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; vertical-alignment: center; horizontal-stretch: 1; }
+                            IconButton { icon: Icons.minus; size: 30px; icon-size: 14px; filled: true; clicked => { TempoUi.set(TempoUi.tempo - 0.05, TempoUi.pitch); } }
+                            Text { text: round(TempoUi.tempo * 100) / 100 + "×"; min-width: 52px; horizontal-alignment: center; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.text; vertical-alignment: center; }
+                            IconButton { icon: Icons.plus; size: 30px; icon-size: 14px; filled: true; clicked => { TempoUi.set(TempoUi.tempo + 0.05, TempoUi.pitch); } }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Тон"; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; vertical-alignment: center; horizontal-stretch: 1; }
+                            IconButton { icon: Icons.minus; size: 30px; icon-size: 14px; filled: true; clicked => { TempoUi.set(TempoUi.tempo, TempoUi.pitch - 1); } }
+                            Text { text: (TempoUi.pitch > 0 ? "+" : "") + TempoUi.pitch; min-width: 52px; horizontal-alignment: center; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.text; vertical-alignment: center; }
+                            IconButton { icon: Icons.plus; size: 30px; icon-size: 14px; filled: true; clicked => { TempoUi.set(TempoUi.tempo, TempoUi.pitch + 1); } }
+                        }
+                        HorizontalLayout {
+                            alignment: end;
+                            Pill { label: "Сбросить"; clicked => { TempoUi.set(1, 0); } }
+                        }
+                    }
+                }
+            }
         }
         Middle {
             Rectangle {

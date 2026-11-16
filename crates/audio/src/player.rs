@@ -27,6 +27,19 @@ pub fn set_skip_silence(on: bool) {
     SKIP_SILENCE.store(on, Ordering::Relaxed);
 }
 
+/// «Темп и тон»: tempo (×, 1 = as recorded) and pitch (semitones), for every track being decoded.
+static TEMPO_BITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3F80_0000); // 1.0
+static PITCH: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+pub fn set_tempo_pitch(tempo: f32, semitones: i32) {
+    TEMPO_BITS.store(tempo.clamp(0.25, 2.0).to_bits(), Ordering::Relaxed);
+    PITCH.store(semitones.clamp(-12, 12), Ordering::Relaxed);
+}
+
+pub fn tempo_pitch() -> (f32, i32) {
+    (f32::from_bits(TEMPO_BITS.load(Ordering::Relaxed)), PITCH.load(Ordering::Relaxed))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlayerEvent {
     Started(TrackId),
@@ -338,7 +351,7 @@ impl Player {
             Some(t) => PlaybackClock {
                 track: Some(t.id),
                 position_s: t.offset_s
-                    + (t.shared.played.load(Ordering::Relaxed) + t.shared.skipped.load(Ordering::Relaxed)) as f64
+                    + (t.shared.played.load(Ordering::Relaxed) as i64 + t.shared.adjust.load(Ordering::Relaxed)).max(0) as f64
                         / RATE as f64,
                 duration_s: t.duration_s,
                 playing: !st.paused,
@@ -378,6 +391,12 @@ fn decode_loop(
     let mut ended = false;
     let mut skipper = crate::dsp::SilenceSkipper::new(RATE);
     let mut raw: Vec<f32> = Vec::new();
+    let mut stretched: Vec<f32> = Vec::new();
+    let mut stretch: Option<crate::dsp::TimeStretch> = None;
+    // The tempo and pitch the resampler and stretcher are built for; (-1, 0) = build them anew.
+    let mut shape: (f32, i32) = (-1.0, 0);
+    // Track time not yet passed to the clock (fractions of a frame).
+    let mut drift = 0.0f64;
     loop {
         // Seek: new voice with a fresh ring, so old buffered audio is dropped at once.
         match ctl.try_recv() {
@@ -386,6 +405,8 @@ fn decode_loop(
                 rs = (dec.sample_rate() != RATE).then(|| Resampler::new(dec.sample_rate(), RATE));
                 pending.clear();
                 skipper.reset();
+                shape = (-1.0, 0);
+                drift = 0.0;
                 ended = false;
                 let (p, c) = rtrb::RingBuffer::new(RING_SAMPLES);
                 prod = p;
@@ -412,16 +433,29 @@ fn decode_loop(
             return;
         }
         if pending.is_empty() && !ended {
-            let skip = SKIP_SILENCE.load(Ordering::Relaxed);
-            let target = if skip { &mut raw } else { &mut pending };
+            // «Темп и тон»: the pitch by resampling to another rate, the tempo then by stretching.
+            let now = tempo_pitch();
+            if now != shape {
+                shape = now;
+                let p = 2f64.powf(now.1 as f64 / 12.0);
+                let to = ((RATE as f64 / p).round() as u32).max(8_000);
+                rs = (dec.sample_rate() != to).then(|| Resampler::new(dec.sample_rate(), to));
+                let speed = now.0 as f64 / p;
+                stretch = ((speed - 1.0).abs() > 1e-3).then(|| crate::dsp::TimeStretch::new(speed));
+            }
+            raw.clear();
+            let mut src_frames = 0usize;
             match dec.next_chunk() {
-                Ok(Some(c)) => match &mut rs {
-                    Some(r) => r.push(c.samples, target),
-                    None => target.extend_from_slice(c.samples),
-                },
+                Ok(Some(c)) => {
+                    src_frames = c.samples.len() / 2;
+                    match &mut rs {
+                        Some(r) => r.push(c.samples, &mut raw),
+                        None => raw.extend_from_slice(c.samples),
+                    }
+                }
                 Ok(None) => {
                     if let Some(r) = &mut rs {
-                        r.finish(target);
+                        r.finish(&mut raw);
                     }
                     ended = true;
                 }
@@ -430,15 +464,30 @@ fn decode_loop(
                     ended = true;
                 }
             }
-            if skip {
-                let cut = skipper.process(&raw, &mut pending);
-                raw.clear();
+            if let Some(t) = &mut stretch {
+                stretched.clear();
+                t.process(&raw, &mut stretched);
+                if ended {
+                    t.finish(&mut stretched);
+                }
+                std::mem::swap(&mut raw, &mut stretched);
+            }
+            let before = pending.len();
+            if SKIP_SILENCE.load(Ordering::Relaxed) {
+                skipper.process(&raw, &mut pending);
                 if ended {
                     skipper.finish(&mut pending);
                 }
-                if cut > 0 {
-                    shared.skipped.fetch_add(cut, Ordering::Relaxed);
-                }
+            } else {
+                pending.extend_from_slice(&raw);
+            }
+            // The clock: how much track time this sound stands for, beyond its own length.
+            let produced = (pending.len() - before) / 2;
+            drift += src_frames as f64 * RATE as f64 / dec.sample_rate() as f64 - produced as f64;
+            let whole = drift.trunc();
+            if whole != 0.0 {
+                shared.adjust.fetch_add(whole as i64, Ordering::Relaxed);
+                drift -= whole;
             }
         }
         if !pending.is_empty() {
@@ -462,6 +511,8 @@ fn decode_loop(
                     rs = (dec.sample_rate() != RATE)
                         .then(|| Resampler::new(dec.sample_rate(), RATE));
                     skipper.reset();
+                    shape = (-1.0, 0);
+                    drift = 0.0;
                     ended = false;
                     let (p, c) = rtrb::RingBuffer::new(RING_SAMPLES);
                     prod = p;

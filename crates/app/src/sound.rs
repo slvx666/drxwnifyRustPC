@@ -238,6 +238,24 @@ impl App {
         pb.set_effects(eq, s.balance);
     }
 
+    /// «Темп и тон» (the phone's player menu): tempo 0.25–2× by 0.05, pitch −12…+12 semitones; for this session, as
+    /// the phone keeps them on its player. The sound changes at once (the buffered part is decoded again).
+    pub fn set_tempo_pitch(&self, tempo: f32, semitones: i32) {
+        let tempo = ((tempo * 20.0).round() / 20.0).clamp(0.25, 2.0);
+        if drx_audio::player::tempo_pitch() == (tempo, semitones.clamp(-12, 12)) {
+            return;
+        }
+        drx_audio::player::set_tempo_pitch(tempo, semitones);
+        let c = self.clock();
+        if c.track.is_some() {
+            self.seek(c.position_s);
+        }
+    }
+
+    pub fn tempo_pitch(&self) -> (f32, i32) {
+        drx_audio::player::tempo_pitch()
+    }
+
     pub fn set_sound_bool(&self, key: &str, on: bool) {
         let _ = self.set_pref(key, PrefValue::Bool(on));
         self.apply_sound();

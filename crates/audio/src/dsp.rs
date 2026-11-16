@@ -313,6 +313,100 @@ impl SilenceDetector {
     }
 }
 
+/// Tempo without changing the pitch (the phone's «Темп»): WSOLA on interleaved stereo. Frames of 2048 samples with a
+/// Hann window overlap by half on output; each next input frame is taken where it best continues the last one
+/// (searched ±10 ms around its nominal place), so speech and music keep their pitch and do not click.
+pub struct TimeStretch {
+    speed: f64,
+    input: Vec<f32>,
+    /// Nominal input frame (relative to `input`) of the next analysis frame.
+    pos: f64,
+    /// Where the last frame's natural continuation starts (relative to `input`); None before the first frame.
+    prev: Option<usize>,
+    tail: Vec<f32>,
+    window: Vec<f32>,
+}
+
+impl TimeStretch {
+    const N: usize = 2048;
+    const HOP: usize = Self::N / 2;
+    const SEEK: usize = 480;
+
+    pub fn new(speed: f64) -> Self {
+        let n = Self::N;
+        let window = (0..n).map(|i| (0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / n as f64).cos()) as f32).collect();
+        Self { speed: speed.clamp(0.25, 4.0), input: Vec::new(), pos: Self::SEEK as f64, prev: None, tail: vec![0.0; Self::HOP * 2], window }
+    }
+
+    pub fn speed(&self) -> f64 {
+        self.speed
+    }
+
+    /// Interleaved stereo in, the stretched sound appended to `out`.
+    pub fn process(&mut self, input: &[f32], out: &mut Vec<f32>) {
+        self.input.extend_from_slice(input);
+        let (n, hop, seek) = (Self::N, Self::HOP, Self::SEEK);
+        loop {
+            let frames = self.input.len() / 2;
+            let nominal = self.pos.round() as usize;
+            if nominal + seek + n > frames {
+                break;
+            }
+            let at = match self.prev {
+                None => nominal,
+                Some(cont) => {
+                    // The natural continuation of the last frame, compared on a mono mix.
+                    let mut best = (f32::MIN, nominal);
+                    let lo = nominal.saturating_sub(seek);
+                    let mut cand = lo;
+                    while cand <= nominal + seek {
+                        let mut c = 0.0f32;
+                        let mut k = 0;
+                        while k < hop {
+                            let a = self.input[(cand + k) * 2] + self.input[(cand + k) * 2 + 1];
+                            let b = self.input[(cont + k) * 2] + self.input[(cont + k) * 2 + 1];
+                            c += a * b;
+                            k += 4;
+                        }
+                        if c > best.0 {
+                            best = (c, cand);
+                        }
+                        cand += 4;
+                    }
+                    best.1
+                }
+            };
+            for i in 0..hop {
+                let w = self.window[i];
+                out.push(self.tail[i * 2] + self.input[(at + i) * 2] * w);
+                out.push(self.tail[i * 2 + 1] + self.input[(at + i) * 2 + 1] * w);
+            }
+            for i in 0..hop {
+                let w = self.window[hop + i];
+                self.tail[i * 2] = self.input[(at + hop + i) * 2] * w;
+                self.tail[i * 2 + 1] = self.input[(at + hop + i) * 2 + 1] * w;
+            }
+            self.prev = Some(at + hop);
+            self.pos += hop as f64 * self.speed;
+            // Drop what no frame can reach any more.
+            let keep_from = (self.pos as usize).saturating_sub(seek).min(at + hop);
+            if keep_from > 4 * n {
+                self.input.drain(..keep_from * 2);
+                self.pos -= keep_from as f64;
+                self.prev = Some(at + hop - keep_from);
+            }
+        }
+    }
+
+    /// The stream ended: what is left goes out as it is.
+    pub fn finish(&mut self, out: &mut Vec<f32>) {
+        out.extend_from_slice(&self.tail[..]);
+        let from = ((self.pos.round() as usize).min(self.input.len() / 2)) * 2;
+        out.extend_from_slice(&self.input[from..]);
+        self.input.clear();
+    }
+}
+
 /// «Пропускать тишину» (ExoPlayer's SilenceSkippingAudioProcessor with its defaults, as the phone's skipSilence):
 /// a quiet run (every sample under 1024/32768) of 150 ms or more is cut, keeping 20 ms of it; shorter pauses stay.
 pub struct SilenceSkipper {
@@ -372,6 +466,22 @@ impl SilenceSkipper {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn time_stretch_changes_length_not_level() {
+        let input: Vec<f32> = (0..48_000 * 2 * 4).map(|i| ((i / 2) as f32 * 0.05).sin() * 0.5).collect();
+        for speed in [0.5, 1.5, 2.0] {
+            let mut t = TimeStretch::new(speed);
+            let mut out = Vec::new();
+            t.process(&input, &mut out);
+            t.finish(&mut out);
+            let want = 4.0 * 48_000.0 / speed;
+            let got = (out.len() / 2) as f64;
+            assert!((got - want).abs() / want < 0.06, "speed {speed}: {got} frames, want about {want}");
+            let peak = out[4096..out.len() - 4096].iter().fold(0.0f32, |m, s| m.max(s.abs()));
+            assert!(peak > 0.4 && peak < 0.6, "speed {speed}: peak {peak}");
+        }
+    }
 
     #[test]
     fn silence_skipper_cuts_long_pauses_only() {

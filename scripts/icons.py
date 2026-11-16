@@ -72,6 +72,7 @@ ICONS = {
     "message": 0xEAEF,  # message
     "circle-check": 0xEA67,  # circle-check
     "alert-circle": 0xEA05,  # alert-circle
+    "minus": 0xEAF2,  # minus
     "checks": 0,  # drawn below: Telegram's «read» double tick
 }
 OPTICAL = {"play"}

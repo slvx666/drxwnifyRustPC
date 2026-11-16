@@ -28,6 +28,18 @@ pub fn fill(ui: &MainWindow, app: &App) {
 }
 
 pub fn wire(ui: &MainWindow, app: &App) {
+    {
+        let (app, ui_w) = (app.clone(), ui.as_weak());
+        ui.global::<crate::TempoUi>().on_set(move |tempo, pitch| {
+            app.set_tempo_pitch(tempo, pitch);
+            if let Some(ui) = ui_w.upgrade() {
+                let (t, p) = app.tempo_pitch();
+                let g = ui.global::<crate::TempoUi>();
+                g.set_tempo(t);
+                g.set_pitch(p);
+            }
+        });
+    }
     let g = ui.global::<SoundUi>();
     {
         let (app, ui_w) = (app.clone(), ui.as_weak());
