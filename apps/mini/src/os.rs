@@ -19,11 +19,10 @@ pub fn hotkeys_on(app: &App) -> bool {
         .unwrap_or(true)
 }
 
-/// Registers or drops the global hotkeys per the setting. Test runs (DRX_PROFILE) never grab the owner's keys
-/// unless DRX_HOTKEYS is set (as pc/ does with DRXW_HOTKEYS).
+/// Registers or drops the global hotkeys per the setting. Test runs (a test copy of the profile) never grab the
+/// owner's keys unless DRX_HOTKEYS is set (as pc/ does with DRXW_HOTKEYS).
 pub fn apply_hotkeys(platform: &Platform, app: &App) {
-    let test_run =
-        std::env::var_os("DRX_PROFILE").is_some() && std::env::var_os("DRX_HOTKEYS").is_none();
+    let test_run = drx_core::paths::test_run("DRX_HOTKEYS");
     crate::hotkeys::clear_taken();
     platform.set_hotkeys(if hotkeys_on(app) && !test_run {
         crate::hotkeys::all(app)
@@ -67,9 +66,9 @@ pub fn instance_name(profile_root: &std::path::Path) -> String {
 }
 
 /// Makes `drxwnify://` links (invites, shared music; the site's «Открыть в приложении») open this Mini. Test runs
-/// (DRX_PROFILE) leave the registration alone unless DRX_SCHEME is set.
+/// (a test copy of the profile) leave the registration alone unless DRX_SCHEME is set.
 pub fn register_scheme() {
-    if std::env::var_os("DRX_PROFILE").is_some() && std::env::var_os("DRX_SCHEME").is_none() {
+    if drx_core::paths::test_run("DRX_SCHEME") {
         return;
     }
     let Ok(exe) = std::env::current_exe() else { return };

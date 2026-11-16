@@ -16,6 +16,18 @@ pub const DEFAULT_DIR_WINDOWS: &str = "DrxwnifyPC";
 /// Folder name of the default profile under `$XDG_DATA_HOME`.
 pub const DEFAULT_DIR_LINUX: &str = "drxwnify-pc";
 
+/// The file that marks a profile as a test copy: a run on it is the owner's identity but must not act as them.
+pub const TEST_MARKER: &str = ".drx-test-profile";
+
+/// This run is a check on a test copy of the profile (DRX_PROFILE points at a folder holding [`TEST_MARKER`]):
+/// it publishes nothing to friends, sends no messages, grabs no global keys and leaves the link scheme alone,
+/// unless the matching override (`allow`, e.g. DRX_SOCIAL_PUBLISH) is set. A profile chosen with `--profile`
+/// without the marker is a real one and works fully.
+pub fn test_run(allow: &str) -> bool {
+    std::env::var_os("DRX_PROFILE").is_some_and(|p| Path::new(&p).join(TEST_MARKER).exists())
+        && std::env::var_os(allow).is_none()
+}
+
 #[derive(Debug, Clone)]
 pub struct Profile {
     root: PathBuf,

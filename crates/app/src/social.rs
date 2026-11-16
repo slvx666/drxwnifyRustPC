@@ -2,8 +2,8 @@
 //! what plays published to them (Android FriendsHub.playerChanged: debounced 1.5 s) and the history two minutes
 //! after a listen; friends' tracks turned into playable ones.
 //!
-//! A test run (`DRX_PROFILE`) is the same identity as the owner: it publishes nothing unless DRX_SOCIAL_PUBLISH is
-//! set, so checks never show friends what a test played.
+//! A test run (a test copy of the profile, `drx_core::paths::test_run`) is the same identity as the owner: it
+//! publishes nothing unless DRX_SOCIAL_PUBLISH is set, so checks never show friends what a test played.
 
 use crate::songs::{catalog_id_fast, song_id_of};
 use crate::App;
@@ -20,7 +20,7 @@ pub(crate) fn may_publish_pub() -> bool {
 }
 
 fn may_publish() -> bool {
-    std::env::var_os("DRX_PROFILE").is_none() || std::env::var_os("DRX_SOCIAL_PUBLISH").is_some()
+    !drx_core::paths::test_run("DRX_SOCIAL_PUBLISH")
 }
 
 /// The ref friends get for a track.
