@@ -226,8 +226,16 @@ impl App {
                 let mut p = Self::track_params(t);
                 p.insert("timestamp".into(), started.to_string());
                 p.insert("sk".into(), sk);
-                if let Err(e) = app.lastfm_call("track.scrobble", p, true).await {
-                    tracing::info!("scrobble: {e}");
+                match app.lastfm_call("track.scrobble", p, true).await {
+                    // Last.fm answers 200 with «ignored» for a scrobble it refused: say why.
+                    Ok(v) if v.pointer("/scrobbles/@attr/ignored").and_then(Value::as_i64).unwrap_or(0) > 0 => {
+                        let why = v.pointer("/scrobbles/scrobble/ignoredMessage/#text").and_then(Value::as_str).unwrap_or("отклонён").to_string();
+                        let _ = app.inner.events.send(crate::AppEvent::Notice(format!("Last.fm не принял скроббл: {why}")));
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        let _ = app.inner.events.send(crate::AppEvent::Notice(format!("Скроббл не ушёл: {e}")));
+                    }
                 }
             }
         });
