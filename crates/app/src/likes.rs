@@ -244,7 +244,10 @@ impl App {
     pub async fn toggle_like(&self, id: &str) -> AppResult<bool> {
         let t = self.known_track(id).await.ok_or_else(|| err("unknown track"))?;
         let liked = !self.is_track_liked(id).await;
-        self.set_track_liked(&t, liked).await.map(|_| liked)
+        self.set_track_liked(&t, liked).await?;
+        // «Отправлять лайки в Last.fm» (lastfmUseSendLikes).
+        self.lastfm_love(&t, liked);
+        Ok(liked)
     }
 
     pub fn like_mode(&self) -> LikeMode {

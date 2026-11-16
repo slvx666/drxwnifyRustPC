@@ -79,6 +79,13 @@ fn switch(key: &str, label: &str, hint: &str, on: bool, header: &str) -> crate::
     }
 }
 
+/// A row with a caption and a word, without a control.
+fn switch_info(label: &str, hint: &str, header: &str) -> crate::FlagItem {
+    let mut it = choice("info", label, hint, &[], Vec::new(), header);
+    it.options = ModelRc::default();
+    it
+}
+
 fn choice(key: &str, label: &str, hint: &str, options: &[&str], marks: Vec<bool>, header: &str) -> crate::FlagItem {
     let options: Vec<slint::SharedString> = options.iter().map(|o| (*o).into()).collect();
     crate::FlagItem {
@@ -168,6 +175,20 @@ pub fn fill_flags(ui: &MainWindow, app: &App) {
         app.pref_bool(drx_app::sponsorblock::TOAST_KEY).unwrap_or(false),
         "",
     ));
+    // Last.fm (the phone's LastFMSettings): this PC's own sign-in through the browser, then its switches.
+    let lf = app.lastfm_state();
+    match (&lf.user, lf.available) {
+        (_, false) => more.push(switch_info("Last.fm", "Нет ключа приложения Last.fm в этой сборке", "LAST.FM")),
+        (None, true) => {
+            more.push(choice("lastfm:account", "Аккаунт Last.fm", "Вход через браузер: подтвердите доступ на странице Last.fm", &["Войти через Last.fm"], vec![false], "LAST.FM"));
+        }
+        (Some(u), true) => {
+            more.push(choice("lastfm:account", &format!("Аккаунт: {u}"), "", &["Выйти"], vec![false], "LAST.FM"));
+            more.push(switch(drx_app::lastfm::SCROBBLE_KEY, "Скробблинг", "Прослушанное попадает в профиль Last.fm (после половины трека или 3 минут)", lf.scrobble, ""));
+            more.push(switch(drx_app::lastfm::NOW_PLAYING_KEY, "«Сейчас слушает»", "Last.fm показывает, что играет прямо сейчас", lf.now_playing, ""));
+            more.push(switch(drx_app::lastfm::LOVE_KEY, "Отправлять лайки", "Лайк трека — «love» в Last.fm", lf.love, ""));
+        }
+    }
     if let Some(f) = app.friends() {
         let p = f.privacy();
         let marks = |a: drx_social::friends::Audience| AUDIENCES.iter().map(|(x, _)| *x == a).collect::<Vec<bool>>();
@@ -228,6 +249,37 @@ fn pick(ui: &MainWindow, app: &App, key: &str, i: usize) {
                     cats.push((*cat).to_string());
                 }
                 let _ = app.set_pref(drx_app::sponsorblock::CATEGORIES_PREF, PrefValue::String(cats.join(",")));
+            }
+        }
+        "lastfm:account" => {
+            if app.lastfm_state().user.is_some() {
+                app.lastfm_sign_out();
+                ui.set_toast("Вы вышли из Last.fm".into());
+            } else {
+                let (app2, ui_w) = (app.clone(), ui.as_weak());
+                app.runtime().spawn(async move {
+                    let begun = app2.lastfm_begin().await;
+                    let (token, url) = match begun {
+                        Ok(x) => x,
+                        Err(e) => {
+                            let _ = ui_w.upgrade_in_event_loop(move |ui| ui.set_toast(format!("Не получилось: {e}").into()));
+                            return;
+                        }
+                    };
+                    let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                        let opened = drx_platform::open_url(&url);
+                        ui.set_toast(if opened { "Подтвердите вход на странице Last.fm в браузере" } else { "Не открылся браузер" }.into());
+                    });
+                    let done = app2.lastfm_finish(&token).await;
+                    let app3 = app2.clone();
+                    let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                        ui.set_toast(match done {
+                            Ok(name) => format!("Last.fm: вы вошли как {name}"),
+                            Err(e) => format!("Last.fm: {e}"),
+                        }.into());
+                        fill_flags(&ui, &app3);
+                    });
+                });
             }
         }
         "privacy:now" | "privacy:history" => {

@@ -1030,6 +1030,7 @@ fn main() {
     discord_ui::start(&app);
     app.keep_queue_going();
     app.keep_sponsorblock();
+    app.keep_scrobbling();
     downloads_ui::wire(&ui, &app);
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());

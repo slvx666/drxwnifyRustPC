@@ -1248,7 +1248,7 @@ component FlagRow inherits VerticalLayout {
     SettingRow {
         label: root.f.label;
         hint: root.f.hint;
-        if root.f.options.length == 0: Middle { Toggle { on: root.f.on; toggled(v) => { SettingsUi.set-flag(root.f.key, v); } } }
+        if root.f.options.length == 0 && root.f.key != "info": Middle { Toggle { on: root.f.on; toggled(v) => { SettingsUi.set-flag(root.f.key, v); } } }
     }
     if root.f.options.length > 0: strip := ArrowStrip {
         property <int> hover-i: -1;

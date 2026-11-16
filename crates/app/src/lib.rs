@@ -19,6 +19,7 @@ pub mod downloads;
 pub mod sponsorblock;
 pub mod sound;
 pub mod import;
+pub mod lastfm;
 pub use history::{HISTORY_DURATION_KEY, PAUSE_HISTORY_KEY};
 mod queue_store;
 mod search;
