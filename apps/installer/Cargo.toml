@@ -1,0 +1,19 @@
+[package]
+name = "drxwnify-mini-setup"
+description = "Installer of Drxwnify Mini for Windows (per user, no administrator rights)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+drx-platform = { path = "../../crates/platform" }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+[build-dependencies]
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+[lints]
+workspace = true

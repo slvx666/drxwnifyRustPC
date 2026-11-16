@@ -1,0 +1,4 @@
+# The C runtime is linked into the binaries: Mini and its installer run on a clean Windows without the
+# Visual C++ Redistributable (vcruntime140.dll).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

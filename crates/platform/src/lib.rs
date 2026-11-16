@@ -10,6 +10,8 @@
 
 #[cfg(windows)]
 mod windows_impl;
+#[cfg(windows)]
+pub mod setup;
 
 /// What the OS asked for.
 #[derive(Debug, Clone, PartialEq)]

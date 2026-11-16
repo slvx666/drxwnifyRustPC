@@ -79,6 +79,36 @@ fn main() {
         Some(p) => Profile::at(p),
         None => Profile::default_location().expect("no profile folder (APPDATA)"),
     };
+    // «Удалить» from Windows «Apps» (the installer's entry runs `drxwnify-mini.exe --uninstall`).
+    #[cfg(windows)]
+    if args.iter().any(|a| a == "--uninstall") {
+        use drx_platform::setup::{APP_NAME, Layout, ask, ask_careful, tell, uninstall};
+        let Some(layout) = Layout::current() else { return };
+        // `--quiet`: no questions, the profile stays (scripted removal, checks).
+        if args.iter().any(|a| a == "--quiet") {
+            uninstall(&layout, None);
+            return;
+        }
+        if !ask(APP_NAME, &format!("Удалить {APP_NAME} с этого компьютера?
+
+Закройте программу, если она открыта.")) {
+            return;
+        }
+        let data = ask_careful(
+            APP_NAME,
+            &format!(
+                "Удалить и ваши данные — медиатеку, настройки, историю и чаты?
+
+{}
+
+«Нет» — данные останутся, и при новой установке всё будет на месте.",
+                profile.root().display()
+            ),
+        );
+        uninstall(&layout, data.then(|| profile.root()));
+        tell(APP_NAME, &format!("{APP_NAME} удалён."));
+        return;
+    }
     // One instance per profile: a second launch brings the running window up and quits.
     let guard = match drx_platform::single_instance(
         &os::instance_name(profile.root()),
