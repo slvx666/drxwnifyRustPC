@@ -52,6 +52,10 @@ pub fn wire(ui: &MainWindow, app: &App) {
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     ui.on_dialog_pick(move |id| {
         let Some(ui) = ui_w.upgrade() else { return };
+        if ui.get_dialog_kind() == "send" {
+            crate::friends_view::send_pending_music(&ui, &app2, &id);
+            return;
+        }
         let name = ui
             .get_dialog_items()
             .iter()

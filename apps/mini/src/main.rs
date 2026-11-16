@@ -826,6 +826,7 @@ fn main() {
                 stats_view::refresh_covers(&ui, &app3);
                 viewer::refresh(&ui, &app3);
                 queue_ui::refresh_covers(&ui, &app3);
+                friends_view::refresh_send_dialog(&ui, &app3);
                 let url = ui.get_view_cover_url().to_string();
                 if !url.is_empty()
                     && let Some(c) = cover_r(
@@ -882,6 +883,7 @@ fn main() {
         app.restore_queue();
     }
     home_view::follow_friends(&ui, &app);
+    ui.set_friends_available(app.friends().is_some());
     app.keep_queue_saved();
     let demo_page = std::env::var("DRX_DEMO").ok();
     if demo_page.as_deref() == Some("history") {

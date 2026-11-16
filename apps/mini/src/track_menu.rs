@@ -60,6 +60,7 @@ fn act(ui: &MainWindow, app: &App, action: &str, id: String) {
                 .into(),
             );
         }
+        "send" => crate::friends_view::ask_send(ui, app, id.to_string()),
         "suggest" => {
             let Some(t) = app.runtime().block_on(app.known_track(&id)) else {
                 return;

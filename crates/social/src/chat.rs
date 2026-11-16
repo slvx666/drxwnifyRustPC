@@ -118,7 +118,23 @@ pub fn new_id() -> String {
 
 /// The signed kind 4 event of a text message to `peer`.
 pub fn message_event(keys: &Keys, peer: &str, id: &str, ts: i64, text: &str, reply_to: Option<&str>) -> Option<Event> {
+    music_message_event(keys, peer, id, ts, text, None, reply_to)
+}
+
+/// A message with a music card (`m`: ChatMusic.toJson — k, id, t, a, i, d).
+pub fn music_message_event(
+    keys: &Keys,
+    peer: &str,
+    id: &str,
+    ts: i64,
+    text: &str,
+    music: Option<&Value>,
+    reply_to: Option<&str>,
+) -> Option<Event> {
     let mut o = json!({"t": TYPE, "v": PROTOCOL, "k": "msg", "id": id, "ts": ts, "text": text.chars().take(MAX_TEXT).collect::<String>()});
+    if let Some(m) = music {
+        o["m"] = m.clone();
+    }
     if let Some(r) = reply_to {
         o["re"] = json!(r);
     }

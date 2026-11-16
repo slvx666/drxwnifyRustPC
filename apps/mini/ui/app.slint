@@ -4100,6 +4100,7 @@ export component MainWindow inherits Window {
                 if root.menu-has-artist: MenuItem { icon: Icons.user-circle; label: "К исполнителю"; clicked => { root.track-menu-action("artist", root.menu-id); } }
                 if root.menu-has-album: MenuItem { icon: Icons.album; label: "К альбому"; clicked => { root.track-menu-action("album", root.menu-id); } }
                 MenuItem { icon: Icons.link; label: "Поделиться"; clicked => { root.track-menu-action("share", root.menu-id); } }
+                if root.friends-available: MenuItem { icon: Icons.send; label: "Отправить другу"; clicked => { root.track-menu-action("send", root.menu-id); } }
                 if root.room-guest: MenuItem { icon: Icons.users; label: "Предложить в комнату"; clicked => { root.track-menu-action("suggest", root.menu-id); } }
             }
         }
@@ -4233,7 +4234,7 @@ export component MainWindow inherits Window {
                     }
                 }
                 // «Добавить в плейлист»: the listener's playlists, a check where the track is already.
-                if root.dialog-kind == "add": Flickable {
+                if root.dialog-kind == "add" || root.dialog-kind == "send": Flickable {
                     height: min(root.dialog-items.length * 52px, 52px * 6);
                     content-height: root.dialog-items.length * 52px;
                     for pl[i] in root.dialog-items: Rectangle {
@@ -4258,6 +4259,12 @@ export component MainWindow inherits Window {
                         }
                         pla := TouchArea { mouse-cursor: pointer; clicked => { root.dialog-pick(pl.id); } }
                     }
+                }
+                if root.dialog-kind == "send" && root.dialog-items.length == 0: Text {
+                    text: "Друзей пока нет — добавьте их на странице «Друзья».";
+                    font-family: Theme.body-font;
+                    font-size: 14px;
+                    color: Theme.dim;
                 }
                 if root.dialog-kind == "add" && root.dialog-items.length == 0: Text {
                     text: "Своих плейлистов пока нет — создай первый выше.";

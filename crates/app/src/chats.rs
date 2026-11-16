@@ -611,12 +611,34 @@ impl App {
             .ok_or_else(|| crate::AppError::Other("нет профиля друзей".into()))
     }
 
+    /// Sends a track to a friend as a music card (ChatHub.sendMusic): the card plays on their side too.
+    pub fn send_music(&self, peer: &str, t: &drx_catalog::model::Track) -> crate::AppResult<()> {
+        let r = crate::social::ref_of(t);
+        let id = match (&r.catalog_id, &r.media_id) {
+            (Some(c), _) => c.clone(),
+            (None, Some(m)) if crate::songs::is_youtube_video_id(m) => format!("yt:{m}"),
+            _ => t.id.clone(),
+        };
+        let mut m = serde_json::json!({"k": "track", "id": id, "t": t.title, "a": t.artist_names()});
+        if let Some(c) = &r.cover {
+            m["i"] = serde_json::json!(c);
+        }
+        if t.duration_ms > 0 {
+            m["d"] = serde_json::json!(t.duration_ms);
+        }
+        self.send_message(peer, "", Some(m))
+    }
+
     /// Sends a text message: shown at once as «sending», then «sent» or «failed».
     pub fn send_chat(&self, peer: &str, text: &str) -> crate::AppResult<()> {
         let text = text.trim();
         if text.is_empty() {
             return Ok(());
         }
+        self.send_message(peer, text, None)
+    }
+
+    fn send_message(&self, peer: &str, text: &str, music: Option<serde_json::Value>) -> crate::AppResult<()> {
         let (store, f) = self
             .chat_store()
             .zip(self.friends())
@@ -628,13 +650,13 @@ impl App {
         let me = keys.public_hex();
         let id = chat::new_id();
         let ts = now_ms();
-        let event = chat::message_event(&keys, peer, &id, ts, text, None)
+        let event = chat::music_message_event(&keys, peer, &id, ts, text, music.as_ref(), None)
             .ok_or_else(|| crate::AppError::Other("не удалось зашифровать".into()))?;
         {
             let c = store.db.lock().expect("chat db");
             c.execute(
-                "INSERT OR IGNORE INTO message (owner, peer, id, mine, ts, text, state, read, eventId) VALUES (?1, ?2, ?3, 1, ?4, ?5, 0, 0, ?6)",
-                params![me, peer, id, ts, text, event.id],
+                "INSERT OR IGNORE INTO message (owner, peer, id, mine, ts, text, music, state, read, eventId) VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, 0, 0, ?7)",
+                params![me, peer, id, ts, text, music.as_ref().map(|m| m.to_string()), event.id],
             )
             .map_err(|e| crate::AppError::Other(e.to_string()))?;
         }

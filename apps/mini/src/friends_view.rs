@@ -77,6 +77,68 @@ thread_local! {
     static SHOWN_AVATAR: std::cell::RefCell<Option<(String, String)>> = const { std::cell::RefCell::new(None) };
 }
 
+thread_local! {
+    /// The track «Отправить другу» is about.
+    static SEND: RefCell<Option<drx_catalog::model::Track>> = const { RefCell::new(None) };
+}
+
+/// «Отправить другу»: the dialog with the friends to pick from.
+pub fn ask_send(ui: &MainWindow, app: &App, track_id: String) {
+    let Some(t) = app.runtime().block_on(app.known_track(&track_id)) else { return };
+    ui.set_dialog_title("Отправить другу".into());
+    ui.set_dialog_subtitle(format!("{} — {}", t.artist_names(), t.title).into());
+    ui.set_dialog_items(ModelRc::new(VecModel::from(send_items(app))));
+    SEND.with(|s| *s.borrow_mut() = Some(t));
+    ui.set_dialog_kind("send".into());
+}
+
+/// Avatars arrived while the friend picker is open.
+pub fn refresh_send_dialog(ui: &MainWindow, app: &App) {
+    if ui.get_dialog_kind() == "send" {
+        ui.set_dialog_items(ModelRc::new(VecModel::from(send_items(app))));
+    }
+}
+
+/// The friends to send to, the ones written to most recently first.
+fn send_items(app: &App) -> Vec<crate::PlaylistPick> {
+    let last: std::collections::HashMap<String, i64> = app.chat_previews().into_iter().map(|p| (p.peer, p.ts)).collect();
+    let mut items: Vec<(i64, crate::PlaylistPick)> = app
+        .friends_state()
+        .map(|rx| {
+            let st = rx.borrow();
+            st.friends
+                .iter()
+                .map(|f| {
+                    let d = st.data.get(&f.pubkey);
+                    let name = plain(&d.and_then(|d| d.name.clone()).filter(|n| !n.trim().is_empty()).unwrap_or_else(|| f.name.clone()));
+                    let av = avatar(app, &f.pubkey, d.and_then(|d| d.avatar.as_deref()), 40.0);
+                    let pick = crate::PlaylistPick {
+                        id: f.pubkey.clone().into(),
+                        name: name.into(),
+                        count: "".into(),
+                        has_cover: av.is_some(),
+                        cover: av.unwrap_or_default(),
+                        has_all: false,
+                    };
+                    (last.get(&f.pubkey).copied().unwrap_or(0), pick)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    items.sort_by(|a, b| b.0.cmp(&a.0));
+    items.into_iter().map(|(_, p)| p).collect()
+}
+
+/// A friend picked: the track goes to them as a music card.
+pub fn send_pending_music(ui: &MainWindow, app: &App, peer: &str) {
+    let Some(t) = SEND.with(|s| s.borrow_mut().take()) else { return };
+    ui.set_dialog_kind("".into());
+    match app.send_music(peer, &t) {
+        Ok(()) => ui.set_toast("Отправлено".into()),
+        Err(e) => ui.set_toast(format!("Не отправилось: {e}").into()),
+    }
+}
+
 /// The friend whose page is open.
 pub fn open_peer() -> Option<String> {
     OPEN.with(|o| o.borrow().clone())
