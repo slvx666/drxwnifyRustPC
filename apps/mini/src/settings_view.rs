@@ -61,6 +61,7 @@ pub fn fill(ui: &MainWindow, app: &App) {
 const FLAGS: &[(&str, &str, &str, bool)] = &[
     ("autoSkipNextOnError", "Пропускать трек, если не включается", "Иначе воспроизведение останавливается на нём", false),
     ("persistentQueue", "Сохранять очередь", "После перезапуска — тот же трек с того же места", true),
+    (crate::discord_ui::KEY, "Статус в Discord", "Что играет — в профиле Discord (нужен запущенный Discord на этом ПК)", false),
 ];
 
 pub fn fill_flags(ui: &MainWindow, app: &App) {
@@ -86,6 +87,9 @@ pub fn wire(ui: &MainWindow, app: &App) {
         app2.apply_playback_prefs();
         if key == "persistentQueue" {
             app2.save_queue();
+        }
+        if key == crate::discord_ui::KEY {
+            crate::discord_ui::set_enabled(&app2, on);
         }
         fill_flags(&ui, &app2);
     });

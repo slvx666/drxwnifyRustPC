@@ -1621,6 +1621,10 @@ dependencies = [
 [[package]]
 name = "drx-integrations"
 version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tracing",
+]
 
 [[package]]
 name = "drx-jobs"
@@ -1731,6 +1735,7 @@ dependencies = [
  "drx-app",
  "drx-catalog",
  "drx-core",
+ "drx-integrations",
  "drx-lyrics",
  "drx-platform",
  "drx-social",

@@ -16,6 +16,7 @@ drx-catalog.workspace = true
 drx-lyrics.workspace = true
 drx-platform.workspace = true
 drx-together.workspace = true
+drx-integrations.workspace = true
 drx-social.workspace = true
 base64 = "0.22"
 slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software", "software-renderer-path", "unstable-winit-030"] }

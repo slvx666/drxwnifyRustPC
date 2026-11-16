@@ -17,6 +17,7 @@ mod sleep_ui;
 mod queue_ui;
 mod lyrics_ui;
 mod chat_notify;
+mod discord_ui;
 mod track_menu;
 mod nav;
 mod os;
@@ -979,6 +980,7 @@ fn main() {
     lyrics_ui::wire(&ui, &app);
     settings_view::wire(&ui, &app);
     app.apply_playback_prefs();
+    discord_ui::start(&app);
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());
         ui.on_open_friends(move || {
