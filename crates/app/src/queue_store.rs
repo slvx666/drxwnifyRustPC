@@ -25,6 +25,9 @@ impl App {
 
     /// Shows the last run's queue (paused, at its position). False when there was none.
     pub fn restore_queue(&self) -> bool {
+        if !self.pref_bool("persistentQueue").unwrap_or(true) {
+            return false;
+        }
         let Some(saved) = std::fs::read(self.queue_file()).ok().and_then(|b| serde_json::from_slice::<Saved>(&b).ok())
         else {
             return false;
@@ -40,6 +43,10 @@ impl App {
 
     /// Writes the queue down now.
     pub fn save_queue(&self) {
+        if !self.pref_bool("persistentQueue").unwrap_or(true) {
+            let _ = std::fs::remove_file(self.queue_file());
+            return;
+        }
         let (tracks, index) = self.queue();
         if tracks.is_empty() {
             return;

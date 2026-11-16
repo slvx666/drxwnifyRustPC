@@ -164,6 +164,14 @@ export struct HistoryItem {
     index: int,     // the song's place in the history list (to play from it)
 }
 
+// A switch of the settings page (a boolean of settings.preferences_pb, shared with the phone).
+export struct FlagItem {
+    key: string,
+    label: string,
+    hint: string,
+    on: bool,
+}
+
 export struct StatTile {
     value: string,
     label: string,
@@ -1007,6 +1015,8 @@ component SettingsPage inherits Flickable {
     in property <[HotkeyRow]> hotkey-rows;
     in-out property <int> recording: -1;
     in property <bool> autostart;
+    in property <[FlagItem]> flags;
+    callback set-flag(string, bool);
     callback set-main(string);
     callback set-tab(string, bool);
     callback set-theme(string);
@@ -1069,6 +1079,13 @@ component SettingsPage inherits Flickable {
                     Middle { Toggle { on: a.tab; enabled: !a.main; toggled(v) => { root.set-tab(a.key, v); } } }
                 }
             }
+        }
+        Rectangle { height: 8px; }
+        Caption { text: "ВОСПРОИЗВЕДЕНИЕ"; }
+        for f in root.flags: SettingRow {
+            label: f.label;
+            hint: f.hint;
+            Middle { Toggle { on: f.on; toggled(v) => { root.set-flag(f.key, v); } } }
         }
         Rectangle { height: 8px; }
         Caption { text: "ОФОРМЛЕНИЕ"; }
@@ -1637,6 +1654,8 @@ component MainArea inherits VerticalLayout {
     in-out property <int> recording: -1;
     in property <bool> autostart;
     callback set-autostart(bool);
+    in property <[FlagItem]> flags;
+    callback set-flag(string, bool);
     callback set-main(string);
     callback set-tab(string, bool);
     callback set-theme(string);
@@ -1890,6 +1909,8 @@ component MainArea inherits VerticalLayout {
         hotkey-off(i) => { root.hotkey-off(i); }
         autostart: root.autostart;
         set-autostart(v) => { root.set-autostart(v); }
+        flags: root.flags;
+        set-flag(k, v) => { root.set-flag(k, v); }
         set-main(k) => { root.set-main(k); }
         set-tab(k, v) => { root.set-tab(k, v); }
         set-theme(id) => { root.set-theme(id); }
@@ -3375,6 +3396,8 @@ export component MainWindow inherits Window {
     in property <[HotkeyRow]> hotkey-rows;
     in-out property <int> hotkey-recording: -1;
     in property <bool> autostart;
+    in property <[FlagItem]> settings-flags;
+    callback set-settings-flag(string, bool);
     in property <[HomeSection]> home-sections;
     in property <[QueueItem]> upcoming;
     in property <string> lyric-now;
@@ -3723,6 +3746,8 @@ export component MainWindow inherits Window {
                         hotkey-off(i) => { root.hotkey-off(i); }
                         autostart: root.autostart;
                         set-autostart(v) => { root.set-autostart(v); }
+                        flags: root.settings-flags;
+                        set-flag(k, v) => { root.set-settings-flag(k, v); }
                         set-main(k) => { root.set-main-account(k); }
                         set-tab(k, v) => { root.set-account-tab(k, v); }
                         set-theme(id) => { root.set-theme(id); }

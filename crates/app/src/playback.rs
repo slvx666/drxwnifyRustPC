@@ -204,6 +204,10 @@ pub(crate) struct Playback {
     start_at: Mutex<Option<(String, f64)>>,
     pub now: Arc<watch::Sender<NowPlaying>>,
     volume: Mutex<f32>,
+    /// A track that cannot start: go on to the next one (Android autoSkipNextOnError) instead of stopping.
+    pub skip_on_error: std::sync::atomic::AtomicBool,
+    /// Tracks skipped in a row for errors (a run of them stops: the network is likely down).
+    skipped: std::sync::atomic::AtomicU32,
     /// The sleep timer's fade (0..1) on top of the volume.
     fade: Mutex<f32>,
     /// Audio providers for tracks without a URL (the resolver asks them all at once).
@@ -228,6 +232,8 @@ impl Playback {
             now: Arc::new(watch::channel(NowPlaying::default()).0),
             volume: Mutex::new(0.8),
             fade: Mutex::new(1.0),
+            skip_on_error: std::sync::atomic::AtomicBool::new(false),
+            skipped: std::sync::atomic::AtomicU32::new(0),
             providers: Mutex::new(Vec::new()),
             store: Mutex::new(None),
             resolved: Mutex::new(std::collections::HashMap::new()),
@@ -779,6 +785,7 @@ impl Playback {
             match res {
                 Ok((id, at, player)) => {
                     *this.current_id.lock().expect("current") = Some(id);
+                    this.skipped.store(0, std::sync::atomic::Ordering::Relaxed);
                     if at > 0.5 {
                         for _ in 0..100 {
                             let c = player.clock();
@@ -795,10 +802,21 @@ impl Playback {
                 }
                 Err(e) => {
                     tracing::warn!("cannot play {}: {e}", item.track.id);
+                    use std::sync::atomic::Ordering::Relaxed;
+                    let more = {
+                        let q = this.queue.lock().expect("queue");
+                        q.1 == index && index + 1 < q.0.len()
+                    };
+                    let skip = this.skip_on_error.load(Relaxed) && more && this.skipped.fetch_add(1, Relaxed) < 5;
                     this.now.send_modify(|n| {
-                        n.playing = false;
+                        n.playing = skip;
                         n.error = Some(e);
                     });
+                    if skip {
+                        this.start_index(index + 1);
+                    } else {
+                        this.skipped.store(0, Relaxed);
+                    }
                 }
             }
         });

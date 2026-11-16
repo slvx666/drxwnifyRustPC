@@ -294,6 +294,18 @@ impl App {
         drx_core::paths::write_atomic(&path, &prefs.encode())
             .map_err(|e| AppError::Other(e.to_string()))
     }
+    /// A switch from `settings.preferences_pb`.
+    pub fn pref_bool(&self, key: &str) -> Option<bool> {
+        std::fs::read(self.inner.profile.prefs_pb())
+            .ok()
+            .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
+            .and_then(|p| p.get_bool(key))
+    }
+    /// «Пропускать трек, если не включается» (Android autoSkipNextOnError) applied to the player.
+    pub fn apply_playback_prefs(&self) {
+        let on = self.pref_bool("autoSkipNextOnError").unwrap_or(false);
+        self.inner.playback.skip_on_error.store(on, std::sync::atomic::Ordering::Relaxed);
+    }
     /// A number setting from `settings.preferences_pb`.
     pub fn pref_i64(&self, key: &str) -> Option<i64> {
         std::fs::read(self.inner.profile.prefs_pb())

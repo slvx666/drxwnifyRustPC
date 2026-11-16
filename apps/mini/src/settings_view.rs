@@ -53,7 +53,42 @@ pub fn fill(ui: &MainWindow, app: &App) {
     ui.set_day_theme(day);
     ui.set_global_hotkeys(crate::os::hotkeys_on(app));
     ui.set_autostart(crate::os::autostart_on());
+    fill_flags(ui, app);
     fill_hotkeys(ui, app);
+}
+
+/// The playback switches (booleans of settings.preferences_pb, the phone's keys): (key, label, hint, default).
+const FLAGS: &[(&str, &str, &str, bool)] = &[
+    ("autoSkipNextOnError", "Пропускать трек, если не включается", "Иначе воспроизведение останавливается на нём", false),
+    ("persistentQueue", "Сохранять очередь", "После перезапуска — тот же трек с того же места", true),
+];
+
+pub fn fill_flags(ui: &MainWindow, app: &App) {
+    let rows: Vec<crate::FlagItem> = FLAGS
+        .iter()
+        .map(|(key, label, hint, default)| crate::FlagItem {
+            key: (*key).into(),
+            label: (*label).into(),
+            hint: (*hint).into(),
+            on: app.pref_bool(key).unwrap_or(*default),
+        })
+        .collect();
+    ui.set_settings_flags(ModelRc::new(VecModel::from(rows)));
+}
+
+pub fn wire(ui: &MainWindow, app: &App) {
+    let (app2, ui_w) = (app.clone(), slint::ComponentHandle::as_weak(ui));
+    ui.on_set_settings_flag(move |key, on| {
+        let Some(ui) = ui_w.upgrade() else { return };
+        if let Err(e) = app2.set_pref(&key, drx_core::prefs::PrefValue::Bool(on)) {
+            ui.set_toast(format!("Не удалось сохранить: {e}").into());
+        }
+        app2.apply_playback_prefs();
+        if key == "persistentQueue" {
+            app2.save_queue();
+        }
+        fill_flags(&ui, &app2);
+    });
 }
 
 /// The hotkey rows: each action's combination and how it works now.
