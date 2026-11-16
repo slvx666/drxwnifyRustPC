@@ -14,6 +14,7 @@ mod playlists_ui;
 mod portrait_view;
 mod rooms_ui;
 mod sleep_ui;
+mod queue_ui;
 mod track_menu;
 mod nav;
 mod os;
@@ -814,6 +815,7 @@ fn main() {
                 history_view::refresh_covers(&ui);
                 stats_view::refresh_covers(&ui, &app3);
                 viewer::refresh(&ui, &app3);
+                queue_ui::refresh_covers(&ui, &app3);
                 let url = ui.get_view_cover_url().to_string();
                 if !url.is_empty()
                     && let Some(c) = cover_r(
@@ -957,6 +959,7 @@ fn main() {
     portrait_view::wire(&ui, &app);
     rooms_ui::wire(&ui, &app);
     sleep_ui::wire(&ui, &app);
+    queue_ui::wire(&ui, &app);
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());
         ui.on_open_friends(move || {

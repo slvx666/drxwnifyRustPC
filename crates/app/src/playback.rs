@@ -37,6 +37,8 @@ pub struct NowPlaying {
     pub lyrics: Option<Arc<drx_lyrics::Lyrics>>,
     pub shuffle: bool,
     pub repeat: Repeat,
+    /// Moves on every change of the queue (the queue panel redraws on it).
+    pub queue_rev: u64,
 }
 
 /// Repeat mode (Media3 REPEAT_MODE_*: the numbers are the phone's `repeatMode` setting).
@@ -546,6 +548,7 @@ impl Playback {
         self.now.send_modify(|n| {
             n.shuffle = on;
             n.upcoming = upcoming;
+            n.queue_rev += 1;
             n.index = Some(self.queue.lock().expect("queue").1);
         });
     }
@@ -571,7 +574,10 @@ impl Playback {
             }
         }
         let up = self.upcoming();
-        self.now.send_modify(|n| n.upcoming = up);
+        self.now.send_modify(|n| {
+            n.upcoming = up;
+            n.queue_rev += 1;
+        });
     }
 
     /// Replaces what is queued after the track `current_id` (radio after the current track). If that track
@@ -586,7 +592,84 @@ impl Playback {
         }
         *self.original.lock().expect("original") = None;
         let up = self.upcoming();
-        self.now.send_modify(|n| n.upcoming = up);
+        self.now.send_modify(|n| {
+            n.upcoming = up;
+            n.queue_rev += 1;
+        });
+    }
+
+    /// The whole queue and the playing index (the queue panel).
+    pub fn queue_snapshot(&self) -> (Vec<Track>, usize) {
+        let q = self.queue.lock().expect("queue");
+        (q.0.iter().map(|p| p.track.clone()).collect(), q.1)
+    }
+
+    fn queue_changed(&self) {
+        let up = self.upcoming();
+        self.now.send_modify(|n| {
+            n.upcoming = up;
+            n.queue_rev += 1;
+        });
+    }
+
+    /// Takes a track out of the queue (not the playing one).
+    pub fn queue_remove(&self, index: usize) {
+        {
+            let mut q = self.queue.lock().expect("queue");
+            if index >= q.0.len() || index == q.1 {
+                return;
+            }
+            let gone = q.0.remove(index);
+            if index < q.1 {
+                q.1 -= 1;
+            }
+            if let Some(o) = self.original.lock().expect("original").as_mut()
+                && let Some(i) = o.iter().position(|p| p.track.id == gone.track.id)
+            {
+                o.remove(i);
+            }
+        }
+        self.queue_changed();
+    }
+
+    /// Moves a queued track to another place (the playing one keeps playing wherever it ends up).
+    pub fn queue_move(&self, from: usize, to: usize) {
+        {
+            let mut q = self.queue.lock().expect("queue");
+            let len = q.0.len();
+            if from >= len || to >= len || from == to {
+                return;
+            }
+            let item = q.0.remove(from);
+            q.0.insert(to, item);
+            let cur = q.1;
+            q.1 = if cur == from {
+                to
+            } else if from < cur && to >= cur {
+                cur - 1
+            } else if from > cur && to <= cur {
+                cur + 1
+            } else {
+                cur
+            };
+        }
+        self.queue_changed();
+    }
+
+    /// Everything after the playing track goes.
+    pub fn queue_clear_upcoming(&self) {
+        {
+            let mut q = self.queue.lock().expect("queue");
+            let keep = (q.1 + 1).min(q.0.len());
+            q.0.truncate(keep);
+        }
+        *self.original.lock().expect("original") = None;
+        self.queue_changed();
+    }
+
+    /// Plays the queue from `index` (a click in the queue panel).
+    pub fn play_index(self: &Arc<Self>, index: usize) {
+        self.start_index(index);
     }
 
     fn upcoming(&self) -> Vec<Track> {
@@ -622,6 +705,7 @@ impl Playback {
             n.playing = true;
             n.error = None;
             n.upcoming = upcoming;
+            n.queue_rev += 1;
             n.lyrics = None;
         });
         // Lyrics in the background; dropped if the track changed meanwhile.

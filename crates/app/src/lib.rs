@@ -1006,6 +1006,22 @@ impl App {
     pub fn set_volume(&self, v: f32) {
         self.inner.playback.set_volume(v);
     }
+    /// The whole queue and the playing index.
+    pub fn queue(&self) -> (Vec<drx_catalog::model::Track>, usize) {
+        self.inner.playback.queue_snapshot()
+    }
+    pub fn queue_remove(&self, index: usize) {
+        self.inner.playback.queue_remove(index);
+    }
+    pub fn queue_move(&self, from: usize, to: usize) {
+        self.inner.playback.queue_move(from, to);
+    }
+    pub fn queue_clear_upcoming(&self) {
+        self.inner.playback.queue_clear_upcoming();
+    }
+    pub fn queue_play(&self, index: usize) {
+        self.inner.playback.play_index(index);
+    }
     pub fn now_playing(&self) -> watch::Receiver<NowPlaying> {
         self.inner.playback.now.subscribe()
     }
