@@ -747,13 +747,13 @@ impl Playback {
         {
             let (now, http, t) = (self.now.clone(), self.http.clone(), item.track.clone());
             self.handle.spawn(async move {
-                let found = drx_lyrics::LrcLib::new(http)
-                    .find(
-                        &t.title,
-                        t.artists.first().map(|a| a.name.as_str()).unwrap_or(""),
-                        Some(t.duration_ms / 1000).filter(|d| *d > 0),
-                    )
-                    .await;
+                let found = drx_lyrics::find_any(
+                    &http,
+                    &t.title,
+                    t.artists.first().map(|a| a.name.as_str()).unwrap_or(""),
+                    Some(t.duration_ms / 1000).filter(|d| *d > 0),
+                )
+                .await;
                 if let Some(l) = found {
                     now.send_if_modified(|n| {
                         let same = n.track.as_ref().is_some_and(|x| x.id == t.id);

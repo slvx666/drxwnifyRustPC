@@ -1634,6 +1634,7 @@ version = "0.1.0"
 name = "drx-lyrics"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "drx-core",
  "serde_json",
  "tokio",
