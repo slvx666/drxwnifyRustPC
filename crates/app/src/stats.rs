@@ -14,19 +14,61 @@ pub enum StatPeriod {
     Months6,
     Year,
     All,
+    /// Android Wrapped: the phone fixes it to 2025 (WrappedConstants.YEAR); the PC shows the current year — its
+    /// history starts later, and last year's summary would be empty.
+    Wrapped,
+}
+
+/// Wrapped's year: this one (UTC).
+pub fn wrapped_year() -> i64 {
+    civil_year(now_ms().div_euclid(86_400_000))
+}
+
+/// Wrapped's playlist name (WrappedConstants.PLAYLIST_NAME with the year).
+pub fn wrapped_playlist() -> String {
+    format!("Drxwnify {}", wrapped_year())
+}
+
+/// Year of a day number (days since 1970-01-01; H. Hinnant's civil_from_days).
+fn civil_year(z: i64) -> i64 {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    yoe + era * 400 + i64::from(mp >= 10)
+}
+
+/// Days since 1970-01-01 of January 1st of `y` (days_from_civil).
+fn jan1(y: i64) -> i64 {
+    let y = y - 1;
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = 306; // March-based day of January 1st
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
 }
 
 impl StatPeriod {
-    pub const ALL: [StatPeriod; 6] = [
+    pub const ALL: [StatPeriod; 7] = [
         StatPeriod::Week,
         StatPeriod::Month,
         StatPeriod::Months3,
         StatPeriod::Months6,
         StatPeriod::Year,
         StatPeriod::All,
+        StatPeriod::Wrapped,
     ];
 
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
+        if self == StatPeriod::Wrapped {
+            return format!("Итоги {}", wrapped_year());
+        }
+        self.short_label().to_string()
+    }
+
+    fn short_label(self) -> &'static str {
         match self {
             StatPeriod::Week => "7 дней",
             StatPeriod::Month => "Месяц",
@@ -34,6 +76,19 @@ impl StatPeriod {
             StatPeriod::Months6 => "Полгода",
             StatPeriod::Year => "Год",
             StatPeriod::All => "Всё время",
+            StatPeriod::Wrapped => "Итоги года",
+        }
+    }
+
+    /// [from, to) in Unix ms.
+    pub fn range(self) -> (i64, i64) {
+        match self {
+            // January 1st of this year .. of the next (UTC).
+            StatPeriod::Wrapped => {
+                let y = wrapped_year();
+                (jan1(y) * 86_400_000, jan1(y + 1) * 86_400_000)
+            }
+            p => (p.days().map(|d| now_ms() - d * 86_400_000).unwrap_or(0), i64::MAX),
         }
     }
 
@@ -44,7 +99,7 @@ impl StatPeriod {
             StatPeriod::Months3 => Some(91),
             StatPeriod::Months6 => Some(182),
             StatPeriod::Year => Some(365),
-            StatPeriod::All => None,
+            StatPeriod::All | StatPeriod::Wrapped => None,
         }
     }
 }
@@ -76,6 +131,9 @@ pub struct Stats {
     pub albums: Vec<StatItem>,
     /// The first listening ever (Unix ms), «с 14 марта 2025».
     pub since_ms: Option<i64>,
+    /// Different songs and artists heard in the period (Wrapped's totals).
+    pub unique_songs: u32,
+    pub unique_artists: u32,
 }
 
 /// One history row: when, which event (to remove it), the song.
@@ -116,27 +174,35 @@ fn now_ms() -> i64 {
 impl App {
     /// Statistics for a period: totals and the top songs, artists and albums by listening time.
     pub async fn stats(&self, period: StatPeriod) -> AppResult<Stats> {
-        let from = period
-            .days()
-            .map(|d| now_ms() - d * 86_400_000)
-            .unwrap_or(0);
+        let (from, to) = period.range();
         Ok(self
             .store()
             .call(move |c| {
                 let (total_ms, plays): (i64, i64) = c.query_row(
-                    "SELECT coalesce(sum(playTime), 0), count(*) FROM event WHERE timestamp >= ?1",
-                    [from],
+                    "SELECT coalesce(sum(playTime), 0), count(*) FROM event WHERE timestamp >= ?1 AND timestamp < ?2",
+                    [from, to],
                     |r| Ok((r.get(0)?, r.get(1)?)),
+                )?;
+                let unique_songs: i64 = c.query_row(
+                    "SELECT count(DISTINCT songId) FROM event WHERE timestamp >= ?1 AND timestamp < ?2",
+                    [from, to],
+                    |r| r.get(0),
+                )?;
+                let unique_artists: i64 = c.query_row(
+                    "SELECT count(DISTINCT m.artistId) FROM event e JOIN song_artist_map m ON m.songId = e.songId AND m.position = 0
+                     WHERE e.timestamp >= ?1 AND e.timestamp < ?2",
+                    [from, to],
+                    |r| r.get(0),
                 )?;
                 let since_ms: Option<i64> = c.query_row("SELECT min(timestamp) FROM event", [], |r| r.get(0))?;
                 let mut st = c.prepare(&format!(
                     "SELECT e.cnt, e.ms, s.id, s.title, {ARTISTS}, s.albumName, s.duration, s.thumbnailUrl, s.liked, {FIRST_ARTIST}, s.albumId
-                     FROM (SELECT songId, count(*) AS cnt, sum(playTime) AS ms FROM event WHERE timestamp >= ?1
+                     FROM (SELECT songId, count(*) AS cnt, sum(playTime) AS ms FROM event WHERE timestamp >= ?1 AND timestamp < ?2
                            GROUP BY songId ORDER BY ms DESC LIMIT 50) e
                      JOIN song s ON s.id = e.songId ORDER BY e.ms DESC"
                 ))?;
                 let songs = st
-                    .query_map([from], |r| {
+                    .query_map([from, to], |r| {
                         Ok(StatSong {
                             plays: r.get::<_, i64>(0)? as u32,
                             ms: r.get(1)?,
@@ -149,10 +215,10 @@ impl App {
                     "SELECT ar.id, ar.name, ar.thumbnailUrl, count(*), sum(e.playTime) FROM event e
                      JOIN song_artist_map m ON m.songId = e.songId AND m.position = 0
                      JOIN artist ar ON ar.id = m.artistId
-                     WHERE e.timestamp >= ?1 GROUP BY ar.id ORDER BY sum(e.playTime) DESC LIMIT 30",
+                     WHERE e.timestamp >= ?1 AND e.timestamp < ?2 GROUP BY ar.id ORDER BY sum(e.playTime) DESC LIMIT 30",
                 )?;
                 let artists = st
-                    .query_map([from], |r| {
+                    .query_map([from, to], |r| {
                         Ok(StatItem {
                             id: r.get(0)?,
                             title: r.get(1)?,
@@ -167,11 +233,11 @@ impl App {
                 let mut st = c.prepare(&format!(
                     "SELECT max(s.albumId), s.albumName, max(s.thumbnailUrl), {ARTISTS}, count(*), sum(e.playTime)
                      FROM event e JOIN song s ON s.id = e.songId
-                     WHERE e.timestamp >= ?1 AND s.albumName IS NOT NULL AND s.albumName != ''
+                     WHERE e.timestamp >= ?1 AND e.timestamp < ?2 AND s.albumName IS NOT NULL AND s.albumName != ''
                      GROUP BY coalesce(s.albumId, s.albumName) ORDER BY sum(e.playTime) DESC LIMIT 30"
                 ))?;
                 let albums = st
-                    .query_map([from], |r| {
+                    .query_map([from, to], |r| {
                         Ok(StatItem {
                             // Empty when the songs only name their album (it cannot be opened then).
                             id: r.get::<_, Option<String>>(0)?.unwrap_or_default(),
@@ -190,9 +256,36 @@ impl App {
                     artists,
                     albums,
                     since_ms,
+                    unique_songs: unique_songs as u32,
+                    unique_artists: unique_artists as u32,
                 })
             })
             .await?)
+    }
+
+    /// Wrapped's playlist (WrappedManager.createPlaylist): every song of 2025, the most listened first, as a new
+    /// playlist «Drxwnify 2025». Returns its id and how many songs went in.
+    pub async fn save_wrapped_playlist(&self) -> AppResult<(String, usize)> {
+        let (from, to) = StatPeriod::Wrapped.range();
+        let rows: Vec<SongRow> = self
+            .store()
+            .call(move |c| {
+                let mut st = c.prepare(&format!(
+                    "SELECT s.id, s.title, {ARTISTS}, s.albumName, s.duration, s.thumbnailUrl, s.liked, {FIRST_ARTIST}, s.albumId
+                     FROM (SELECT songId, sum(playTime) AS ms FROM event WHERE timestamp >= ?1 AND timestamp < ?2 GROUP BY songId) e
+                     JOIN song s ON s.id = e.songId ORDER BY e.ms DESC"
+                ))?;
+                let rows = st.query_map([from, to], |r| song_row(r, 0))?.collect::<Result<Vec<_>, _>>()?;
+                Ok(rows)
+            })
+            .await?;
+        if rows.is_empty() {
+            return Err(crate::AppError::Other("за этот год прослушиваний нет".into()));
+        }
+        let id = self.create_playlist(&wrapped_playlist()).await?;
+        let tracks = rows.into_iter().map(|r| crate::playable_of(r).track).collect();
+        let n = self.add_to_playlist(&id, tracks).await?;
+        Ok((id, n))
     }
 
     /// The listening history, newest first, `range` of it.
@@ -286,6 +379,19 @@ fn civil(days: i64) -> (i64, i64) {
     let mp = (5 * doy + 2) / 153;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     (yoe + era * 400 + i64::from(m <= 2), m)
+}
+
+#[cfg(test)]
+mod year_tests {
+    use super::*;
+
+    #[test]
+    fn year_bounds() {
+        assert_eq!(jan1(2025) * 86_400_000, 1_735_689_600_000);
+        assert_eq!(jan1(2026) * 86_400_000, 1_767_225_600_000);
+        assert_eq!(civil_year(jan1(2026)), 2026);
+        assert_eq!(civil_year(jan1(2026) - 1), 2025);
+    }
 }
 
 #[cfg(test)]

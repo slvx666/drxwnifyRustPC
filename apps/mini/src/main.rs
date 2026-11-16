@@ -899,6 +899,9 @@ fn main() {
     } else if demo_page.as_deref() == Some("top") {
         let spec = ListSpec::Top { period: app.top_period(), size: app.top_size() };
         nav::go(&ui, &app, &songs, nav::Page::list(spec, &format!("Мой топ {}", app.top_size()), "top", None));
+    } else if demo_page.as_deref() == Some("wrapped") {
+        nav::go(&ui, &app, &songs, nav::Page::stats());
+        stats_view::set_period(&ui, &app, drx_app::StatPeriod::ALL.len() - 1);
     } else if demo_page.as_deref() == Some("history") {
         nav::go(&ui, &app, &songs, nav::Page::history());
     } else if demo_page.as_deref() == Some("stats") {
@@ -913,7 +916,7 @@ fn main() {
             &songs,
             nav::Page::search(&q, drx_app::SearchSource::Main),
         );
-    } else if let Some(demo) = std::env::var("DRX_DEMO").ok().filter(|d| !d.starts_with("chat") && d != "top") {
+    } else if let Some(demo) = std::env::var("DRX_DEMO").ok().filter(|d| !d.starts_with("chat") && d != "top" && d != "wrapped") {
         app.set_volume(0.0);
         let entries = app
             .runtime()
@@ -992,6 +995,7 @@ fn main() {
     lyrics_ui::wire(&ui, &app);
     settings_view::wire(&ui, &app);
     sound_ui::wire(&ui, &app);
+    stats_view::wire_wrapped(&ui, &app);
     app.apply_playback_prefs();
     discord_ui::start(&app);
     app.keep_queue_going();

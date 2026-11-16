@@ -64,6 +64,30 @@ fn card_cover(app: &App, url: &Option<String>, round: bool) -> Option<slint::Ima
     crate::cover_r(app, url, CARD, r)
 }
 
+/// Wrapped's line about the year's minutes (WrappedRepository, in Russian; the same for the same minutes).
+fn wrapped_line(minutes: i64) -> String {
+    let lines: &[&str] = match minutes {
+        0..=999 => &["Только разогреваетесь? {} минут.", "{} минут — короткое погружение в музыку."],
+        1000..=4999 => &["Похоже, вы нашли Drxwnify недавно — и отдали музыке {} минут.", "Жизнь не только в музыке: {} минут — здоровый баланс."],
+        5000..=14999 => &["Музыка — определённо ваше: {} минут саундтрека за год.", "Стабильно, надёжно, ритмично: {} минут."],
+        15000..=39999 => &["Вы вообще снимаете наушники? {} минут — музыка вам как воздух.", "Энергия главного героя: ваша жизнь была фильмом {} минут."],
+        _ => &["У вас всё хорошо? Вы буквально жили здесь {} минут.", "Поведение топ-1 %: {} минут — легенда."],
+    };
+    lines[(minutes as usize) % lines.len()].replace("{}", &crate::group_digits(minutes as u64))
+}
+
+pub fn wire_wrapped(ui: &MainWindow, app: &App) {
+    use slint::ComponentHandle;
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    ui.global::<crate::StatsUi>().on_act(move || {
+        let Some(ui) = ui_w.upgrade() else { return };
+        match app2.runtime().block_on(app2.save_wrapped_playlist()) {
+            Ok((_, n)) => ui.set_toast(format!("Плейлист «{}» готов: {}", drx_app::wrapped_playlist(), crate::nav::tracks_word(n)).into()),
+            Err(e) => ui.set_toast(format!("Не получилось: {e}").into()),
+        }
+    });
+}
+
 pub fn show(ui: &MainWindow, app: &App) {
     let period = StatPeriod::ALL[PERIOD.with(|p| p.get())];
     let chips: Vec<SourceChip> = StatPeriod::ALL
@@ -80,6 +104,18 @@ pub fn show(ui: &MainWindow, app: &App) {
         .runtime()
         .block_on(app.stats(period))
         .unwrap_or_default();
+    // Wrapped: the year's line and its playlist (the phone's last pages).
+    {
+        use slint::ComponentHandle;
+        let g = ui.global::<crate::StatsUi>();
+        if period == StatPeriod::Wrapped && stats.plays > 0 {
+            g.set_headline(wrapped_line(stats.total_ms / 60_000).into());
+            g.set_action(format!("Сохранить плейлист «{}»", drx_app::wrapped_playlist()).into());
+        } else {
+            g.set_headline("".into());
+            g.set_action("".into());
+        }
+    }
     DATA.with(|d| *d.borrow_mut() = Some(stats));
     render(ui, app);
 }
@@ -107,7 +143,11 @@ fn render(ui: &MainWindow, app: &App) {
                     .into(),
             },
         ];
-        if let Some(since) = st.since_ms {
+        // The year's summary counts different songs and artists (Wrapped's totals) instead of the first day.
+        if StatPeriod::ALL[PERIOD.with(|p| p.get())] == StatPeriod::Wrapped {
+            tiles.push(StatTile { value: crate::group_digits(st.unique_songs as u64).into(), label: "разных треков".into() });
+            tiles.push(StatTile { value: crate::group_digits(st.unique_artists as u64).into(), label: "разных исполнителей".into() });
+        } else if let Some(since) = st.since_ms {
             tiles.push(StatTile {
                 value: date_words(since).into(),
                 label: "первое прослушивание".into(),

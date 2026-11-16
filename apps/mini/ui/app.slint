@@ -223,6 +223,13 @@ export global PageChips {
     callback pick(int);
 }
 
+// The statistics page's Wrapped words: the line about the minutes, and «save the playlist».
+export global StatsUi {
+    in property <string> headline;
+    in property <string> action;
+    callback act();
+}
+
 export struct LyricLine {
     text: string,
     time-ms: int,
@@ -1866,6 +1873,21 @@ component StatsView inherits Flickable {
             x: Grid.pad + 4px;
             text: root.note;
             font-family: Theme.body-font; font-size: 14px; color: Theme.mute;
+        }
+        // Wrapped (the year's summary): its line about the minutes and the playlist of the year.
+        if StatsUi.headline != "": HorizontalLayout {
+            padding-left: Grid.pad + 4px;
+            padding-right: Grid.pad + 4px;
+            Text {
+                text: StatsUi.headline;
+                wrap: word-wrap;
+                font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 22px; color: Theme.text;
+            }
+        }
+        if StatsUi.action != "": HorizontalLayout {
+            padding-left: Grid.pad + 4px;
+            alignment: start;
+            Pill { label: StatsUi.action; primary: true; clicked => { StatsUi.act(); } }
         }
         if root.tracks.length > 0: VerticalLayout {
             spacing: 4px;
