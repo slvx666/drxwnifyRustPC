@@ -712,6 +712,21 @@ impl Playback {
         self.queue_changed();
     }
 
+    /// Adds tracks at the end of the queue (the endless radio after the last track).
+    pub fn append(&self, items: Vec<Playable>) {
+        if items.is_empty() {
+            return;
+        }
+        {
+            let mut q = self.queue.lock().expect("queue");
+            q.0.extend(items.iter().cloned());
+            if let Some(o) = self.original.lock().expect("original").as_mut() {
+                o.extend(items);
+            }
+        }
+        self.queue_changed();
+    }
+
     /// Everything after the playing track goes.
     pub fn queue_clear_upcoming(&self) {
         {

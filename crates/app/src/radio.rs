@@ -318,6 +318,47 @@ impl App {
         }
     }
 
+    /// The endless queue (Android autoLoadMore, on by default): when the last track of the queue starts and nothing
+    /// repeats, its radio is added after it, so the music goes on. Not while following a room or a friend.
+    pub fn keep_queue_going(&self) {
+        let app = self.clone();
+        self.runtime.spawn(async move {
+            let mut rx = app.now_playing();
+            let mut done_for: Option<String> = None;
+            while rx.changed().await.is_ok() {
+                let (track, index, repeat) = {
+                    let n = rx.borrow();
+                    (n.track.clone(), n.index, n.repeat)
+                };
+                let Some(track) = track else { continue };
+                let (len, _) = {
+                    let (q, i) = app.queue();
+                    (q.len(), i)
+                };
+                let last = index.is_some_and(|i| i + 1 >= len);
+                if !last || repeat != crate::playback::Repeat::Off || done_for.as_deref() == Some(track.id.as_str()) {
+                    continue;
+                }
+                if app.pref_bool("autoLoadMore") == Some(false)
+                    || app.listening_along().is_some()
+                    || app.room().is_some_and(|r| r.borrow().role == drx_together::Role::Guest)
+                {
+                    continue;
+                }
+                done_for = Some(track.id.clone());
+                if let Ok(more) = app.radio_tracks(&track).await {
+                    let fresh: Vec<Playable> = more
+                        .into_iter()
+                        .filter(|t| t.id != track.id)
+                        .map(|t| Playable { track: t, url: None })
+                        .collect();
+                    app.remember(fresh.iter().map(|p| &p.track));
+                    app.inner.playback.append(fresh);
+                }
+            }
+        });
+    }
+
     /// An endless start from one track: it plays, its radio follows.
     pub async fn play_radio(&self, seed: Track) -> AppResult<usize> {
         self.play_tracks(vec![seed], 0);

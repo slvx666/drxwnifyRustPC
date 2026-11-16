@@ -60,6 +60,7 @@ pub fn fill(ui: &MainWindow, app: &App) {
 /// The playback switches (booleans of settings.preferences_pb, the phone's keys): (key, label, hint, default).
 const FLAGS: &[(&str, &str, &str, bool)] = &[
     ("autoSkipNextOnError", "Пропускать трек, если не включается", "Иначе воспроизведение останавливается на нём", false),
+    ("autoLoadMore", "Продолжать похожими", "Когда очередь кончается, следом идёт радио по последнему треку", true),
     ("persistentQueue", "Сохранять очередь", "После перезапуска — тот же трек с того же места", true),
     (crate::discord_ui::KEY, "Статус в Discord", "Что играет — в профиле Discord (нужен запущенный Discord на этом ПК)", false),
 ];

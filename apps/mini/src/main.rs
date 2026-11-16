@@ -982,6 +982,7 @@ fn main() {
     settings_view::wire(&ui, &app);
     app.apply_playback_prefs();
     discord_ui::start(&app);
+    app.keep_queue_going();
     downloads_ui::wire(&ui, &app);
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());
