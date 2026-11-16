@@ -288,6 +288,22 @@ pub fn reload_if(ui: &MainWindow, app: &App, spec: &ListSpec) {
     }
 }
 
+/// «Мой топ» on screen gets another period: the page is drawn again in place (no new history step).
+pub fn set_top_period(ui: &MainWindow, app: &App, period: drx_app::TopPeriod) {
+    app.set_top_period(period);
+    let spec = ListSpec::Top { period, size: app.top_size() };
+    let page = HISTORY.with(|h| {
+        let mut h = h.borrow_mut();
+        let at = h.at;
+        let p = h.pages.get_mut(at).filter(|p| matches!(p.spec, ListSpec::Top { .. }))?;
+        p.spec = spec;
+        Some(p.clone())
+    });
+    if let (Some(page), Some(songs)) = (page, songs_rc()) {
+        show(ui, app, &songs, page);
+    }
+}
+
 /// Opens the downloads page.
 pub fn go_downloads(ui: &MainWindow, app: &App) {
     go_page(ui, app, Page::list(ListSpec::Downloads, "Загрузки", "", None));
@@ -399,6 +415,7 @@ fn kind_of(spec: &ListSpec) -> (&'static str, bool) {
         ListSpec::Artist { .. } | ListSpec::CatalogArtist { .. } => ("ИСПОЛНИТЕЛЬ", false),
         ListSpec::History | ListSpec::RecentSongs => ("ИСТОРИЯ", false),
         ListSpec::Downloads => ("ЗАГРУЗКИ", false),
+        ListSpec::Top { .. } => ("АВТОПЛЕЙЛИСТ", false),
         _ => ("", false),
     }
 }
@@ -517,6 +534,18 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     ui.set_view_is_page(!search);
     ui.set_view_can_play(false);
     ui.set_view_can_share(share_target(&page).is_some());
+    // «Мой топ»: the period chips in the heading.
+    {
+        let g = slint::ComponentHandle::global::<crate::PageChips>(ui);
+        match &page.spec {
+            ListSpec::Top { period, .. } => {
+                let labels: Vec<slint::SharedString> = drx_app::TopPeriod::ALL.iter().map(|p| p.label().into()).collect();
+                g.set_labels(slint::ModelRc::new(slint::VecModel::from(labels)));
+                g.set_selected(drx_app::TopPeriod::ALL.iter().position(|p| p == period).unwrap_or(0) as i32);
+            }
+            _ => g.set_labels(slint::ModelRc::default()),
+        }
+    }
     crate::likes_ui::page_opened(ui, app, Some(&page.spec));
     crate::playlists_ui::page_opened(ui, Some(&page.spec), &page.title);
     if !page.spec.is_remote() {

@@ -33,7 +33,7 @@ use drx_core::store::Store;
 use drx_transfer::backup::{self, Accounts, ImportOptions};
 pub use edition::{Edition, EditionProfile};
 pub use home::{HomeAlbum, HomeFeed, HomeRow, HomeRowKind};
-pub use lists::{ListHandle, ListHeader, ListSpec, SongRow};
+pub use lists::{ListHandle, ListHeader, ListSpec, SongRow, TopPeriod};
 pub use playback::{NowPlaying, Playable, Repeat};
 pub use search::{SearchOutcome, SearchSource, fold, link_page, share_text};
 pub use stats::{HistoryEntry, StatItem, StatPeriod, StatSong, Stats, history_group};
@@ -134,6 +134,8 @@ pub enum LibraryKind {
     Artist,
     /// A list of a linked account (liked, playlist, album), loaded from its catalog. `id` is the list's entry id.
     Remote,
+    /// «Мой топ N» (an auto playlist of the most listened songs).
+    Top,
 }
 
 /// Library numbers shown on the home page and in settings.
@@ -330,6 +332,20 @@ impl App {
             (self.pref_bool("enableLrclib").unwrap_or(true), self.pref_bool("enableKugou").unwrap_or(true));
         self.apply_sound();
     }
+    /// How many songs «Мой топ» holds (the phone's `topSize`, a text setting; 50 by default).
+    pub fn top_size(&self) -> usize {
+        self.pref_string("topSize").and_then(|s| s.trim().parse().ok()).filter(|n| *n > 0).unwrap_or(50).min(500)
+    }
+
+    /// The period «Мой топ» shows (PC: `pcTopPeriod`, the phone's MyTopFilter names).
+    pub fn top_period(&self) -> TopPeriod {
+        self.pref_string("pcTopPeriod").map(|s| TopPeriod::from_name(&s)).unwrap_or_default()
+    }
+
+    pub fn set_top_period(&self, p: TopPeriod) {
+        let _ = self.set_pref("pcTopPeriod", drx_core::prefs::PrefValue::String(p.name().into()));
+    }
+
     /// A number setting stored as a float in `settings.preferences_pb`.
     pub fn pref_f32(&self, key: &str) -> Option<f32> {
         std::fs::read(self.inner.profile.prefs_pb())
@@ -598,21 +614,36 @@ impl App {
 
     async fn db_library_entries(&self) -> AppResult<Vec<LibraryEntry>> {
         let covers = self.profile().covers_dir();
+        let top_size = self.top_size();
         Ok(self
             .store()
             .call(move |c| {
                 let liked: i64 = c.query_row(&format!("SELECT count(*) FROM {}", lists::LIKED_UNIQUE), [], |r| r.get(0))?;
-                let mut out = vec![LibraryEntry {
-                    kind: LibraryKind::Liked,
-                    id: "liked".into(),
-                    title: "Любимые треки".into(),
-                    subtitle: format!("{liked} треков"),
-                    thumbnail: None,
-                    pinned: true,
-                    group: LibraryGroup::Liked,
-                    added_ms: 0,
-                    updated_ms: 0,
-                }];
+                let mut out = vec![
+                    LibraryEntry {
+                        kind: LibraryKind::Liked,
+                        id: "liked".into(),
+                        title: "Любимые треки".into(),
+                        subtitle: format!("{liked} треков"),
+                        thumbnail: None,
+                        pinned: true,
+                        group: LibraryGroup::Liked,
+                        added_ms: 0,
+                        updated_ms: 0,
+                    },
+                    // The phone's «Мой топ N» auto playlist (topSize, 50 by default).
+                    LibraryEntry {
+                        kind: LibraryKind::Top,
+                        id: "top".into(),
+                        title: format!("Мой топ {top_size}"),
+                        subtitle: "Автоплейлист".into(),
+                        thumbnail: None,
+                        pinned: true,
+                        group: LibraryGroup::Liked,
+                        added_ms: 0,
+                        updated_ms: 0,
+                    },
+                ];
                 let mut st = c.prepare(&format!(
                     "SELECT p.id, p.name, p.thumbnailUrl, (SELECT count(*) FROM playlist_song_map m WHERE m.playlistId = p.id),
                      p.createdAt, coalesce(p.lastUpdateTime, p.createdAt), {PLAYLIST_FIRST_COVER}

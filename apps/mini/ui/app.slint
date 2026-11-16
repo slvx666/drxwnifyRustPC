@@ -216,6 +216,13 @@ export global SoundUi {
     callback preset(int);
 }
 
+// Chips in a list page's heading (the periods of «Мой топ»).
+export global PageChips {
+    in property <[string]> labels;
+    in property <int> selected;
+    callback pick(int);
+}
+
 export struct LyricLine {
     text: string,
     time-ms: int,
@@ -883,9 +890,9 @@ component LibraryPanel inherits VerticalLayout {
                             size: 48px;
                             source: item.cover;
                             has-source: item.has-cover;
-                            placeholder: item.kind == "liked" ? Icons.heart-filled : Icons.music;
-                            placeholder-color: item.kind == "liked" ? Theme.on-accent : Theme.mute;
-                            placeholder-bg: item.kind == "liked" ? Theme.accent : Theme.fill-hover;
+                            placeholder: item.kind == "liked" ? Icons.heart-filled : (item.kind == "top" ? Icons.chart : Icons.music);
+                            placeholder-color: item.kind == "liked" || item.kind == "top" ? Theme.on-accent : Theme.mute;
+                            placeholder-bg: item.kind == "liked" || item.kind == "top" ? Theme.accent : Theme.fill-hover;
                             radius: Grid.row-cover-radius;
                         }
                     }
@@ -2045,6 +2052,13 @@ component MainArea inherits VerticalLayout {
                     }
                     rnd := TouchArea { mouse-cursor: pointer; clicked => { root.home-random(); } }
                 }
+            }
+            // Chips of the page (the periods of «Мой топ»): their own row, so they never widen the heading.
+            if PageChips.labels.length > 0: HorizontalLayout {
+                padding-top: 6px;
+                spacing: 6px;
+                alignment: start;
+                for c[ci] in PageChips.labels: Chip { label: c; selected: ci == PageChips.selected; clicked => { PageChips.pick(ci); } }
             }
             if root.can-play || root.can-edit || root.can-share: HorizontalLayout {
                 padding-top: 6px;

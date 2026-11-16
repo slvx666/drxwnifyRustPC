@@ -97,5 +97,6 @@ pub fn kind_name(k: LibraryKind) -> &'static str {
         LibraryKind::Album => "album",
         LibraryKind::Artist => "artist",
         LibraryKind::Remote => "remote",
+        LibraryKind::Top => "top",
     }
 }

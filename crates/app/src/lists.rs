@@ -61,6 +61,62 @@ pub enum ListSpec {
     },
     /// Tracks downloaded for offline listening, the newest first.
     Downloads,
+    /// «Мой топ» (Android TopPlaylistScreen): the most listened songs (by time) of a period, `size` of them.
+    Top { period: TopPeriod, size: usize },
+}
+
+/// MyTopFilter: the period «Мой топ» counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum TopPeriod {
+    #[default]
+    AllTime,
+    Day,
+    Week,
+    Month,
+    Year,
+}
+
+impl TopPeriod {
+    pub const ALL: [TopPeriod; 5] = [TopPeriod::Day, TopPeriod::Week, TopPeriod::Month, TopPeriod::Year, TopPeriod::AllTime];
+
+    /// The chip's words (the phone's past_24_hours / past_week / …).
+    pub fn label(self) -> &'static str {
+        match self {
+            TopPeriod::Day => "24 часа",
+            TopPeriod::Week => "Неделя",
+            TopPeriod::Month => "Месяц",
+            TopPeriod::Year => "Год",
+            TopPeriod::AllTime => "Всё время",
+        }
+    }
+
+    /// The phone's enum name (kept in the setting).
+    pub fn name(self) -> &'static str {
+        match self {
+            TopPeriod::Day => "DAY",
+            TopPeriod::Week => "WEEK",
+            TopPeriod::Month => "MONTH",
+            TopPeriod::Year => "YEAR",
+            TopPeriod::AllTime => "ALL_TIME",
+        }
+    }
+
+    pub fn from_name(s: &str) -> TopPeriod {
+        TopPeriod::ALL.into_iter().find(|p| p.name() == s).unwrap_or_default()
+    }
+
+    /// Where the period starts (Unix ms); 0 = always.
+    fn from_ms(self) -> i64 {
+        let day = 86_400_000i64;
+        let now = crate::songs::now_ms();
+        match self {
+            TopPeriod::Day => now - day,
+            TopPeriod::Week => now - 7 * day,
+            TopPeriod::Month => now - 30 * day,
+            TopPeriod::Year => now - 365 * day,
+            TopPeriod::AllTime => 0,
+        }
+    }
 }
 
 impl ListSpec {
@@ -75,6 +131,7 @@ impl ListSpec {
                 | ListSpec::RecentSongs
                 | ListSpec::Album { .. }
                 | ListSpec::Artist { .. }
+                | ListSpec::Top { .. }
         )
     }
 
@@ -114,7 +171,7 @@ impl ListSpec {
             ListSpec::Playlist { .. } => {
                 &["playlist_song_map", "song", "song_artist_map", "artist"]
             }
-            ListSpec::History | ListSpec::RecentSongs => {
+            ListSpec::History | ListSpec::RecentSongs | ListSpec::Top { .. } => {
                 &["event", "song", "song_artist_map", "artist"]
             }
             ListSpec::Album { .. } => &["song_album_map", "song", "song_artist_map", "artist"],
@@ -244,6 +301,12 @@ fn base(spec: &ListSpec) -> (String, Vec<String>) {
             "FROM song_artist_map m JOIN song s ON s.id = m.songId WHERE m.artistId = ?1              ORDER BY s.totalPlayTime DESC, s.liked DESC, s.title COLLATE NOCASE"
                 .into(),
             vec![id.clone()],
+        ),
+        ListSpec::Top { period, size } => (
+            "FROM (SELECT songId, sum(playTime) AS ms FROM event WHERE timestamp >= ?1 GROUP BY songId ORDER BY ms DESC LIMIT ?2) t
+             JOIN song s ON s.id = t.songId ORDER BY t.ms DESC"
+                .into(),
+            vec![period.from_ms().to_string(), size.to_string()],
         ),
         // Remote lists never reach SQL; an empty query keeps the match total.
         _ => ("FROM song s WHERE 0".into(), vec![]),

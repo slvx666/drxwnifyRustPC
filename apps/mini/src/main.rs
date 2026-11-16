@@ -126,6 +126,7 @@ fn main() {
                     id: item.id.to_string(),
                 },
                 "liked" => ListSpec::LikedSongs,
+                "top" => ListSpec::Top { period: app2.top_period(), size: app2.top_size() },
                 "album" => ListSpec::Album {
                     id: item.id.to_string(),
                 },
@@ -895,6 +896,9 @@ fn main() {
         nav::go(&ui, &app, &songs, nav::Page::settings());
         let y: f32 = rest.trim_start_matches(':').parse().unwrap_or(0.0);
         ui.global::<SettingsUi>().set_start_y(y);
+    } else if demo_page.as_deref() == Some("top") {
+        let spec = ListSpec::Top { period: app.top_period(), size: app.top_size() };
+        nav::go(&ui, &app, &songs, nav::Page::list(spec, &format!("Мой топ {}", app.top_size()), "top", None));
     } else if demo_page.as_deref() == Some("history") {
         nav::go(&ui, &app, &songs, nav::Page::history());
     } else if demo_page.as_deref() == Some("stats") {
@@ -909,7 +913,7 @@ fn main() {
             &songs,
             nav::Page::search(&q, drx_app::SearchSource::Main),
         );
-    } else if let Some(demo) = std::env::var("DRX_DEMO").ok().filter(|d| !d.starts_with("chat")) {
+    } else if let Some(demo) = std::env::var("DRX_DEMO").ok().filter(|d| !d.starts_with("chat") && d != "top") {
         app.set_volume(0.0);
         let entries = app
             .runtime()
@@ -998,6 +1002,15 @@ fn main() {
         ui.on_open_friends(move || {
             if let Some(ui) = ui_w.upgrade() {
                 nav::go_page(&ui, &app2, nav::Page::friends());
+            }
+        });
+    }
+    // «Мой топ»: another period.
+    {
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.global::<PageChips>().on_pick(move |i| {
+            if let (Some(ui), Some(p)) = (ui_w.upgrade(), drx_app::TopPeriod::ALL.get(i.max(0) as usize)) {
+                nav::set_top_period(&ui, &app2, *p);
             }
         });
     }
