@@ -118,8 +118,84 @@ struct HttpOpener {
     user_agent: Option<&'static str>,
 }
 
+/// YouTube's stream hosts pace one long request to about the bitrate (~25 KB/s), but answer each ranged request at
+/// full speed (measured: 1 MB ranges ≈ 12 MB/s with VISIONOS): their streams are read in ranges, one after another.
+const YT_CHUNK: u64 = 1 << 20;
+
+struct ChunkedBody {
+    opener: HttpOpener,
+    pos: u64,
+    total: u64,
+    buf: Vec<u8>,
+    at: usize,
+}
+
+impl HttpOpener {
+    /// One range of the stream: (its bytes, the whole length).
+    fn range(&self, from: u64, to: u64) -> std::io::Result<(Vec<u8>, Option<u64>)> {
+        let mut req = self
+            .http
+            .client()
+            .request(Method::GET, &self.url)
+            .timeout(Duration::from_secs(60))
+            .header("Range", format!("bytes={from}-{to}"));
+        if let Some(ua) = self.user_agent {
+            req = req.header("User-Agent", ua);
+        }
+        self.handle.block_on(async move {
+            let resp = req.send().await.map_err(std::io::Error::other)?;
+            if !resp.status().is_success() {
+                return Err(std::io::Error::other(format!("HTTP {}", resp.status())));
+            }
+            let total = resp
+                .headers()
+                .get("content-range")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.rsplit('/').next())
+                .and_then(|t| t.parse().ok());
+            let body = resp.bytes().await.map_err(std::io::Error::other)?;
+            Ok((body.to_vec(), total))
+        })
+    }
+
+    fn clone_opener(&self) -> HttpOpener {
+        HttpOpener { http: self.http.clone(), handle: self.handle.clone(), url: self.url.clone(), user_agent: self.user_agent }
+    }
+}
+
+impl Read for ChunkedBody {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        if self.at >= self.buf.len() {
+            if self.pos >= self.total {
+                return Ok(0);
+            }
+            let to = (self.pos + YT_CHUNK).min(self.total) - 1;
+            // A dropped range is asked again once (a flaky connection).
+            let (b, _) = self.opener.range(self.pos, to).or_else(|_| self.opener.range(self.pos, to))?;
+            if b.is_empty() {
+                return Ok(0);
+            }
+            self.pos += b.len() as u64;
+            self.buf = b;
+            self.at = 0;
+        }
+        let n = out.len().min(self.buf.len() - self.at);
+        out[..n].copy_from_slice(&self.buf[self.at..self.at + n]);
+        self.at += n;
+        Ok(n)
+    }
+}
+
 impl RangeOpener for HttpOpener {
     fn open(&self, offset: u64) -> std::io::Result<(Option<u64>, Box<dyn Read + Send>)> {
+        if self.url.contains(".googlevideo.com/") {
+            let (first, total) = self.range(offset, offset + YT_CHUNK - 1)?;
+            let total = total.unwrap_or(offset + first.len() as u64);
+            return Ok((
+                Some(total),
+                Box::new(ChunkedBody { opener: self.clone_opener(), pos: offset + first.len() as u64, total, buf: first, at: 0 }),
+            ));
+        }
         let mut req = self
             .http
             .client()

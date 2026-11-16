@@ -555,6 +555,52 @@ mod tests {
         });
     }
 
+    /// Real network: how fast a stream comes, in one request and in 1 MB ranges. DRX_TEST_YT_VIDEO; not in CI.
+    #[test]
+    fn real_stream_speed() {
+        let Ok(video) = std::env::var("DRX_TEST_YT_VIDEO") else {
+            return;
+        };
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let http = Http::new().unwrap();
+            let yt = YouTube::new(http.clone());
+            for c in STREAM_CLIENTS {
+                let Ok(v) = yt.post("player", c, json!({ "videoId": video, "contentCheckOk": true, "racyCheckOk": true })).await else { continue };
+                let Some((url, _)) = best_audio(&v) else { eprintln!("{}: no audio", c.name); continue };
+                let limit = 3u64 << 20;
+                // One request, read until 3 MB or 8 s.
+                let t = std::time::Instant::now();
+                let mut got = 0u64;
+                if let Ok(mut r) = http.client().get(&url).header("User-Agent", c.ua).send().await {
+                    while got < limit && t.elapsed().as_secs() < 8 {
+                        match tokio::time::timeout(std::time::Duration::from_secs(8), r.chunk()).await {
+                            Ok(Ok(Some(b))) => got += b.len() as u64,
+                            _ => break,
+                        }
+                    }
+                }
+                let one = got as f64 / t.elapsed().as_secs_f64() / 1024.0;
+                // 1 MB ranges.
+                let t = std::time::Instant::now();
+                let mut got = 0u64;
+                while got < limit && t.elapsed().as_secs() < 8 {
+                    let r = http.client().get(&url).header("User-Agent", c.ua)
+                        .header("Range", format!("bytes={}-{}", got, got + (1 << 20) - 1)).send().await;
+                    match r {
+                        Ok(r) if r.status().is_success() => match r.bytes().await {
+                            Ok(b) if !b.is_empty() => got += b.len() as u64,
+                            _ => break,
+                        },
+                        _ => break,
+                    }
+                }
+                let ranged = got as f64 / t.elapsed().as_secs_f64() / 1024.0;
+                eprintln!("{}: one request {one:.0} KB/s, 1 MB ranges {ranged:.0} KB/s, rbp={}", c.name, url.contains("ratebypass"));
+            }
+        });
+    }
+
     /// Real network: the stream of one video answers a ranged GET (catches 403 on stream URLs).
     /// DRX_TEST_YT_VIDEO=<video id>; not run in CI.
     #[test]

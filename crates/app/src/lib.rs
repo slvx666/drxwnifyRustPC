@@ -1525,6 +1525,38 @@ mod live_soundcloud {
 mod live_youtube {
     use super::*;
 
+    /// A whole YouTube track downloads at full speed (ranged reads; one long request is paced to ~25 KB/s).
+    /// DRX_TEST_NET=1; not run in CI.
+    #[test]
+    fn downloads_youtube_fast() {
+        if std::env::var("DRX_TEST_NET").is_err() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let app = App::start(Profile::at(dir.path()), EditionProfile::mini()).unwrap();
+        app.inner.playback.providers.lock().unwrap().retain(|p| p.id() == drx_resolver::provider::ProviderId::Youtube);
+        use drx_catalog::model::{ArtistRef, Track};
+        let track = Track {
+            id: "test-yt-dl".into(),
+            title: "Blinding Lights".into(),
+            artists: vec![ArtistRef { id: String::new(), name: "The Weeknd".into() }],
+            album: None,
+            duration_ms: 200_000,
+            isrc: None,
+            plays: None,
+            explicit: false,
+        };
+        let t = std::time::Instant::now();
+        assert_eq!(app.download_tracks(vec![track]), 1);
+        while !app.is_downloaded("test-yt-dl") && t.elapsed().as_secs() < 120 {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        let bytes = app.downloads_bytes();
+        eprintln!("downloaded {} KB in {:.1} s", bytes / 1024, t.elapsed().as_secs_f64());
+        assert!(app.is_downloaded("test-yt-dl"), "not downloaded");
+        assert!(t.elapsed().as_secs() < 30, "too slow");
+    }
+
     /// A YouTube stream (VISIONOS, WebM Opus) plays and seeks past the first MiB (no 1 MiB preview cap).
     /// DRX_TEST_NET=1; not run in CI.
     #[test]
