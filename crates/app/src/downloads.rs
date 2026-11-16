@@ -155,6 +155,18 @@ impl App {
         Ok(self.download_tracks(items.into_iter().map(|p| p.track).collect()))
     }
 
+    /// «Копировать в мои плейлисты» (the phone's import of a playlist): every track of a list into a new playlist of
+    /// mine named `name`. Returns its id and how many tracks went in.
+    pub async fn copy_list_to_playlist(&self, handle: crate::ListHandle, name: &str) -> crate::AppResult<(String, usize)> {
+        let items = self.list_items(handle).await?;
+        if items.is_empty() {
+            return Err(crate::AppError::Other("в списке нет треков".into()));
+        }
+        let id = self.create_playlist(name.trim()).await?;
+        let n = self.add_to_playlist(&id, items.into_iter().map(|p| p.track).collect()).await?;
+        Ok((id, n))
+    }
+
     /// Stops after the current track and forgets the rest of the queue.
     pub fn cancel_downloads(&self) {
         self.inner.download_queue.lock().expect("download queue").clear();

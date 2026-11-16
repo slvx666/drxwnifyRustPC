@@ -233,6 +233,40 @@ pub fn double_click_ms() -> u64 {
     }
 }
 
+/// The system «Open» dialog for one file: `kinds` names the filter («Плейлисты»), `patterns` its masks
+/// («*.csv;*.m3u;*.m3u8»). None when cancelled.
+pub fn pick_file(title: &str, kinds: &str, patterns: &str) -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::Com::{
+            CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
+        };
+        use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
+        use windows::Win32::UI::Shell::{FileOpenDialog, IFileOpenDialog, SIGDN_FILESYSPATH};
+        use windows::core::{HSTRING, PCWSTR};
+        // SAFETY: a modal COM dialog on this thread; strings outlive the calls that read them.
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let d: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+            let (name, spec) = (HSTRING::from(kinds), HSTRING::from(patterns));
+            let filters = [COMDLG_FILTERSPEC { pszName: PCWSTR(name.as_ptr()), pszSpec: PCWSTR(spec.as_ptr()) }];
+            d.SetFileTypes(&filters).ok()?;
+            d.SetTitle(&HSTRING::from(title)).ok()?;
+            d.Show(None).ok()?;
+            let item = d.GetResult().ok()?;
+            let p = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
+            let s = p.to_string().ok();
+            CoTaskMemFree(Some(p.0 as *const _));
+            s.map(std::path::PathBuf::from)
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (title, kinds, patterns);
+        None
+    }
+}
+
 /// Opens a web address in the default browser (links in chat messages). Only http(s) addresses.
 pub fn open_url(url: &str) -> bool {
     if !(url.starts_with("https://") || url.starts_with("http://")) {

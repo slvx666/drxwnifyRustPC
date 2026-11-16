@@ -238,6 +238,11 @@ export global TempoUi {
     callback set(float, int);
 }
 
+// The library's «+» menu: import a playlist file.
+export global LibraryUi {
+    callback import-file();
+}
+
 export struct LyricLine {
     text: string,
     time-ms: int,
@@ -804,7 +809,33 @@ component LibraryPanel inherits VerticalLayout {
         padding-right: Grid.pad - 6px;
         spacing: 2px;
         SectionTitle { text: "Медиатека"; horizontal-stretch: 1; }
-        Middle { IconButton { icon: Icons.plus; size: 32px; icon-size: 18px; clicked => { root.create-playlist(); } } }
+        // «+»: a new playlist, or one imported from a file (the phone's import: CSV, M3U).
+        Middle {
+            Rectangle {
+                width: add-btn.width;
+                height: add-btn.height;
+                add-btn := IconButton { icon: Icons.plus; size: 32px; icon-size: 18px; clicked => { add-menu.show(); } }
+                add-menu := PopupWindow {
+                    x: 0;
+                    y: add-btn.height + 6px;
+                    width: 250px;
+                    Rectangle {
+                        border-radius: Grid.item-radius;
+                        background: Theme.menu;
+                        border-color: Theme.panel-border;
+                        border-width: 1px;
+                        drop-shadow-blur: 16px;
+                        drop-shadow-color: #00000060;
+                        VerticalLayout {
+                            padding: 6px;
+                            spacing: 2px;
+                            MenuItem { icon: Icons.plus; label: "Новый плейлист"; clicked => { root.create-playlist(); } }
+                            MenuItem { icon: Icons.upload; label: "Импорт из файла (CSV, M3U)"; clicked => { LibraryUi.import-file(); } }
+                        }
+                    }
+                }
+            }
+        }
         Middle {
             IconButton {
                 icon: Icons.search; size: 32px; icon-size: 18px; active: root.searching;
@@ -2170,6 +2201,7 @@ component MainArea inherits VerticalLayout {
                                 MenuItem { icon: Icons.upload; label: "Экспорт в CSV"; clicked => { root.export-list("csv"); } }
                                 MenuItem { icon: Icons.upload; label: "Экспорт в M3U"; clicked => { root.export-list("m3u"); } }
                                 MenuItem { icon: Icons.download; label: "Скачать все треки"; clicked => { root.export-list("download"); } }
+                                MenuItem { icon: Icons.plus; label: "Копировать в мои плейлисты"; clicked => { root.export-list("copy"); } }
                             }
                         }
                     }

@@ -1039,6 +1039,28 @@ fn main() {
             }
         });
     }
+    // Playlist import from a file (CSV, M3U).
+    {
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.global::<LibraryUi>().on_import_file(move || {
+            let Some(path) = drx_platform::pick_file("Импорт плейлиста", "Плейлисты (CSV, M3U)", "*.csv;*.m3u;*.m3u8;*.txt") else {
+                return;
+            };
+            let (app3, ui_w2) = (app2.clone(), ui_w.clone());
+            app2.runtime().spawn(async move {
+                let got = app3.import_playlist_file(&path).await;
+                let _ = ui_w2.upgrade_in_event_loop(move |ui| {
+                    ui.set_toast(
+                        match got {
+                            Ok((name, n)) => format!("Плейлист «{name}» импортирован: {}", nav::tracks_word(n)),
+                            Err(e) => format!("Не получилось: {e}"),
+                        }
+                        .into(),
+                    );
+                });
+            });
+        });
+    }
     // «Мой топ»: another period.
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());
@@ -1079,6 +1101,22 @@ fn main() {
                 return;
             };
             let name = ui.get_view_title().to_string();
+            if format == "copy" {
+                let (app3, ui_w2, h) = (app2.clone(), ui_w.clone(), songs2.handle());
+                app2.runtime().spawn(async move {
+                    let got = app3.copy_list_to_playlist(h, &name).await;
+                    let _ = ui_w2.upgrade_in_event_loop(move |ui| {
+                        ui.set_toast(
+                            match got {
+                                Ok((_, n)) => format!("Плейлист «{name}» создан: {}", nav::tracks_word(n)),
+                                Err(e) => format!("Не получилось: {e}"),
+                            }
+                            .into(),
+                        );
+                    });
+                });
+                return;
+            }
             if format == "download" {
                 let (app3, ui_w2, h) = (app2.clone(), ui_w.clone(), songs2.handle());
                 app2.runtime().spawn(async move {
