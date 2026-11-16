@@ -172,6 +172,11 @@ export struct FlagItem {
     on: bool,
 }
 
+export struct LyricLine {
+    text: string,
+    time-ms: int,
+}
+
 export struct StatTile {
     value: string,
     label: string,
@@ -2049,6 +2054,81 @@ component QueueRow inherits Rectangle {
     }
 }
 
+// The lyrics of the playing track over the centre (Spotify's lyrics view): every line, the sung one bright and kept
+// at a third of the height, a click on a line jumps there (synced lyrics); plain lyrics just scroll.
+component LyricsView inherits Rectangle {
+    in property <[LyricLine]> lines;
+    in property <int> current: -1;
+    in property <bool> synced;
+    in property <string> title;
+    in property <string> artists;
+    in property <string> status; // «Ищу текст…», «Текста нет»
+    callback seek(int);
+    callback close();
+    property <length> target-y: 0;
+    // The sung line goes to a third of the height.
+    function follow() {
+        if root.synced && root.current >= 0 {
+            lv-flick.content-y = max(min(0px, lv-flick.height - lv-flick.content-height), min(0px, -(root.target-y - lv-flick.height * 0.33)));
+        }
+    }
+    background: transparent;
+    min-width: 0;
+    max-width: 100000px;
+    min-height: 0;
+    max-height: 100000px;
+    lv-flick := Flickable {
+        width: parent.width;
+        height: parent.height;
+        animate content-y { duration: 350ms; easing: ease-out; }
+        content-height: lv-col.preferred-height;
+        lv-col := VerticalLayout {
+            width: root.width;
+            padding-left: Grid.pad * 3;
+            padding-right: Grid.pad * 3;
+            padding-top: 28px;
+            padding-bottom: root.height * 0.5;
+            spacing: 14px;
+            alignment: start;
+            Text { text: root.title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
+            Text { text: root.artists; font-family: Theme.body-font; font-size: 15px; color: Theme.dim; overflow: elide; }
+            Rectangle { height: 12px; }
+            if root.lines.length == 0: Text { text: root.status; font-family: Theme.body-font; font-size: 16px; color: Theme.mute; }
+            for l[i] in root.lines: Rectangle {
+                property <bool> is-cur: root.synced && i == root.current;
+                changed is-cur => { if self.is-cur { root.target-y = self.y; root.follow(); } }
+                height: lt.preferred-height + 4px;
+                lt := Text {
+                    width: parent.width;
+                    text: l.text == "" ? "♪" : l.text;
+                    wrap: word-wrap;
+                    font-family: Theme.heading-font;
+                    font-weight: 700;
+                    font-size: 26px;
+                    color: !root.synced ? Theme.text
+                        : i == root.current ? Theme.text
+                        : i < root.current ? Theme.mute : Theme.dim;
+                }
+                if root.synced: TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.seek(l.time-ms); }
+                }
+            }
+        }
+    }
+    // Close, top right.
+    Rectangle {
+        x: parent.width - self.width - Grid.pad;
+        y: Grid.pad;
+        width: 36px;
+        height: 36px;
+        border-radius: 18px;
+        background: lv-x.has-hover ? Theme.fill-hover : Theme.fill;
+        Icon { icon: Icons.x; size: 16px; color: Theme.text; }
+        lv-x := TouchArea { mouse-cursor: pointer; clicked => { root.close(); } }
+    }
+}
+
 component RightPanel inherits VerticalLayout {
     in property <string> title;
     in property <string> artists;
@@ -2273,6 +2353,8 @@ component PlayerBar inherits HorizontalLayout {
     callback sleep-option(string); // fade | after
     in property <bool> queue-open;
     callback toggle-queue();
+    in property <bool> lyrics-open;
+    callback toggle-lyrics();
     height: Grid.bar-height;
     HorizontalLayout {
         width: Grid.lib-width + 1px;
@@ -2390,6 +2472,7 @@ component PlayerBar inherits HorizontalLayout {
             }
         }
         Middle { IconButton { icon: root.day ? Icons.sun : Icons.moon; clicked => { root.set-day(!root.day); } } }
+        Middle { IconButton { icon: Icons.microphone; active: root.lyrics-open; active-color: Theme.accent; clicked => { root.toggle-lyrics(); } } }
         Middle { IconButton { icon: Icons.list; active: root.queue-open; active-color: Theme.accent; clicked => { root.toggle-queue(); } } }
         Middle {
             IconButton {
@@ -3440,6 +3523,13 @@ export component MainWindow inherits Window {
     callback sleep-set(int);
     callback sleep-option(string);
     in-out property <bool> queue-open;
+    in-out property <bool> lyrics-open;
+    in property <[LyricLine]> lyrics-lines;
+    in property <int> lyrics-current: -1;
+    in property <bool> lyrics-synced;
+    in property <string> lyrics-status;
+    callback lyrics-toggled();
+    callback lyrics-seek(int);
     in property <SongItem> queue-now;
     in property <bool> queue-has-now;
     in property <[SongItem]> queue-items;
@@ -3659,7 +3749,18 @@ export component MainWindow inherits Window {
                         resize(w) => { Grid.lib-width = w; }
                         done => { root.panels-resized(); }
                     }
-                    if !root.view-friends: MainArea {
+                    if root.lyrics-open: LyricsView {
+                        horizontal-stretch: 1;
+                        lines: root.lyrics-lines;
+                        current: root.lyrics-current;
+                        synced: root.lyrics-synced;
+                        status: root.lyrics-status;
+                        title: root.now-title;
+                        artists: root.now-artists;
+                        seek(ms) => { root.lyrics-seek(ms); }
+                        close => { root.lyrics-open = false; root.lyrics-toggled(); }
+                    }
+                    if !root.view-friends && !root.lyrics-open: MainArea {
                         horizontal-stretch: 1;
                         title: root.view-title;
                         subtitle: root.view-subtitle;
@@ -3761,7 +3862,7 @@ export component MainWindow inherits Window {
                         play(i) => { root.play(i); }
                         import-backup => { root.import-backup(); }
                     }
-                    if root.view-friends: FriendsView {
+                    if root.view-friends && !root.lyrics-open: FriendsView {
                         horizontal-stretch: 1;
                         available: root.friends-available;
                         me-name: root.friends-me-name;
@@ -3892,6 +3993,8 @@ export component MainWindow inherits Window {
                     sleep-option(o) => { root.sleep-option(o); }
                     queue-open: root.queue-open;
                     toggle-queue => { root.queue-open = !root.queue-open; root.queue-toggled(); }
+                    lyrics-open: root.lyrics-open;
+                    toggle-lyrics => { root.lyrics-open = !root.lyrics-open; root.lyrics-toggled(); }
                     shuffle: root.now-shuffle;
                     repeat: root.now-repeat;
                     toggle-shuffle => { root.toggle-shuffle(); }

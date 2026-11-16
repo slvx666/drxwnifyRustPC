@@ -15,6 +15,7 @@ mod portrait_view;
 mod rooms_ui;
 mod sleep_ui;
 mod queue_ui;
+mod lyrics_ui;
 mod track_menu;
 mod nav;
 mod os;
@@ -963,6 +964,7 @@ fn main() {
     rooms_ui::wire(&ui, &app);
     sleep_ui::wire(&ui, &app);
     queue_ui::wire(&ui, &app);
+    lyrics_ui::wire(&ui, &app);
     settings_view::wire(&ui, &app);
     app.apply_playback_prefs();
     {
