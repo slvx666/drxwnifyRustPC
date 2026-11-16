@@ -60,6 +60,17 @@ fn act(ui: &MainWindow, app: &App, action: &str, id: String) {
                 .into(),
             );
         }
+        "share" => {
+            let Some(t) = app.runtime().block_on(app.known_track(&id)) else {
+                return;
+            };
+            if t.id.starts_with("local:") {
+                ui.set_toast("У файла с компьютера нет ссылки".into());
+                return;
+            }
+            let by = t.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", ");
+            copy_share(ui, &drx_app::share_text("track", &t.id, &t.title, &by));
+        }
         "artist" | "album" => {
             let Some(t) = app.runtime().block_on(app.known_track(&id)) else {
                 return;
@@ -74,6 +85,13 @@ fn act(ui: &MainWindow, app: &App, action: &str, id: String) {
         }
         _ => {}
     }
+}
+
+/// Puts a shared link on the clipboard and says so.
+pub fn copy_share(ui: &MainWindow, text: &str) {
+    ui.set_toast(
+        if drx_platform::copy_text(text) { "Ссылка скопирована" } else { "Буфер обмена занят — попробуйте ещё раз" }.into(),
+    );
 }
 
 /// Radio from a track (None: the playing one) — pc/ Player.radioAfterCurrent / radio: the playing track keeps

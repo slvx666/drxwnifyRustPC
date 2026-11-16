@@ -956,6 +956,17 @@ fn main() {
             }
         });
     }
+    // «Поделиться» on a page: its link to the clipboard (the phone's AppLinks format).
+    {
+        let ui_w = ui.as_weak();
+        ui.on_share_view(move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            let Some(page) = nav::current() else { return };
+            let Some((kind, id)) = nav::share_target(&page) else { return };
+            let by = page.subtitle.rsplit(" · ").next().filter(|_| kind != "artist").unwrap_or("").to_string();
+            track_menu::copy_share(&ui, &drx_app::share_text(kind, &id, &page.title, &by));
+        });
+    }
     // Links: an invite opens Friends with the code filled in (adding stays the owner's click, as on the phone where
     // the invite asks first); music goes through the search, which knows every link the phone shares.
     {

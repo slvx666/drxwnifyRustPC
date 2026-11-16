@@ -8,6 +8,27 @@ use slint::{ComponentHandle, Model};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// The page on screen.
+pub fn current() -> Option<Page> {
+    HISTORY.with(|h| {
+        let h = h.borrow();
+        h.pages.get(h.at).cloned()
+    })
+}
+
+/// What a page shares (AppLinks kinds): albums, artists and the catalogs' playlists; own lists have no link.
+pub fn share_target(page: &Page) -> Option<(&'static str, String)> {
+    if page.kind != PageKind::List {
+        return None;
+    }
+    match &page.spec {
+        ListSpec::Album { id } | ListSpec::CatalogAlbum { id } => Some(("album", id.clone())),
+        ListSpec::Artist { id } | ListSpec::CatalogArtist { id } => Some(("artist", id.clone())),
+        ListSpec::SpotifyPlaylist { id } | ListSpec::YandexPlaylist { id } => Some(("playlist", id.clone())),
+        _ => None,
+    }
+}
+
 /// What the centre shows.
 #[derive(Clone, PartialEq)]
 pub enum PageKind {
@@ -453,6 +474,7 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
         ui.set_view_can_play(false);
         set_header_image(ui, app, None);
         set_releases(ui, app, Vec::new());
+        ui.set_view_can_share(false);
         crate::likes_ui::page_opened(ui, app, None);
         crate::playlists_ui::page_opened(ui, None, "");
     }
@@ -480,6 +502,7 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     ui.set_view_liked_cover(liked);
     ui.set_view_is_page(!search);
     ui.set_view_can_play(false);
+    ui.set_view_can_share(share_target(&page).is_some());
     crate::likes_ui::page_opened(ui, app, Some(&page.spec));
     crate::playlists_ui::page_opened(ui, Some(&page.spec), &page.title);
     if !page.spec.is_remote() {

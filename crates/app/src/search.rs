@@ -86,6 +86,46 @@ fn is_video_id(s: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+/// The site shared links point to (AppLinks.SITE): it answers a phone without the app with a page.
+pub const LINK_SITE: &str = "https://drxwnify.pages.dev";
+
+/// Uri.encode: everything but letters, digits and `_-.!~*'()` as %XX of its UTF-8 bytes.
+fn uri_encode(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || b"_-.!~*'()".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// What a share carries, as the phone's AppLinks.shareText: «Artist — Title» and
+/// `https://drxwnify.pages.dev/<kind>/<id>?n=<title>&by=<artist>` (kind: track, album, playlist, artist).
+pub fn share_text(kind: &str, id: &str, title: &str, by: &str) -> String {
+    let (title, by) = (title.trim(), by.trim());
+    let mut query = Vec::new();
+    if !title.is_empty() {
+        query.push(format!("n={}", uri_encode(&title.chars().take(80).collect::<String>())));
+    }
+    if !by.is_empty() {
+        query.push(format!("by={}", uri_encode(&by.chars().take(60).collect::<String>())));
+    }
+    let link = format!(
+        "{LINK_SITE}/{kind}/{}{}",
+        uri_encode(id),
+        if query.is_empty() { String::new() } else { format!("?{}", query.join("&")) }
+    );
+    let head = match (title.is_empty(), by.is_empty()) {
+        (false, false) => format!("{by} — {title}\n"),
+        (false, true) => format!("{title}\n"),
+        _ => String::new(),
+    };
+    head + &link
+}
+
 /// A link that names a page of its own: ("album" | "artist", catalog id). Opened links go straight there, as the
 /// phone does; anything else (a track, a playlist, a video) goes through the search.
 pub fn link_page(text: &str) -> Option<(&'static str, String)> {
@@ -758,6 +798,10 @@ mod tests {
             Some(LinkTarget::YouTube("dQw4w9WgXcQ".into()))
         );
         assert_eq!(p("https://example.com/track/1"), None);
+        // A shared link reads back as what was shared.
+        let shared = share_text("album", "ym_123", "Альбом №1", "Кто-то");
+        assert!(shared.starts_with("Кто-то — Альбом №1\nhttps://drxwnify.pages.dev/album/ym_123?n=%D0%90"));
+        assert_eq!(link_page(&shared), Some(("album", "ym_123".to_string())));
         assert_eq!(
             url_in("Artist — Title https://youtu.be/dQw4w9WgXcQ."),
             Some("https://youtu.be/dQw4w9WgXcQ".into())

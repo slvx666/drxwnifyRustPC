@@ -1589,6 +1589,8 @@ component MainArea inherits VerticalLayout {
     callback song-menu(string, int, length, length);
     callback open-album(string);
     in property <bool> can-save; // album / playlist / artist pages of a catalog
+    in property <bool> can-share; // the page has a link to share (album, artist, a catalog's playlist)
+    callback share-page();
     in property <bool> saved;
     callback toggle-save();
     in property <bool> can-edit; // an own playlist: rename and delete
@@ -1616,7 +1618,7 @@ component MainArea inherits VerticalLayout {
             if root.kind-label != "": Caption { text: root.kind-label; }
             Text { text: title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: root.is-page ? 44px : 32px; color: Theme.text; overflow: elide; }
             Text { text: subtitle; font-family: Theme.body-font; font-size: 15px; color: Theme.dim; overflow: elide; }
-            if root.can-play || root.can-edit: HorizontalLayout {
+            if root.can-play || root.can-edit || root.can-share: HorizontalLayout {
                 padding-top: 6px;
                 spacing: Grid.gap;
                 alignment: start;
@@ -1656,6 +1658,15 @@ component MainArea inherits VerticalLayout {
                     background: va.has-hover ? Theme.fill-hover : Theme.fill;
                     Icon { icon: root.saved ? Icons.heart-filled : Icons.heart; size: 17px; color: root.saved ? Theme.accent : Theme.text; }
                     va := TouchArea { mouse-cursor: pointer; clicked => { root.toggle-save(); } }
+                }
+                // Share (the phone's «Поделиться»): the link goes to the clipboard.
+                if root.can-share: Rectangle {
+                    width: 38px;
+                    height: 38px;
+                    border-radius: min(Theme.chip-radius, 19px);
+                    background: sha.has-hover ? Theme.fill-hover : Theme.fill;
+                    Icon { icon: Icons.link; size: 17px; color: Theme.text; }
+                    sha := TouchArea { mouse-cursor: pointer; clicked => { root.share-page(); } }
                 }
                 if root.can-edit: Rectangle {
                     width: 38px;
@@ -2990,6 +3001,8 @@ export component MainWindow inherits Window {
     callback dialog-pick(string); // add: put the tracks into this playlist
     // The open page's «in the library» / «follow» heart.
     in property <bool> view-can-save;
+    in property <bool> view-can-share;
+    callback share-view();
     in property <bool> view-saved;
     callback toggle-view-save();
     callback back();
@@ -3104,6 +3117,8 @@ export component MainWindow inherits Window {
                         can-save: root.view-can-save;
                         saved: root.view-saved;
                         toggle-save => { root.toggle-view-save(); }
+                        can-share: root.view-can-share;
+                        share-page => { root.share-view(); }
                         can-edit: root.view-can-edit;
                         rename-list => { root.rename-view(); }
                         delete-list => { root.delete-view(); }
@@ -3340,6 +3355,7 @@ export component MainWindow inherits Window {
                 if root.menu-has-artist || root.menu-has-album: HLine { }
                 if root.menu-has-artist: MenuItem { icon: Icons.user-circle; label: "К исполнителю"; clicked => { root.track-menu-action("artist", root.menu-id); } }
                 if root.menu-has-album: MenuItem { icon: Icons.album; label: "К альбому"; clicked => { root.track-menu-action("album", root.menu-id); } }
+                MenuItem { icon: Icons.link; label: "Поделиться"; clicked => { root.track-menu-action("share", root.menu-id); } }
             }
         }
     }
