@@ -5,3 +5,4 @@ pub mod nostr;
 pub mod relay;
 pub mod friends;
 pub mod chat;
+pub mod portrait;

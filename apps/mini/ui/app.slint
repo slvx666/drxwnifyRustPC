@@ -169,6 +169,41 @@ export struct StatTile {
     label: string,
 }
 
+// A friend's portrait (Android ProfilePortrait), one period at a time.
+export struct PortraitArtistItem {
+    name: string,
+    info: string,  // «3,5 ч · ♥ 12»
+    frac: float,   // the bar: share of the top artist's time; -1 = no bar (a portrait by likes)
+    cover: image,
+    has-cover: bool,
+}
+
+export struct GenreItem {
+    name: string,
+    pct: int,
+    color: color,  // the bar and the legend dot
+    bg: color,     // a tag's background (the name is drawn in `color`)
+    dot: color,    // a tag's dot
+}
+
+export struct GenreRow {
+    items: [GenreItem],
+}
+
+export struct PortraitData {
+    periods: [SourceChip],  // Неделя / Месяц / Год
+    months: [SourceChip],   // the months of the last year that have a portrait
+    note: string,
+    tiles: [StatTile],
+    artists-title: string,
+    artists: [PortraitArtistItem],
+    tracks-title: string,
+    tracks: [SongItem],
+    genres: [GenreItem],
+    legend: [GenreRow],
+    footer: string,
+}
+
 export struct QueueItem {
     title: string,
     artists: string,
@@ -2340,6 +2375,146 @@ component ChatBubble inherits Rectangle {
     }
 }
 
+// A friend's musical portrait (Android PortraitUi): week / month / year or a month of the last year, numbers,
+// who they listen to most, their favourite tracks, the genre bar. Built on their phone once a day.
+component PortraitView inherits Flickable {
+    min-width: 0;
+    max-width: 100000px;
+    min-height: 0;
+    max-height: 100000px;
+    in property <PortraitData> p;
+    in property <string> now-id;
+    callback period(int);
+    callback play(int);
+    callback open-artist(string);
+    callback open-album(string);
+    callback like-song(string);
+    callback song-menu(string, int, length, length);
+    content-height: body.preferred-height + Grid.pad;
+    body := VerticalLayout {
+        width: root.width;
+        spacing: Grid.pad;
+        alignment: start;
+        padding-top: 4px;
+        HorizontalLayout {
+            padding-left: Grid.pad + 4px;
+            spacing: 6px;
+            alignment: start;
+            for c[i] in root.p.periods: Chip { label: c.label; selected: c.selected; clicked => { root.period(i); } }
+        }
+        if root.p.months.length > 0: HorizontalLayout {
+            padding-left: Grid.pad + 4px;
+            spacing: 6px;
+            alignment: start;
+            for c[i] in root.p.months: Chip { label: c.label; selected: c.selected; clicked => { root.period(100 + i); } }
+        }
+        if root.p.note != "": Text {
+            x: Grid.pad + 4px;
+            width: root.width - 2 * (Grid.pad + 4px);
+            text: root.p.note;
+            wrap: word-wrap;
+            font-family: Theme.body-font; font-size: 14px; color: Theme.mute;
+        }
+        if root.p.tiles.length > 0: HorizontalLayout {
+            padding-left: Grid.pad + 4px;
+            padding-right: Grid.pad + 4px;
+            spacing: Grid.gap;
+            for t in root.p.tiles: Rectangle {
+                horizontal-stretch: 1;
+                height: 84px;
+                border-radius: Grid.item-radius;
+                background: Theme.fill;
+                VerticalLayout {
+                    padding: Grid.pad;
+                    spacing: 2px;
+                    alignment: center;
+                    Text { text: t.value; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 24px; color: Theme.text; overflow: elide; }
+                    Text { text: t.label; font-family: Theme.body-font; font-size: 14px; color: Theme.mute; overflow: elide; }
+                }
+            }
+        }
+        if root.p.artists.length > 0 || root.p.tracks.length > 0: HorizontalLayout {
+            padding-left: Grid.pad + 4px;
+            padding-right: Grid.pad;
+            spacing: Grid.pad * 2;
+            alignment: stretch;
+            if root.p.artists.length > 0: VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 4px;
+                alignment: start;
+                Text { height: 32px; text: root.p.artists-title; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; vertical-alignment: center; }
+                for a[i] in root.p.artists: HorizontalLayout {
+                    height: 56px;
+                    spacing: 12px;
+                    Text { width: 18px; text: i + 1; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; vertical-alignment: center; horizontal-alignment: center; }
+                    Middle { Cover { size: 44px; radius: 22px; source: a.cover; has-source: a.has-cover; placeholder: Icons.user-circle; } }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        spacing: 6px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: a.name; font-family: Theme.body-font; font-size: 15px; font-weight: 600; color: Theme.text; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+                            Text { text: a.info; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; vertical-alignment: center; }
+                        }
+                        if a.frac >= 0: Rectangle {
+                            height: 4px;
+                            border-radius: 2px;
+                            background: Theme.fill-hover;
+                            Rectangle { x: 0; width: parent.width * a.frac; height: 4px; border-radius: 2px; background: Theme.accent; }
+                        }
+                    }
+                }
+            }
+            if root.p.tracks.length > 0: VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 4px;
+                alignment: start;
+                Text { height: 32px; text: root.p.tracks-title; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; vertical-alignment: center; }
+                for t[i] in root.p.tracks: SongRow {
+                    song: t;
+                    current: root.now-id != "" && t.id == root.now-id;
+                    play => { root.play(i); }
+                    open-artist(id) => { root.open-artist(id); }
+                    open-album(id) => { root.open-album(id); }
+                    like-song(id) => { root.like-song(id); }
+                    song-menu(id, idx, x, y) => { root.song-menu(id, idx, x, y); }
+                }
+            }
+        }
+        if root.p.genres.length > 0: VerticalLayout {
+            padding-left: Grid.pad + 4px;
+            padding-right: Grid.pad + 4px;
+            spacing: 10px;
+            Text { height: 32px; text: "Жанры"; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; vertical-alignment: center; }
+            Rectangle {
+                height: 12px;
+                border-radius: 6px;
+                clip: true;
+                HorizontalLayout {
+                    for g in root.p.genres: Rectangle { horizontal-stretch: g.pct; min-width: 0; background: g.color; }
+                }
+            }
+            for row in root.p.legend: HorizontalLayout {
+                spacing: 18px;
+                alignment: start;
+                for g in row.items: HorizontalLayout {
+                    spacing: 6px;
+                    Middle { Rectangle { width: 10px; height: 10px; border-radius: 3px; background: g.color; } }
+                    Text { text: g.name + " " + g.pct + "%"; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; vertical-alignment: center; }
+                }
+            }
+        }
+        if root.p.footer != "": Text {
+            x: Grid.pad + 4px;
+            width: root.width - 2 * (Grid.pad + 4px);
+            text: root.p.footer;
+            wrap: word-wrap;
+            font-family: Theme.body-font; font-size: 13px; color: Theme.mute;
+        }
+    }
+}
+
 // Friends (pc/ FriendsScreen): one's own profile, requests, friends' cards; a friend's page with history,
 // likes and playlists. Over Nostr: no server of our own.
 component FriendsView inherits Rectangle {
@@ -2358,7 +2533,10 @@ component FriendsView inherits Rectangle {
     in property <image> f-avatar;
     callback view-avatar();
     in property <bool> f-has-avatar;
-    in property <string> f-tab; // chat | history | likes | playlists
+    in property <string> f-tab; // chat | portrait | history | likes | playlists
+    in property <PortraitData> f-portrait;
+    in property <[GenreItem]> f-tags; // their three main genres, under the name
+    callback portrait-period(int);
     in property <[ChatItem]> f-chat;
     in-out property <string> chat-text;
     in property <bool> chat-editing;
@@ -2580,6 +2758,24 @@ component FriendsView inherits Rectangle {
                 horizontal-stretch: 1;
                 Text { text: root.f-name; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: 28px; color: Theme.text; overflow: elide; }
                 Text { text: root.f-status; font-family: Theme.mono-font; font-size: 13px; color: root.f-along || root.f-typing ? Theme.accent : Theme.mute; overflow: elide; }
+                // Three main genres of the last months, like roles in Discord.
+                if root.f-tags.length > 0: HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    padding-top: 2px;
+                    for g in root.f-tags: Rectangle {
+                        height: 24px;
+                        width: tg-row.preferred-width + 20px;
+                        border-radius: 12px;
+                        background: g.bg;
+                        tg-row := HorizontalLayout {
+                            alignment: center;
+                            spacing: 6px;
+                            Middle { Rectangle { width: 7px; height: 7px; border-radius: 3.5px; background: g.dot; } }
+                            Text { text: g.name; font-family: Theme.body-font; font-weight: 600; font-size: 13px; color: g.color; vertical-alignment: center; }
+                        }
+                    }
+                }
             }
             if root.f-along || root.f-can-along: Middle {
                 Pill { label: root.f-along ? "Перестать слушать" : "Слушать вместе"; primary: !root.f-along; clicked => { root.along(); } }
@@ -2591,6 +2787,7 @@ component FriendsView inherits Rectangle {
             spacing: 8px;
             alignment: start;
             Chip { label: "Чат"; selected: root.f-tab == "chat"; clicked => { root.set-tab("chat"); } }
+            Chip { label: "Портрет"; selected: root.f-tab == "portrait"; clicked => { root.set-tab("portrait"); } }
             Chip { label: "История"; selected: root.f-tab == "history"; clicked => { root.set-tab("history"); } }
             Chip { label: root.f-likes == "" ? "Любимые" : "Любимые · " + root.f-likes; selected: root.f-tab == "likes"; clicked => { root.set-tab("likes"); } }
             Chip { label: "Плейлисты"; selected: root.f-tab == "playlists"; clicked => { root.set-tab("playlists"); } }
@@ -2695,14 +2892,25 @@ component FriendsView inherits Rectangle {
                 }
             }
         }
-        if root.f-tab != "chat" && root.f-tracks.length == 0: Text {
+        if root.f-tab == "portrait": PortraitView {
+            vertical-stretch: 1;
+            p: root.f-portrait;
+            now-id: root.now-id;
+            period(i) => { root.portrait-period(i); }
+            play(i) => { root.play(i); }
+            open-artist(id) => { root.open-artist(id); }
+            open-album(id) => { root.open-album(id); }
+            like-song(id) => { root.like-song(id); }
+            song-menu(id, idx, x, y) => { root.song-menu(id, idx, x, y); }
+        }
+        if root.f-tab != "chat" && root.f-tab != "portrait" && root.f-tracks.length == 0: Text {
             x: Grid.pad + 4px;
             text: root.f-empty;
             font-family: Theme.body-font;
             font-size: 14px;
             color: Theme.dim;
         }
-        if root.f-tab != "chat": HorizontalLayout {
+        if root.f-tab != "chat" && root.f-tab != "portrait": HorizontalLayout {
             vertical-stretch: 1;
             padding-left: 8px;
             padding-right: 4px;
@@ -2985,6 +3193,9 @@ export component MainWindow inherits Window {
     in-out property <length> chat-menu-y;
     in-out property <bool> chat-menu-mine;
     in property <string> friend-likes;
+    in property <PortraitData> friend-portrait;
+    in property <[GenreItem]> friend-tags;
+    callback friend-portrait-period(int);
     in property <[SongItem]> friend-tracks;
     in property <string> friend-empty;
     callback open-friends();
@@ -3263,6 +3474,9 @@ export component MainWindow inherits Window {
                         along => { root.friend-toggle-along(); }
                         remove => { root.friend-remove(); }
                         f-likes: root.friend-likes;
+                        f-portrait: root.friend-portrait;
+                        f-tags: root.friend-tags;
+                        portrait-period(i) => { root.friend-portrait-period(i); }
                         f-tracks: root.friend-tracks;
                         f-empty: root.friend-empty;
                         now-id: root.now-id;

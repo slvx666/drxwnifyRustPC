@@ -11,6 +11,7 @@ mod lazy_library;
 mod lazy_songs;
 mod likes_ui;
 mod playlists_ui;
+mod portrait_view;
 mod track_menu;
 mod nav;
 mod os;
@@ -951,6 +952,7 @@ fn main() {
     playlists_ui::wire(&ui, &app);
     friends_view::wire(&ui, &app);
     viewer::wire(&ui, &app);
+    portrait_view::wire(&ui, &app);
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());
         ui.on_open_friends(move || {

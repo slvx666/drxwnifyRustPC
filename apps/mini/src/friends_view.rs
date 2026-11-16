@@ -139,6 +139,7 @@ pub fn wire(ui: &MainWindow, app: &App) {
         let Some(ui) = ui_w.upgrade() else { return };
         OPEN.with(|o| *o.borrow_mut() = Some(p.to_string()));
         TAB.with(|t| *t.borrow_mut() = "chat".into());
+        crate::portrait_view::reset();
         ui.set_friend_chat_text("".into());
         EDITING.with(|e| *e.borrow_mut() = None);
         ui.set_friend_chat_editing(false);
@@ -564,10 +565,16 @@ fn render(ui: &MainWindow, app: &App) {
     ui.set_friend_initial(initial(&name).into());
     ui.set_friend_name(name.into());
     ui.set_friend_likes(d.and_then(|d| d.likes.as_ref()).map(|l| l.total.to_string()).unwrap_or_default().into());
+    crate::portrait_view::tags(ui, d);
     let tab = TAB.with(|x| x.borrow().clone());
     ui.set_friend_tab(tab.clone().into());
     if tab == "chat" {
         render_chat(ui, app, &p);
+        return;
+    }
+    if tab == "portrait" {
+        let tracks = crate::portrait_view::render(ui, app, d);
+        TRACKS.with(|t| *t.borrow_mut() = tracks);
         return;
     }
     let (refs, empty): (Vec<TrackRef>, &str) = match tab.as_str() {

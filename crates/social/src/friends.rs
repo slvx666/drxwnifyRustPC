@@ -225,6 +225,8 @@ pub struct FriendData {
     pub playlists: Option<Vec<SharedPlaylist>>,
     pub stats: Option<Stats>,
     pub likes: Option<SharedLikes>,
+    /// The musical portrait (built on the phone once a day).
+    pub portrait: Option<crate::portrait::ProfilePortrait>,
     /// Newest applied event per field (created_at, s).
     pub stamps: HashMap<String, i64>,
 }
@@ -352,6 +354,7 @@ pub fn apply_field(data: &mut FriendData, field: &str, content: &str) {
             })
         }
         "likes" => data.likes = (!content.trim().is_empty()).then(|| unpack_likes(content)).flatten(),
+        "portrait" => data.portrait = (!content.trim().is_empty()).then(|| crate::portrait::unpack(content)).flatten(),
         _ => {}
     }
 }
