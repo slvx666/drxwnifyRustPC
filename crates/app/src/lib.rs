@@ -15,6 +15,7 @@ pub mod playlists;
 pub mod radio;
 pub mod rooms;
 pub mod sleep;
+pub mod downloads;
 mod queue_store;
 mod search;
 pub mod social;
@@ -193,6 +194,10 @@ struct Inner {
     room: Mutex<Option<rooms::RoomSession>>,
     room_version: watch::Sender<u64>,
     sleep: watch::Sender<sleep::SleepState>,
+    downloads_version: watch::Sender<u64>,
+    download_progress: watch::Sender<downloads::DownloadProgress>,
+    download_queue: Mutex<std::collections::VecDeque<drx_catalog::model::Track>>,
+    download_running: std::sync::atomic::AtomicBool,
     sleep_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     chats: std::sync::OnceLock<Option<Arc<chats::ChatStore>>>,
 }
@@ -245,6 +250,10 @@ impl App {
             room: Mutex::default(),
             room_version: watch::channel(0).0,
             sleep: watch::channel(sleep::SleepState::default()).0,
+            downloads_version: watch::channel(0).0,
+            download_progress: watch::channel(downloads::DownloadProgress::default()).0,
+            download_queue: Mutex::default(),
+            download_running: std::sync::atomic::AtomicBool::new(false),
             sleep_task: Mutex::default(),
             chats: std::sync::OnceLock::new(),
             lists: lists::Lists::default(),

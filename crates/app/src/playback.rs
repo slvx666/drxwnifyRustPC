@@ -185,7 +185,7 @@ impl Fetcher for HttpFetcher {
     }
 }
 
-fn cache_name(id: &str) -> String {
+pub(crate) fn cache_name(id: &str) -> String {
     id.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect()
@@ -208,6 +208,8 @@ pub(crate) struct Playback {
     pub skip_on_error: std::sync::atomic::AtomicBool,
     /// Tracks skipped in a row for errors (a run of them stops: the network is likely down).
     skipped: std::sync::atomic::AtomicU32,
+    /// Downloaded tracks: track id → (file, format hint). Played from disk, no network.
+    pub downloaded: Mutex<std::collections::HashMap<String, (PathBuf, Option<String>)>>,
     /// The sleep timer's fade (0..1) on top of the volume.
     fade: Mutex<f32>,
     /// Audio providers for tracks without a URL (the resolver asks them all at once).
@@ -232,6 +234,7 @@ impl Playback {
             now: Arc::new(watch::channel(NowPlaying::default()).0),
             volume: Mutex::new(0.8),
             fade: Mutex::new(1.0),
+            downloaded: Mutex::new(std::collections::HashMap::new()),
             skip_on_error: std::sync::atomic::AtomicBool::new(false),
             skipped: std::sync::atomic::AtomicU32::new(0),
             providers: Mutex::new(Vec::new()),
@@ -437,10 +440,29 @@ impl Playback {
         });
     }
 
+    /// The audio of a track: its downloaded file when there is one, else the stream (cached as it plays).
     fn source_for(
         &self,
         p: &Playable,
+    ) -> Result<(Box<dyn drx_audio::decode::ByteSource>, Option<&'static str>, f32), String> {
+        let local = self.downloaded.lock().expect("downloaded").get(&p.track.id).cloned();
+        if let Some((path, ext)) = local
+            && let Ok(f) = std::fs::File::open(&path)
+        {
+            return Ok((Box::new(f), static_ext(ext.as_deref()), 1.0));
+        }
+        let file = self.cache_dir.join("audio").join(cache_name(&p.track.id));
+        let (src, ext, gain) = self.stream_into(p, &file)?;
+        Ok((Box::new(src), ext, gain))
+    }
+
+    /// Opens a track's stream, written into `file` as it comes (playback cache, or a download's file).
+    pub(crate) fn stream_into(
+        &self,
+        p: &Playable,
+        file: &std::path::Path,
     ) -> Result<(CachedSource, Option<&'static str>, f32), String> {
+        let file = file.to_path_buf();
         let (url, ua, gain) = match p.url.clone() {
             Some(u) => (
                 u,
@@ -455,7 +477,6 @@ impl Playback {
                 (s.url, s.user_agent, g)
             }
         };
-        let file = self.cache_dir.join("audio").join(cache_name(&p.track.id));
         if url.contains(".m3u8") {
             // VK: try the MP3 next to the HLS playlist first (as Android), else play the HLS itself.
             let mp3 = drx_catalog::vk::to_mp3_url(&url);
@@ -943,6 +964,20 @@ impl Playback {
 }
 
 use crate::songs::is_youtube_video_id;
+
+/// A format hint as the decoder takes it.
+fn static_ext(ext: Option<&str>) -> Option<&'static str> {
+    match ext? {
+        "mp3" => Some("mp3"),
+        "m4a" => Some("m4a"),
+        "mp4" => Some("mp4"),
+        "webm" => Some("webm"),
+        "ogg" => Some("ogg"),
+        "opus" => Some("opus"),
+        "flac" => Some("flac"),
+        _ => None,
+    }
+}
 
 #[cfg(test)]
 mod order_tests {

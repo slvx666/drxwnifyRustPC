@@ -59,6 +59,8 @@ pub enum ListSpec {
     CatalogArtist {
         id: String,
     },
+    /// Tracks downloaded for offline listening, the newest first.
+    Downloads,
 }
 
 impl ListSpec {

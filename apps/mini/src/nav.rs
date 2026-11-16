@@ -280,6 +280,19 @@ pub fn go_page(ui: &MainWindow, app: &App, page: Page) {
     }
 }
 
+/// The page on screen shows `spec`: it is drawn again (its rows changed, e.g. a download finished).
+pub fn reload_if(ui: &MainWindow, app: &App, spec: &ListSpec) {
+    let Some(page) = current().filter(|p| p.kind == PageKind::List && &p.spec == spec) else { return };
+    if let Some(songs) = songs_rc() {
+        show(ui, app, &songs, page);
+    }
+}
+
+/// Opens the downloads page.
+pub fn go_downloads(ui: &MainWindow, app: &App) {
+    go_page(ui, app, Page::list(ListSpec::Downloads, "Загрузки", "", None));
+}
+
 /// Opens the home page.
 pub fn go_home(ui: &MainWindow, app: &App) {
     if let Some(songs) = songs_rc() {
@@ -385,6 +398,7 @@ fn kind_of(spec: &ListSpec) -> (&'static str, bool) {
         ListSpec::Album { .. } | ListSpec::CatalogAlbum { .. } => ("АЛЬБОМ", false),
         ListSpec::Artist { .. } | ListSpec::CatalogArtist { .. } => ("ИСПОЛНИТЕЛЬ", false),
         ListSpec::History | ListSpec::RecentSongs => ("ИСТОРИЯ", false),
+        ListSpec::Downloads => ("ЗАГРУЗКИ", false),
         _ => ("", false),
     }
 }

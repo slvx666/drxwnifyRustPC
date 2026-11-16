@@ -526,6 +526,8 @@ component WindowButton inherits Rectangle {
 }
 
 component TopBar inherits Rectangle {
+    in property <string> downloads-label;
+    callback open-downloads();
     in-out property <string> search-text;
     callback search(string);
     in property <bool> can-back;
@@ -610,7 +612,12 @@ component TopBar inherits Rectangle {
             Middle { IconButton { icon: Icons.chart; clicked => { root.open-stats(); } } }
             Middle { IconButton { icon: Icons.users; clicked => { root.open-friends(); } } }
             Middle { IconButton { icon: Icons.puzzle; } }
-            Middle { IconButton { icon: Icons.download; } }
+            if root.downloads-label != "": Text {
+                text: root.downloads-label;
+                font-family: Theme.body-font; font-size: 12px; color: Theme.accent;
+                vertical-alignment: center;
+            }
+            Middle { IconButton { icon: Icons.download; active: root.downloads-label != ""; active-color: Theme.accent; clicked => { root.open-downloads(); } } }
             Middle { IconButton { icon: Icons.upload; clicked => { root.import-backup(); } } }
             Middle { IconButton { icon: Icons.settings; clicked => { root.open-settings(); } } }
             Rectangle { width: 9px; }
@@ -1807,6 +1814,7 @@ component MainArea inherits VerticalLayout {
                                 spacing: 2px;
                                 MenuItem { icon: Icons.upload; label: "Экспорт в CSV"; clicked => { root.export-list("csv"); } }
                                 MenuItem { icon: Icons.upload; label: "Экспорт в M3U"; clicked => { root.export-list("m3u"); } }
+                                MenuItem { icon: Icons.download; label: "Скачать все треки"; clicked => { root.export-list("download"); } }
                             }
                         }
                     }
@@ -3747,6 +3755,9 @@ export component MainWindow inherits Window {
     in property <bool> view-can-save;
     in property <bool> view-can-share;
     callback share-view();
+    in property <string> downloads-label; // «2 · 45%» while downloading
+    callback open-downloads();
+    in property <bool> menu-downloaded;
     callback export-view(string);
     in property <bool> view-saved;
     callback toggle-view-save();
@@ -3817,6 +3828,8 @@ export component MainWindow inherits Window {
                 open-friends => { root.open-friends(); }
             open-stats => { root.open-stats(); }
             import-backup => { root.import-backup(); }
+            downloads-label: root.downloads-label;
+            open-downloads => { root.open-downloads(); }
             search(q) => { root.suggest-open = false; key-scope.focus(); root.search(q); }
             typing(t) => { root.search-typing(t); }
             search-text <=> root.search-text;
@@ -4161,6 +4174,7 @@ export component MainWindow inherits Window {
                 if root.menu-has-artist: MenuItem { icon: Icons.user-circle; label: "К исполнителю"; clicked => { root.track-menu-action("artist", root.menu-id); } }
                 if root.menu-has-album: MenuItem { icon: Icons.album; label: "К альбому"; clicked => { root.track-menu-action("album", root.menu-id); } }
                 MenuItem { icon: Icons.link; label: "Поделиться"; clicked => { root.track-menu-action("share", root.menu-id); } }
+                MenuItem { icon: root.menu-downloaded ? Icons.trash : Icons.download; label: root.menu-downloaded ? "Удалить из загрузок" : "Скачать"; clicked => { root.track-menu-action(root.menu-downloaded ? "undownload" : "download", root.menu-id); } }
                 if root.friends-available: MenuItem { icon: Icons.send; label: "Отправить другу"; clicked => { root.track-menu-action("send", root.menu-id); } }
                 if root.room-guest: MenuItem { icon: Icons.users; label: "Предложить в комнату"; clicked => { root.track-menu-action("suggest", root.menu-id); } }
             }

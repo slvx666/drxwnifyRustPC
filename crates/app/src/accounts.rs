@@ -362,6 +362,7 @@ impl App {
                 .collect()
         };
         let rows: Vec<Playable> = match &spec {
+            ListSpec::Downloads => plain(self.downloads().into_iter().map(|e| e.track).collect()),
             ListSpec::VkMyMusic | ListSpec::VkPlaylist { .. } => {
                 let vk = self.vk().ok_or_else(|| err("нет входа во ВКонтакте"))?;
                 let found = match &spec {

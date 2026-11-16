@@ -18,6 +18,7 @@ mod queue_ui;
 mod lyrics_ui;
 mod chat_notify;
 mod discord_ui;
+mod downloads_ui;
 mod track_menu;
 mod nav;
 mod os;
@@ -981,6 +982,7 @@ fn main() {
     settings_view::wire(&ui, &app);
     app.apply_playback_prefs();
     discord_ui::start(&app);
+    downloads_ui::wire(&ui, &app);
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());
         ui.on_open_friends(move || {
@@ -999,6 +1001,23 @@ fn main() {
                 return;
             };
             let name = ui.get_view_title().to_string();
+            if format == "download" {
+                let (app3, ui_w2, h) = (app2.clone(), ui_w.clone(), songs2.handle());
+                app2.runtime().spawn(async move {
+                    let got = app3.download_list(h).await;
+                    let _ = ui_w2.upgrade_in_event_loop(move |ui| {
+                        ui.set_toast(
+                            match got {
+                                Ok(0) => "Все треки уже скачаны".to_string(),
+                                Ok(n) => format!("В загрузки: {}", nav::tracks_word(n)),
+                                Err(e) => format!("Не получилось: {e}"),
+                            }
+                            .into(),
+                        );
+                    });
+                });
+                return;
+            }
             let (app3, ui_w2, h) = (app2.clone(), ui_w.clone(), songs2.handle());
             app2.runtime().spawn(async move {
                 let got = app3.export_list(h, &name, &format, &dir).await;

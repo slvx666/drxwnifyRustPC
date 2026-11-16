@@ -61,6 +61,11 @@ impl ByteSource for std::fs::File {
         self.metadata().ok().map(|m| m.len())
     }
 }
+impl ByteSource for Box<dyn ByteSource> {
+    fn byte_len(&self) -> Option<u64> {
+        (**self).byte_len()
+    }
+}
 impl ByteSource for std::io::Cursor<Vec<u8>> {
     fn byte_len(&self) -> Option<u64> {
         Some(self.get_ref().len() as u64)

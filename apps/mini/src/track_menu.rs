@@ -19,6 +19,7 @@ pub fn wire(ui: &MainWindow, app: &App) {
         ui.set_menu_can_down(in_playlist && (index as usize) + 1 < len);
         let t = app2.runtime().block_on(app2.known_track(&id));
         ui.set_menu_liked(crate::likes_ui::shown_liked(&ui, &id));
+        ui.set_menu_downloaded(app2.is_downloaded(&id));
         ui.set_menu_has_artist(
             t.as_ref()
                 .and_then(|t| t.artists.first())
@@ -61,6 +62,7 @@ fn act(ui: &MainWindow, app: &App, action: &str, id: String) {
             );
         }
         "send" => crate::friends_view::ask_send(ui, app, id.to_string()),
+        "download" | "undownload" => crate::downloads_ui::act(ui, app, action, &id),
         "suggest" => {
             let Some(t) = app.runtime().block_on(app.known_track(&id)) else {
                 return;
