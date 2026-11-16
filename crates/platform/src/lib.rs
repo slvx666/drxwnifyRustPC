@@ -231,6 +231,25 @@ pub fn double_click_ms() -> u64 {
     }
 }
 
+/// Opens a web address in the default browser (links in chat messages). Only http(s) addresses.
+pub fn open_url(url: &str) -> bool {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        use windows::core::HSTRING;
+        let r = unsafe { ShellExecuteW(None, &HSTRING::from("open"), &HSTRING::from(url), None, None, SW_SHOWNORMAL) };
+        r.0 as isize > 32
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new("xdg-open").arg(url).spawn().is_ok()
+    }
+}
+
 /// Puts text on the clipboard (invite links, codes). False when the clipboard was busy.
 pub fn copy_text(text: &str) -> bool {
     #[cfg(windows)]

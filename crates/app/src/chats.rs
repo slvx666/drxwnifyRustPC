@@ -644,6 +644,80 @@ impl App {
         self.send_message(peer, "", Some(m), None)
     }
 
+    /// Forwards messages of the chat with `from` to `peer` (ChatHub.startForwardMessages): each goes as a new
+    /// message of mine — its text and music card, without who wrote it — in their order. Returns how many went.
+    pub fn forward_messages(&self, peer: &str, from: &str, ids: &[String]) -> crate::AppResult<usize> {
+        let (store, f) = self.chat_parts()?;
+        let me = f.me();
+        let mut found: Vec<(i64, String, Option<String>)> = {
+            let c = store.db.lock().expect("chat db");
+            ids.iter()
+                .filter_map(|id| {
+                    c.query_row(
+                        "SELECT ts, text, music FROM message WHERE owner = ?1 AND peer = ?2 AND id = ?3",
+                        params![me, from, id],
+                        |r| Ok((r.get(0)?, r.get::<_, Option<String>>(1)?.unwrap_or_default(), r.get(2)?)),
+                    )
+                    .ok()
+                })
+                .collect()
+        };
+        found.sort_by_key(|m| m.0);
+        let mut sent = 0;
+        for (_, text, music) in found {
+            let music = music.and_then(|m| serde_json::from_str::<serde_json::Value>(&m).ok());
+            if text.trim().is_empty() && music.is_none() {
+                continue;
+            }
+            self.send_message(peer, &text, music, None)?;
+            sent += 1;
+        }
+        Ok(sent)
+    }
+
+    /// «Повторить» on a message that did not go (ChatHub.retry): the same message (id, time, text) signed again.
+    pub fn retry_chat(&self, peer: &str, id: &str) -> crate::AppResult<()> {
+        let (store, f) = self.chat_parts()?;
+        if !crate::social::may_publish_pub() {
+            return Err(crate::AppError::Other("в тестовом запуске сообщения не отправляю".into()));
+        }
+        let keys = f.keys();
+        let me = keys.public_hex();
+        let (ts, text, music, reply): (i64, String, Option<String>, Option<String>) = {
+            let c = store.db.lock().expect("chat db");
+            c.query_row(
+                "SELECT ts, text, music, replyTo FROM message WHERE owner = ?1 AND peer = ?2 AND id = ?3 AND mine = 1",
+                params![me, peer, id],
+                |r| Ok((r.get(0)?, r.get::<_, Option<String>>(1)?.unwrap_or_default(), r.get(2)?, r.get(3)?)),
+            )
+            .map_err(|e| crate::AppError::Other(e.to_string()))?
+        };
+        let music = music.and_then(|m| serde_json::from_str::<serde_json::Value>(&m).ok());
+        let event = chat::music_message_event(&keys, peer, id, ts, &text, music.as_ref(), reply.as_deref())
+            .ok_or_else(|| crate::AppError::Other("не удалось зашифровать".into()))?;
+        {
+            let c = store.db.lock().expect("chat db");
+            let _ = c.execute(
+                "UPDATE message SET state = 0, eventId = ?4 WHERE owner = ?1 AND peer = ?2 AND id = ?3",
+                params![me, peer, id, event.id],
+            );
+        }
+        store.bump();
+        let (pool, peer, id) = (f.pool(), peer.to_string(), id.to_string());
+        self.runtime.spawn(async move {
+            let ok = pool.publish(&event, Duration::from_secs(20)).await > 0;
+            {
+                let c = store.db.lock().expect("chat db");
+                let _ = c.execute(
+                    "UPDATE message SET state = ?4 WHERE owner = ?1 AND peer = ?2 AND id = ?3",
+                    params![me, peer, id, if ok { 1 } else { 2 }],
+                );
+            }
+            store.bump();
+        });
+        Ok(())
+    }
+
     /// A text answering message `reply_to` (ChatHub replies: `re` in the payload).
     pub fn send_chat_reply(&self, peer: &str, text: &str, reply_to: &str) -> crate::AppResult<()> {
         let text = text.trim();

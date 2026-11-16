@@ -22,6 +22,10 @@ thread_local! {
     static REPLYING: RefCell<Option<String>> = const { RefCell::new(None) };
     /// Where «Непрочитанные сообщения» stands in the open chat: (friend, first unread message), fixed when it opens.
     static UNREAD_AT: RefCell<Option<(String, Option<String>)>> = const { RefCell::new(None) };
+    /// Messages picked in the open chat (Telegram's selection): their ids.
+    static SELECTED: RefCell<std::collections::BTreeSet<String>> = const { RefCell::new(std::collections::BTreeSet::new()) };
+    /// Messages waiting for the friend «Переслать» goes to: (the chat they are in, their ids).
+    static FORWARD: RefCell<Option<(String, Vec<String>)>> = const { RefCell::new(None) };
     static TRACKS: RefCell<Vec<drx_catalog::model::Track>> = const { RefCell::new(Vec::new()) };
     static WATCHING: RefCell<bool> = const { RefCell::new(false) };
 }
@@ -160,8 +164,65 @@ fn send_items(app: &App) -> Vec<crate::PlaylistPick> {
     items.into_iter().map(|(_, p)| p).collect()
 }
 
-/// A friend picked: the track goes to them as a music card.
+/// Web addresses in a message (Telegram makes them links): at most three, `www.` ones as https.
+fn links_of(text: &str) -> Vec<slint::SharedString> {
+    text.split_whitespace()
+        .filter_map(|w| {
+            let w = w.trim_start_matches(['(', '«', '"', '\'']);
+            let w = w.trim_end_matches([')', '.', ',', '!', '?', ':', ';', '»', '"', '\'']);
+            if w.starts_with("https://") || w.starts_with("http://") {
+                Some(w.to_string())
+            } else if w.starts_with("www.") && w.len() > 6 {
+                Some(format!("https://{w}"))
+            } else {
+                None
+            }
+        })
+        .take(3)
+        .map(Into::into)
+        .collect()
+}
+
+/// «Переслать»: the friend picker for messages of the open chat.
+fn ask_forward(ui: &MainWindow, app: &App, from: &str, ids: Vec<String>) {
+    if ids.is_empty() {
+        return;
+    }
+    let n = ids.len();
+    ui.set_dialog_title("Переслать".into());
+    ui.set_dialog_subtitle(
+        match n {
+            1 => "1 сообщение".to_string(),
+            2..=4 => format!("{n} сообщения"),
+            _ => format!("{n} сообщений"),
+        }
+        .into(),
+    );
+    ui.set_dialog_items(ModelRc::new(VecModel::from(send_items(app))));
+    FORWARD.with(|f| *f.borrow_mut() = Some((from.to_string(), ids)));
+    SEND.with(|s| *s.borrow_mut() = None);
+    ui.set_dialog_kind("send".into());
+}
+
+/// A friend picked: the track goes to them as a music card, or the forwarded messages go (and their chat opens,
+/// as in Telegram).
 pub fn send_pending_music(ui: &MainWindow, app: &App, peer: &str) {
+    if let Some((from, ids)) = FORWARD.with(|f| f.borrow_mut().take()) {
+        ui.set_dialog_kind("".into());
+        match app.forward_messages(peer, &from, &ids) {
+            Ok(_) => {
+                SELECTED.with(|s| s.borrow_mut().clear());
+                ui.set_toast("Переслано".into());
+                if from != peer {
+                    ui.invoke_friend_open(peer.into());
+                } else {
+                    render_chat(ui, app, peer);
+                }
+            }
+            Err(e) => ui.set_toast(format!("Не переслалось: {e}").into()),
+        }
+        return;
+    }
     let Some(t) = SEND.with(|s| s.borrow_mut().take()) else { return };
     ui.set_dialog_kind("".into());
     match app.send_music(peer, &t) {
@@ -237,6 +298,7 @@ pub fn wire(ui: &MainWindow, app: &App) {
         let Some(ui) = ui_w.upgrade() else { return };
         OPEN.with(|o| *o.borrow_mut() = Some(p.to_string()));
         UNREAD_AT.with(|u| *u.borrow_mut() = None);
+        SELECTED.with(|s| s.borrow_mut().clear());
         TAB.with(|t| *t.borrow_mut() = "chat".into());
         REPLYING.with(|r| *r.borrow_mut() = None);
         ui.set_friend_chat_replying("".into());
@@ -364,8 +426,68 @@ pub fn wire(ui: &MainWindow, app: &App) {
             i
         };
         let action = if action == "edit-last" { slint::SharedString::from("edit") } else { action };
+        // Telegram's selection: pick messages, then forward, copy or delete them together.
+        match action.as_str() {
+            "select-cancel" => {
+                SELECTED.with(|s| s.borrow_mut().clear());
+                render_chat(&ui, &app2, &peer);
+                return;
+            }
+            "select-forward" => {
+                let rows = CHAT_ROWS.with(|r| r.borrow().clone());
+                let ids: Vec<String> = SELECTED.with(|s| rows.iter().filter(|r| s.borrow().contains(r.0.as_str())).map(|r| r.0.to_string()).collect());
+                ask_forward(&ui, &app2, &peer, ids);
+                return;
+            }
+            "select-copy" => {
+                let rows = CHAT_ROWS.with(|r| r.borrow().clone());
+                let text: Vec<String> = SELECTED.with(|s| {
+                    rows.iter()
+                        .filter(|r| s.borrow().contains(r.0.as_str()))
+                        .map(|r| drx_social::chat::plain_stickers(&r.2))
+                        .filter(|t| !t.trim().is_empty())
+                        .collect()
+                });
+                if text.is_empty() {
+                    ui.set_toast("В выбранных сообщениях нет текста".into());
+                } else {
+                    let ok = drx_platform::copy_text(&text.join("\n"));
+                    ui.set_toast(if ok { "Текст скопирован" } else { "Буфер обмена занят — попробуйте ещё раз" }.into());
+                    SELECTED.with(|s| s.borrow_mut().clear());
+                    render_chat(&ui, &app2, &peer);
+                }
+                return;
+            }
+            "select-delete" => {
+                let ids: Vec<String> = SELECTED.with(|s| std::mem::take(&mut *s.borrow_mut()).into_iter().collect());
+                for id in &ids {
+                    if let Err(e) = app2.delete_chat(&peer, id, false) {
+                        ui.set_toast(format!("Не получилось: {e}").into());
+                        break;
+                    }
+                }
+                render_chat(&ui, &app2, &peer);
+                return;
+            }
+            _ => {}
+        }
         let Some((id, _mine, text)) = CHAT_ROWS.with(|r| r.borrow().get(i as usize).cloned()) else { return };
+        if action == "select" {
+            SELECTED.with(|s| {
+                let mut s = s.borrow_mut();
+                if !s.remove(id.as_str()) {
+                    s.insert(id.to_string());
+                }
+            });
+            render_chat(&ui, &app2, &peer);
+            return;
+        }
+        if action == "forward" {
+            ask_forward(&ui, &app2, &peer, vec![id.to_string()]);
+            return;
+        }
         let res = match action.as_str() {
+            "retry" => app2.retry_chat(&peer, &id),
             "copy" => {
                 let shown = drx_social::chat::plain_stickers(&text);
                 if shown.trim().is_empty() {
@@ -421,6 +543,14 @@ pub fn wire(ui: &MainWindow, app: &App) {
         ui.set_dialog_title("Удалить из друзей?".into());
         ui.set_dialog_subtitle(format!("{} больше не увидит, что ты слушаешь; переписка останется", ui.get_friend_name()).into());
         ui.set_dialog_kind("unfriend".into());
+    });
+    let ui_w = ui.as_weak();
+    ui.on_friend_chat_link(move |url| {
+        if !drx_platform::open_url(&url)
+            && let Some(ui) = ui_w.upgrade()
+        {
+            ui.set_toast("Не удалось открыть ссылку".into());
+        }
     });
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     ui.on_friend_chat_play(move |i| {
@@ -903,6 +1033,8 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
                 last: next.is_none_or(|n| !attaches(m, n) || unread_id.as_deref() == Some(n.id.as_str())),
                 unread_bar,
                 reply_index: m.reply_to.as_deref().and_then(|r| index_of.get(r)).map_or(-1, |i| *i as i32),
+                selected: SELECTED.with(|s| s.borrow().contains(&m.id)),
+                links: ModelRc::new(VecModel::from(links_of(&m.text))),
                 edited: m.edited,
                 state: m.state as i32,
                 read: m.read,
@@ -927,6 +1059,10 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
     if fresh && let Some(at) = items.iter().position(|m| m.unread_bar) {
         ui.set_friend_chat_jump(at as i32);
     }
+    // Picked messages that are gone (deleted meanwhile) leave the selection.
+    let present: std::collections::HashSet<String> = CHAT_ROWS.with(|r| r.borrow().iter().map(|r| r.0.to_string()).collect());
+    SELECTED.with(|s| s.borrow_mut().retain(|id| present.contains(id)));
+    ui.set_friend_chat_selected(SELECTED.with(|s| s.borrow().len()) as i32);
     ui.set_friend_chat(ModelRc::new(VecModel::from(items)));
 }
 

@@ -1003,7 +1003,9 @@ fn main() {
     }
     // DRX_DEMO=chat[:<n>]: the n-th most recent chat opens after the chats load (checks by screenshot, no input).
     if let Some(rest) = std::env::var("DRX_DEMO").ok().and_then(|d| d.strip_prefix("chat").map(str::to_string)) {
-        let n: usize = rest.trim_start_matches(':').parse().unwrap_or(0);
+        let mut parts = rest.trim_start_matches(':').split(':');
+        let n: usize = parts.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+        let select = parts.next() == Some("sel");
         let (app2, ui_w) = (app.clone(), ui.as_weak());
         slint::Timer::single_shot(std::time::Duration::from_secs(6), move || {
             let Some(ui) = ui_w.upgrade() else { return };
@@ -1012,6 +1014,11 @@ fn main() {
             if let Some(p) = previews.get(n) {
                 nav::go_page(&ui, &app2, nav::Page::friends());
                 ui.invoke_friend_open(p.peer.clone().into());
+                if select {
+                    let last = slint::Model::row_count(&ui.get_friend_chat()) as i32;
+                    ui.invoke_friend_chat_action(last - 1, "select".into());
+                    ui.invoke_friend_chat_action(last - 2, "select".into());
+                }
             }
         });
     }
