@@ -56,6 +56,14 @@ fn select_backend() {
 }
 
 fn main() {
+    // `--profile <folder>`: the same as DRX_PROFILE (a drxwnify:// link starts the app without the environment).
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|a| a == "--profile")
+        && let Some(p) = args.get(i + 1)
+    {
+        // SAFETY: the very start of main, before any other thread exists.
+        unsafe { std::env::set_var("DRX_PROFILE", p) };
+    }
     select_backend();
     let profile = match std::env::var_os("DRX_PROFILE") {
         Some(p) => Profile::at(p),

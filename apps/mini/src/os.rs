@@ -73,7 +73,9 @@ pub fn register_scheme() {
         return;
     }
     let Ok(exe) = std::env::current_exe() else { return };
-    let command = format!("\"{}\" \"%1\"", exe.display());
+    // A test run keeps its profile for the links it opens.
+    let profile = std::env::var("DRX_PROFILE").map(|p| format!(" --profile \"{p}\"")).unwrap_or_default();
+    let command = format!("\"{}\"{profile} \"%1\"", exe.display());
     if drx_platform::url_scheme_command("drxwnify").as_deref() != Some(command.as_str())
         && let Err(e) = drx_platform::register_url_scheme("drxwnify", "URL:Drxwnify", &command)
     {
