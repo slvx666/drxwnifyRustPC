@@ -202,6 +202,8 @@ pub(crate) struct Playback {
     start_at: Mutex<Option<(String, f64)>>,
     pub now: Arc<watch::Sender<NowPlaying>>,
     volume: Mutex<f32>,
+    /// The sleep timer's fade (0..1) on top of the volume.
+    fade: Mutex<f32>,
     /// Audio providers for tracks without a URL (the resolver asks them all at once).
     pub providers: Mutex<Vec<Arc<dyn AudioProvider>>>,
     /// The music database: stored matches (`audio_fallback_match`, shared with Android) are tried before a search.
@@ -223,6 +225,7 @@ impl Playback {
             start_at: Mutex::new(None),
             now: Arc::new(watch::channel(NowPlaying::default()).0),
             volume: Mutex::new(0.8),
+            fade: Mutex::new(1.0),
             providers: Mutex::new(Vec::new()),
             store: Mutex::new(None),
             resolved: Mutex::new(std::collections::HashMap::new()),
@@ -236,7 +239,7 @@ impl Playback {
             return Ok(x.clone());
         }
         let player = Player::new()?;
-        player.set_volume(*self.volume.lock().expect("volume"));
+        player.set_volume(*self.volume.lock().expect("volume") * *self.fade.lock().expect("fade"));
         let me = Arc::downgrade(self);
         let pl = player.clone();
         std::thread::Builder::new()
@@ -731,8 +734,19 @@ impl Playback {
 
     pub fn set_volume(&self, v: f32) {
         *self.volume.lock().expect("volume") = v;
+        let fade = *self.fade.lock().expect("fade");
         if let Some(p) = self.player.lock().expect("player lock").as_ref() {
-            p.set_volume(v);
+            p.set_volume(v * fade);
+        }
+    }
+
+    /// The sleep timer's fade-out: the volume times `m` (1 = as set).
+    pub fn set_fade(&self, m: f32) {
+        let m = m.clamp(0.0, 1.0);
+        *self.fade.lock().expect("fade") = m;
+        let v = *self.volume.lock().expect("volume");
+        if let Some(p) = self.player.lock().expect("player lock").as_ref() {
+            p.set_volume(v * m);
         }
     }
 

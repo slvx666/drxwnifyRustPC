@@ -27,6 +27,7 @@ ICONS = {
     "search": 0xEB1C,  # search
     "link": 0xEADE,  # link
     "users": 0xEBF2,  # users
+    "zzz": 0xF228,  # zzz (sleep timer)
     "puzzle": 0xEB10,  # puzzle
     "download": 0xEA96,  # download
     "upload": 0xEA9D,  # upload

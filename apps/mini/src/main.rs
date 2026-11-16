@@ -13,6 +13,7 @@ mod likes_ui;
 mod playlists_ui;
 mod portrait_view;
 mod rooms_ui;
+mod sleep_ui;
 mod track_menu;
 mod nav;
 mod os;
@@ -955,6 +956,7 @@ fn main() {
     viewer::wire(&ui, &app);
     portrait_view::wire(&ui, &app);
     rooms_ui::wire(&ui, &app);
+    sleep_ui::wire(&ui, &app);
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());
         ui.on_open_friends(move || {

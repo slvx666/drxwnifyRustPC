@@ -14,6 +14,7 @@ pub mod playback;
 pub mod playlists;
 pub mod radio;
 pub mod rooms;
+pub mod sleep;
 mod search;
 pub mod social;
 pub mod songs;
@@ -190,6 +191,8 @@ struct Inner {
     /// The «Слушать вместе» room, while in one.
     room: Mutex<Option<rooms::RoomSession>>,
     room_version: watch::Sender<u64>,
+    sleep: watch::Sender<sleep::SleepState>,
+    sleep_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     chats: std::sync::OnceLock<Option<Arc<chats::ChatStore>>>,
 }
 
@@ -240,6 +243,8 @@ impl App {
             listen_along_version: watch::channel(0).0,
             room: Mutex::default(),
             room_version: watch::channel(0).0,
+            sleep: watch::channel(sleep::SleepState::default()).0,
+            sleep_task: Mutex::default(),
             chats: std::sync::OnceLock::new(),
             lists: lists::Lists::default(),
             profile,

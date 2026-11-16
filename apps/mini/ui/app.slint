@@ -2171,6 +2171,13 @@ component PlayerBar inherits HorizontalLayout {
     callback set-day(bool);
     callback toggle-shuffle();
     callback cycle-repeat();
+    // Sleep timer (Android SleepTimer): minutes, -1 = at the end of the track, 0 = off.
+    in property <bool> sleep-on;
+    in property <string> sleep-label; // «23:41» or «конец трека» while on
+    in property <bool> sleep-fade;
+    in property <bool> sleep-after;
+    callback sleep-set(int);
+    callback sleep-option(string); // fade | after
     height: Grid.bar-height;
     HorizontalLayout {
         width: Grid.lib-width + 1px;
@@ -2245,6 +2252,48 @@ component PlayerBar inherits HorizontalLayout {
         padding-right: Grid.pad;
         spacing: 4px;
         alignment: end;
+        if root.sleep-on: Text {
+            text: root.sleep-label;
+            font-family: Theme.body-font; font-size: 13px; color: Theme.accent;
+            vertical-alignment: center;
+        }
+        Middle {
+            Rectangle {
+                width: sl-btn.width;
+                height: sl-btn.height;
+                sl-btn := IconButton { icon: Icons.zzz; active: root.sleep-on; active-color: Theme.accent; clicked => { sleep-menu.show(); } }
+                sleep-menu := PopupWindow {
+                    width: 250px;
+                    height: sm-col.preferred-height;
+                    x: sl-btn.width - self.width;
+                    y: -self.height - 10px;
+                    Rectangle {
+                        border-radius: Grid.item-radius;
+                        background: Theme.menu;
+                        border-color: Theme.panel-border;
+                        border-width: 1px;
+                        drop-shadow-blur: 16px;
+                        drop-shadow-color: #00000060;
+                    }
+                    sm-col := VerticalLayout {
+                        padding: 6px;
+                        spacing: 2px;
+                        HorizontalLayout { padding-left: 10px; Text { height: 30px; text: "Таймер сна"; font-family: Theme.heading-font; font-weight: 700; font-size: 14px; color: Theme.text; vertical-alignment: center; } }
+                        MenuItem { icon: Icons.clock; label: "15 минут"; clicked => { root.sleep-set(15); } }
+                        MenuItem { icon: Icons.clock; label: "30 минут"; clicked => { root.sleep-set(30); } }
+                        MenuItem { icon: Icons.clock; label: "45 минут"; clicked => { root.sleep-set(45); } }
+                        MenuItem { icon: Icons.clock; label: "1 час"; clicked => { root.sleep-set(60); } }
+                        MenuItem { icon: Icons.clock; label: "1,5 часа"; clicked => { root.sleep-set(90); } }
+                        MenuItem { icon: Icons.track-next; label: "В конце трека"; clicked => { root.sleep-set(-1); } }
+                        HLine { }
+                        MenuItem { label: "Плавное затухание"; checked: root.sleep-fade; clicked => { root.sleep-option("fade"); } }
+                        MenuItem { label: "Дождаться конца трека"; checked: root.sleep-after; clicked => { root.sleep-option("after"); } }
+                        if root.sleep-on: HLine { }
+                        if root.sleep-on: MenuItem { icon: Icons.x; label: "Выключить таймер"; clicked => { root.sleep-set(0); } }
+                    }
+                }
+            }
+        }
         Middle { IconButton { icon: root.day ? Icons.sun : Icons.moon; clicked => { root.set-day(!root.day); } } }
         Middle { IconButton { icon: Icons.list; } }
         Middle {
@@ -3287,6 +3336,12 @@ export component MainWindow inherits Window {
     callback set-account-tab(string, bool);
     callback set-theme(string);
     callback set-day(bool);
+    in property <bool> sleep-on;
+    in property <string> sleep-label;
+    in-out property <bool> sleep-fade;
+    in-out property <bool> sleep-after;
+    callback sleep-set(int);
+    callback sleep-option(string);
     callback set-hotkeys(bool);
     callback hotkey-start(int);
     callback hotkey-captured(int, string, bool, bool, bool);
@@ -3710,6 +3765,12 @@ export component MainWindow inherits Window {
                     playing: root.playing;
                     day: root.day-theme;
                     set-day(v) => { root.set-day(v); }
+                    sleep-on: root.sleep-on;
+                    sleep-label: root.sleep-label;
+                    sleep-fade: root.sleep-fade;
+                    sleep-after: root.sleep-after;
+                    sleep-set(m) => { root.sleep-set(m); }
+                    sleep-option(o) => { root.sleep-option(o); }
                     shuffle: root.now-shuffle;
                     repeat: root.now-repeat;
                     toggle-shuffle => { root.toggle-shuffle(); }
