@@ -4165,6 +4165,7 @@ export component MainWindow inherits Window {
                 }
                 HLine { }
                 MenuItem { icon: Icons.message; label: "Ответить"; clicked => { root.friend-chat-action(root.chat-menu-index, "reply"); } }
+                MenuItem { icon: Icons.link; label: "Копировать текст"; clicked => { root.friend-chat-action(root.chat-menu-index, "copy"); } }
                 if root.chat-menu-mine: MenuItem { icon: Icons.pencil; label: "Изменить"; clicked => { root.friend-chat-action(root.chat-menu-index, "edit"); } }
                 MenuItem { icon: Icons.trash; label: "Удалить у меня"; clicked => { root.friend-chat-action(root.chat-menu-index, "del"); } }
                 if root.chat-menu-mine: MenuItem { icon: Icons.trash; label: "Удалить у всех"; clicked => { root.friend-chat-action(root.chat-menu-index, "del-both"); } }

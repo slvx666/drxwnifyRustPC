@@ -316,6 +316,16 @@ pub fn wire(ui: &MainWindow, app: &App) {
         }
         let Some((id, _mine, text)) = CHAT_ROWS.with(|r| r.borrow().get(i as usize).cloned()) else { return };
         let res = match action.as_str() {
+            "copy" => {
+                let shown = drx_social::chat::plain_stickers(&text);
+                if shown.trim().is_empty() {
+                    ui.set_toast("В сообщении нет текста".into());
+                } else {
+                    let ok = drx_platform::copy_text(&shown);
+                    ui.set_toast(if ok { "Текст скопирован" } else { "Буфер обмена занят — попробуйте ещё раз" }.into());
+                }
+                Ok(())
+            }
             "reply" => {
                 EDITING.with(|e| *e.borrow_mut() = None);
                 ui.set_friend_chat_editing(false);
