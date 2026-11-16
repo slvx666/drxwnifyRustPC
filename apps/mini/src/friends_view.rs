@@ -18,6 +18,8 @@ thread_local! {
     static CHAT_ROWS: RefCell<Vec<(String, bool, String)>> = const { RefCell::new(Vec::new()) };
     /// The message being changed (its text is in the field), if any.
     static EDITING: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// The message being answered, if any.
+    static REPLYING: RefCell<Option<String>> = const { RefCell::new(None) };
     static TRACKS: RefCell<Vec<drx_catalog::model::Track>> = const { RefCell::new(Vec::new()) };
     static WATCHING: RefCell<bool> = const { RefCell::new(false) };
 }
@@ -206,6 +208,8 @@ pub fn wire(ui: &MainWindow, app: &App) {
         let Some(ui) = ui_w.upgrade() else { return };
         OPEN.with(|o| *o.borrow_mut() = Some(p.to_string()));
         TAB.with(|t| *t.borrow_mut() = "chat".into());
+        REPLYING.with(|r| *r.borrow_mut() = None);
+        ui.set_friend_chat_replying("".into());
         crate::portrait_view::reset();
         ui.set_friend_chat_text("".into());
         EDITING.with(|e| *e.borrow_mut() = None);
@@ -276,15 +280,19 @@ pub fn wire(ui: &MainWindow, app: &App) {
             return;
         }
         let editing = EDITING.with(|e| e.borrow().clone());
-        let res = match &editing {
-            Some(id) => app2.edit_chat(&peer, id, &text),
-            None => app2.send_chat(&peer, &text),
+        let replying = REPLYING.with(|r| r.borrow().clone());
+        let res = match (&editing, &replying) {
+            (Some(id), _) => app2.edit_chat(&peer, id, &text),
+            (None, Some(re)) => app2.send_chat_reply(&peer, &text, re),
+            (None, None) => app2.send_chat(&peer, &text),
         };
         match res {
             Ok(()) => {
                 ui.set_friend_chat_text("".into());
                 EDITING.with(|e| *e.borrow_mut() = None);
+                REPLYING.with(|r| *r.borrow_mut() = None);
                 ui.set_friend_chat_editing(false);
+                ui.set_friend_chat_replying("".into());
             }
             Err(e) => ui.set_toast(
                 format!("{}: {e}", if editing.is_some() { "Не изменено" } else { "Не отправлено" }).into(),
@@ -301,9 +309,24 @@ pub fn wire(ui: &MainWindow, app: &App) {
             ui.set_friend_chat_text("".into());
             return;
         }
+        if action == "cancel-reply" {
+            REPLYING.with(|r| *r.borrow_mut() = None);
+            ui.set_friend_chat_replying("".into());
+            return;
+        }
         let Some((id, _mine, text)) = CHAT_ROWS.with(|r| r.borrow().get(i as usize).cloned()) else { return };
         let res = match action.as_str() {
+            "reply" => {
+                EDITING.with(|e| *e.borrow_mut() = None);
+                ui.set_friend_chat_editing(false);
+                let shown = drx_social::chat::plain_stickers(&text);
+                ui.set_friend_chat_replying(if shown.trim().is_empty() { "сообщение".into() } else { shown.into() });
+                REPLYING.with(|r| *r.borrow_mut() = Some(id));
+                Ok(())
+            }
             "edit" => {
+                REPLYING.with(|r| *r.borrow_mut() = None);
+                ui.set_friend_chat_replying("".into());
                 EDITING.with(|e| *e.borrow_mut() = Some(id));
                 ui.set_friend_chat_text(text.into());
                 ui.set_friend_chat_editing(true);
@@ -692,6 +715,31 @@ fn render(ui: &MainWindow, app: &App) {
 fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
     app.chat_opened(peer);
     let rows = app.chat_messages(peer, 300);
+    // Answers quote what they answer: who wrote it and its text (a message beyond the loaded ones: «сообщение»).
+    let by_id: std::collections::HashMap<&str, &drx_app::chats::ChatRow> = rows.iter().map(|r| (r.id.as_str(), r)).collect();
+    let quote = |re: &Option<String>| -> (String, String) {
+        let Some(re) = re else { return (String::new(), String::new()) };
+        match by_id.get(re.as_str()) {
+            Some(q) => {
+                let text = drx_social::chat::plain_stickers(&q.text);
+                let text = if text.trim().is_empty() {
+                    q.music.as_ref().map(|m| format!("♪ {} — {}", m.by, m.title)).unwrap_or_else(|| "стикер".into())
+                } else {
+                    text
+                };
+                (if q.mine { "Вы".into() } else { "Собеседник".into() }, text)
+            }
+            None => ("Ответ".into(), "сообщение".into()),
+        }
+    };
+    let friend_name = app
+        .friends_state()
+        .and_then(|rx| {
+            let st = rx.borrow();
+            st.data.get(peer).and_then(|d| d.name.clone()).or_else(|| st.friends.iter().find(|f| f.pubkey == peer).map(|f| f.name.clone()))
+        })
+        .map(|n| plain(&n))
+        .unwrap_or_else(|| "Собеседник".into());
     let items: Vec<ChatItem> = rows
         .iter()
         .map(|m| {
@@ -724,6 +772,11 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
                 has_music_cover: cover.is_some(),
                 music_cover: cover.unwrap_or_default(),
                 reactions: ModelRc::new(VecModel::from(chips(&m.reactions))),
+                reply_who: {
+                    let (who, _) = quote(&m.reply_to);
+                    if who == "Собеседник" { friend_name.clone().into() } else { who.into() }
+                },
+                reply_text: quote(&m.reply_to).1.into(),
             }
         })
         .collect();

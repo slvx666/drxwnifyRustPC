@@ -43,6 +43,8 @@ pub struct ChatRow {
     pub music: Option<ChatMusic>,
     /// Reactions on it: (key «e:<emoji>» / «s:<sticker>», put by me).
     pub reactions: Vec<(String, bool)>,
+    /// The message this one answers (its id).
+    pub reply_to: Option<String>,
 }
 
 /// A music card in a message (spec §1.4 ChatMusic): `kind` is track | album | playlist | artist.
@@ -360,7 +362,7 @@ impl App {
         let me = f.me();
         let c = store.db.lock().expect("chat db");
         let Ok(mut st) = c.prepare(
-            "SELECT id, mine, ts, text, edited, state, read, music FROM message
+            "SELECT id, mine, ts, text, edited, state, read, music, replyTo FROM message
              WHERE owner = ?1 AND peer = ?2 AND deleted = 0 ORDER BY ts DESC, id DESC LIMIT ?3",
         ) else {
             return Vec::new();
@@ -377,6 +379,7 @@ impl App {
                     read: r.get(6)?,
                     music: r.get::<_, Option<String>>(7)?.as_deref().and_then(ChatMusic::parse),
                     reactions: Vec::new(),
+                    reply_to: r.get::<_, Option<String>>(8)?.filter(|s| !s.is_empty()),
                 })
             })
             .map(|it| it.flatten().collect())
@@ -626,7 +629,16 @@ impl App {
         if t.duration_ms > 0 {
             m["d"] = serde_json::json!(t.duration_ms);
         }
-        self.send_message(peer, "", Some(m))
+        self.send_message(peer, "", Some(m), None)
+    }
+
+    /// A text answering message `reply_to` (ChatHub replies: `re` in the payload).
+    pub fn send_chat_reply(&self, peer: &str, text: &str, reply_to: &str) -> crate::AppResult<()> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Ok(());
+        }
+        self.send_message(peer, text, None, Some(reply_to))
     }
 
     /// Sends a text message: shown at once as «sending», then «sent» or «failed».
@@ -635,10 +647,16 @@ impl App {
         if text.is_empty() {
             return Ok(());
         }
-        self.send_message(peer, text, None)
+        self.send_message(peer, text, None, None)
     }
 
-    fn send_message(&self, peer: &str, text: &str, music: Option<serde_json::Value>) -> crate::AppResult<()> {
+    fn send_message(
+        &self,
+        peer: &str,
+        text: &str,
+        music: Option<serde_json::Value>,
+        reply_to: Option<&str>,
+    ) -> crate::AppResult<()> {
         let (store, f) = self
             .chat_store()
             .zip(self.friends())
@@ -650,13 +668,13 @@ impl App {
         let me = keys.public_hex();
         let id = chat::new_id();
         let ts = now_ms();
-        let event = chat::music_message_event(&keys, peer, &id, ts, text, music.as_ref(), None)
+        let event = chat::music_message_event(&keys, peer, &id, ts, text, music.as_ref(), reply_to)
             .ok_or_else(|| crate::AppError::Other("не удалось зашифровать".into()))?;
         {
             let c = store.db.lock().expect("chat db");
             c.execute(
-                "INSERT OR IGNORE INTO message (owner, peer, id, mine, ts, text, music, state, read, eventId) VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, 0, 0, ?7)",
-                params![me, peer, id, ts, text, music.as_ref().map(|m| m.to_string()), event.id],
+                "INSERT OR IGNORE INTO message (owner, peer, id, mine, ts, text, music, replyTo, state, read, eventId) VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, 0, 0, ?8)",
+                params![me, peer, id, ts, text, music.as_ref().map(|m| m.to_string()), reply_to, event.id],
             )
             .map_err(|e| crate::AppError::Other(e.to_string()))?;
         }

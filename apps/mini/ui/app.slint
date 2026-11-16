@@ -45,6 +45,8 @@ export struct ChatItem {
     reactions: [ReactionChip],
     stickers: [StickerPic], // a message of stickers alone: drawn big, without the bubble (its text is empty)
     sticker-ratio: float, // their widths / height, added up
+    reply-who: string, // an answer: whose message it answers («Вы» / the friend); empty when not an answer
+    reply-text: string,
 }
 
 export struct SongItem {
@@ -2587,7 +2589,7 @@ component ChatBubble inherits Rectangle {
     // Stickers 96 px high, smaller when a row of them would be wider than the bubble may be.
     property <length> sticker-h: root.big ? min(96px, (root.max-w - 24px - (root.m.stickers.length - 1) * 4px) / max(0.1, root.m.sticker-ratio)) : 0px;
     property <length> sticker-w: root.sticker-h * root.m.sticker-ratio + (root.m.stickers.length - 1) * 4px;
-    property <length> inner-w: max(root.m.has-music ? root.max-w - 24px : 0px, max(max(root.text-w, root.sticker-w), meta.preferred-width));
+    property <length> inner-w: max(root.m.has-music || root.m.reply-who != "" ? min(root.max-w - 24px, max(root.m.has-music ? root.max-w : 0px, 260px)) : 0px, max(max(root.text-w, root.sticker-w), meta.preferred-width));
     width: root.inner-w + 24px;
     height: col.preferred-height;
     border-radius: 14px;
@@ -2598,6 +2600,18 @@ component ChatBubble inherits Rectangle {
         width: root.width;
         padding: 12px;
         spacing: 4px;
+        // The message it answers (Telegram's quote): an accent bar, who, the text in one line.
+        if root.m.reply-who != "": HorizontalLayout {
+            spacing: 8px;
+            padding-bottom: 2px;
+            Rectangle { width: 3px; border-radius: 1.5px; background: Theme.accent; }
+            VerticalLayout {
+                spacing: 1px;
+                horizontal-stretch: 1;
+                Text { text: root.m.reply-who; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.accent; overflow: elide; }
+                Text { text: root.m.reply-text; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+            }
+        }
         if root.m.has-music: HorizontalLayout {
             spacing: 10px;
             padding-bottom: 4px;
@@ -2975,6 +2989,8 @@ component FriendsView inherits Rectangle {
     in property <bool> f-along; // this app follows them now
     in property <bool> f-typing; // they are typing to me
     callback chat-send(string);
+    in property <string> chat-replying; // the message being answered (its text), empty when none
+    callback chat-cancel-reply();
     callback chat-typing(); // the field changed: the friend sees «печатает…»
     in property <[StickerPic]> sticker-list; // every sticker Mini draws (for the panel)
     in-out property <bool> stickers-open;
@@ -3264,6 +3280,19 @@ component FriendsView inherits Rectangle {
                 Text { text: "В чате пока тихо"; horizontal-alignment: center; font-family: Theme.body-font; font-weight: 700; font-size: 16px; color: Theme.text; }
                 Text { text: "Напиши " + root.f-name + " первое сообщение!"; horizontal-alignment: center; font-family: Theme.mono-font; font-size: 13px; color: Theme.mute; }
             }
+        }
+        if root.f-tab == "chat" && root.chat-replying != "": HorizontalLayout {
+            padding-left: Grid.pad + 8px;
+            padding-right: Grid.pad;
+            spacing: 8px;
+            Rectangle { width: 3px; border-radius: 1.5px; background: Theme.accent; }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 1px;
+                Text { text: "Ответ"; font-family: Theme.body-font; font-weight: 700; font-size: 13px; color: Theme.accent; }
+                Text { text: root.chat-replying; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+            }
+            Middle { IconButton { icon: Icons.x; size: 24px; icon-size: 13px; clicked => { root.chat-cancel-reply(); } } }
         }
         if root.f-tab == "chat" && root.chat-editing: HorizontalLayout {
             padding-left: Grid.pad + 8px;
@@ -3642,6 +3671,7 @@ export component MainWindow inherits Window {
     in property <bool> friend-along;
     in property <bool> friend-typing;
     callback friend-chat-send(string);
+    in property <string> friend-chat-replying;
     callback friend-chat-typing();
     in property <[StickerPic]> sticker-list;
     in-out property <bool> friend-stickers-open;
@@ -3935,6 +3965,8 @@ export component MainWindow inherits Window {
                         f-chat: root.friend-chat;
                         chat-text <=> root.friend-chat-text;
                         chat-send(t) => { root.friend-chat-send(t); }
+                        chat-replying: root.friend-chat-replying;
+                        chat-cancel-reply => { root.friend-chat-action(-1, "cancel-reply"); }
                         chat-typing => { root.friend-chat-typing(); }
                         sticker-list: root.sticker-list;
                         stickers-open <=> root.friend-stickers-open;
@@ -4132,6 +4164,7 @@ export component MainWindow inherits Window {
                     }
                 }
                 HLine { }
+                MenuItem { icon: Icons.message; label: "Ответить"; clicked => { root.friend-chat-action(root.chat-menu-index, "reply"); } }
                 if root.chat-menu-mine: MenuItem { icon: Icons.pencil; label: "Изменить"; clicked => { root.friend-chat-action(root.chat-menu-index, "edit"); } }
                 MenuItem { icon: Icons.trash; label: "Удалить у меня"; clicked => { root.friend-chat-action(root.chat-menu-index, "del"); } }
                 if root.chat-menu-mine: MenuItem { icon: Icons.trash; label: "Удалить у всех"; clicked => { root.friend-chat-action(root.chat-menu-index, "del-both"); } }
