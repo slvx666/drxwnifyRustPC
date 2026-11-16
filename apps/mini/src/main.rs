@@ -880,6 +880,7 @@ fn main() {
         // The last run's queue, paused where it was (Android PersistentQueue).
         app.restore_queue();
     }
+    home_view::follow_friends(&ui, &app);
     app.keep_queue_saved();
     let demo_page = std::env::var("DRX_DEMO").ok();
     if demo_page.as_deref() == Some("history") {

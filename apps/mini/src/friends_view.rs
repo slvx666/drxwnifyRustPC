@@ -104,7 +104,7 @@ fn avatar_url(app: &App, pubkey: &str, b64: Option<&str>) -> Option<String> {
 
 /// A name as the app's fonts can draw it: mathematical bold, italic, script… letters (U+1D400–U+1D7FF, which
 /// the fonts lack, so the name came out blank) become plain ones; everything else stays as written.
-fn plain(name: &str) -> String {
+pub(crate) fn plain(name: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
     name.chars()
         .flat_map(|c| {
