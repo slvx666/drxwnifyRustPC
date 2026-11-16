@@ -1688,6 +1688,14 @@ dependencies = [
 [[package]]
 name = "drx-together"
 version = "0.1.0"
+dependencies = [
+ "flate2",
+ "futures-util",
+ "rustls",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+]
 
 [[package]]
 name = "drx-transfer"
