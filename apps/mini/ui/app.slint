@@ -3009,6 +3009,11 @@ component FriendsView inherits Rectangle {
     callback copy-link();
     callback add(string);
     in-out property <string> add-text;
+    // «Найти по нику»: profiles found by name (the field held a name, not a code).
+    in property <[FriendRequestItem]> found;
+    in property <string> found-status;
+    callback add-found(string, string);
+    callback clear-found();
     callback open(string);
     callback play-now(string);
     callback back();
@@ -3084,6 +3089,22 @@ component FriendsView inherits Rectangle {
                     }
                 }
                 Middle { Pill { label: "Добавить"; primary: true; clicked => { root.add(root.add-text); } } }
+            }
+            if root.found-status != "": HorizontalLayout {
+                spacing: 10px;
+                Text { horizontal-stretch: 1; text: root.found-status; font-family: Theme.heading-font; font-weight: 700; font-size: 16px; color: Theme.text; vertical-alignment: center; }
+                Middle { IconButton { icon: Icons.x; size: 28px; icon-size: 14px; clicked => { root.clear-found(); } } }
+            }
+            for r in root.found: HorizontalLayout {
+                spacing: 12px;
+                Middle { Avatar { size: 40px; initial: r.initial; } }
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 1;
+                    Text { text: r.name; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.text; overflow: elide; }
+                    Text { text: r.when; font-family: Theme.mono-font; font-size: 12px; color: Theme.mute; }
+                }
+                Middle { Pill { label: "Добавить"; primary: true; clicked => { root.add-found(r.pubkey, r.name); } } }
             }
             RoomCard {
                 room: root.room;
@@ -3704,6 +3725,10 @@ export component MainWindow inherits Window {
     callback friend-accept(string);
     callback friend-dismiss(string);
     in-out property <string> friends-add-text;
+    in property <[FriendRequestItem]> friends-found;
+    in property <string> friends-found-status;
+    callback friend-add-found(string, string);
+    callback friends-clear-found();
     // A drxwnify:// or drxwnify.pages.dev link the app was opened with: an invite, or music to show.
     callback open-link(string);
     callback friend-add(string);
@@ -4001,6 +4026,10 @@ export component MainWindow inherits Window {
                         copy-link => { root.friends-copy("link"); }
                         add-text <=> root.friends-add-text;
                         add(t) => { root.friend-add(t); }
+                        found: root.friends-found;
+                        found-status: root.friends-found-status;
+                        add-found(p, n) => { root.friend-add-found(p, n); }
+                        clear-found => { root.friends-clear-found(); }
                         open(p) => { root.friend-open(p); }
                         play-now(p) => { root.friend-play-now(p); }
                         back => { root.friend-back(); }

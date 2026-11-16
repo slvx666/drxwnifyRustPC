@@ -209,6 +209,14 @@ impl App {
         Ok(())
     }
 
+    /// Profiles found by name (only those who allowed it), for «Найти по нику».
+    pub async fn search_people(&self, query: &str) -> Vec<drx_social::friends::Found> {
+        match self.friends() {
+            Some(f) => f.search_by_name(query).await,
+            None => Vec::new(),
+        }
+    }
+
     /// Removes a friend (their data cleared on the relays too). A test run never does it.
     pub async fn remove_friend(&self, pubkey: &str) -> crate::AppResult<()> {
         let f = self.friends().ok_or_else(|| crate::AppError::Other("нет профиля друзей".into()))?;

@@ -401,7 +401,54 @@ pub fn parse_friends(json: &str) -> Vec<Friend> {
         .collect()
 }
 
+/// A profile found by name (FriendsHub.Found).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Found {
+    pub pubkey: String,
+    pub name: String,
+    pub avatar: Option<String>,
+}
+
+/// Picks the profiles whose name contains `needle` (lower case) and who allowed being found (`find`, or the
+/// developer), the newest event per profile, names starting with it first, then shorter; at most 20.
+pub fn pick_found(events: &[Event], needle: &str, me: &str) -> Vec<Found> {
+    let mut best: HashMap<String, (i64, Found)> = HashMap::new();
+    for e in events {
+        let Ok(o) = serde_json::from_str::<Value>(&e.content) else { continue };
+        let name = o.get("name").and_then(Value::as_str).unwrap_or("").trim().to_string();
+        let allowed = o.get("find").and_then(Value::as_bool).unwrap_or(false) || e.pubkey == DEVELOPER_PUBKEY;
+        if !allowed || name.is_empty() || e.pubkey == me || !name.to_lowercase().contains(needle) {
+            continue;
+        }
+        let newer = best.get(&e.pubkey).is_none_or(|(at, _)| *at < e.created_at);
+        if newer {
+            let avatar = o
+                .get("pic")
+                .and_then(Value::as_str)
+                .filter(|p| !p.is_empty() && p.len() <= MAX_AVATAR_CHARS)
+                .map(str::to_string);
+            best.insert(e.pubkey.clone(), (e.created_at, Found { pubkey: e.pubkey.clone(), name, avatar }));
+        }
+    }
+    let mut out: Vec<Found> = best.into_values().map(|(_, f)| f).collect();
+    out.sort_by_key(|f| (!f.name.to_lowercase().starts_with(needle), f.name.chars().count()));
+    out.truncate(20);
+    out
+}
+
 impl Friends {
+    /// Drxwnify profiles whose name contains `query` (FriendsHub.searchByName): every profile publishes its name,
+    /// only those who allowed it show; the relays get 4 s.
+    pub async fn search_by_name(&self, query: &str) -> Vec<Found> {
+        let needle = query.trim().to_lowercase();
+        if needle.chars().count() < 2 {
+            return Vec::new();
+        }
+        let filter = json!({"kinds": [KIND_APP_DATA], "#d": [format!("{D_PREFIX}profile")], "#t": ["drxwnify"], "limit": 500});
+        let events = self.pool().query(vec![filter], Duration::from_secs(4)).await;
+        pick_found(&events, &needle, &self.me())
+    }
+
     pub fn new(keys: Keys, pool: Pool, saved: Saved) -> Friends {
         pool.set_signer(Some(keys.clone()));
         let friends = saved.friends_json.as_deref().map(parse_friends).unwrap_or_default();
@@ -776,5 +823,20 @@ mod tests {
         assert_eq!(l.tracks[0].cover.as_deref(), Some("https://i.scdn.co/image/abc"));
         assert_eq!(l.tracks[0].duration_ms, 200_000);
         assert_eq!(l.tracks[0].media_id, None);
+    }
+}
+
+#[cfg(test)]
+mod live_search {
+    /// The relays answer a name search (the developer's profile is always findable).
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn finds_by_name() {
+        let pool = crate::relay::Pool::new(&tokio::runtime::Handle::current());
+        let filter = serde_json::json!({"kinds": [crate::nostr::KIND_APP_DATA], "#d": [format!("{}profile", super::D_PREFIX)], "#t": ["drxwnify"], "limit": 500});
+        let events = pool.query(vec![filter], std::time::Duration::from_secs(6)).await;
+        let found = super::pick_found(&events, "drxwn", "");
+        println!("{} profile events, found {:?}", events.len(), found.iter().map(|f| &f.name).collect::<Vec<_>>());
+        assert!(found.iter().any(|f| f.pubkey == super::DEVELOPER_PUBKEY));
     }
 }

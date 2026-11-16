@@ -420,7 +420,26 @@ pub fn wire(ui: &MainWindow, app: &App) {
         }
         // An invite link may carry the name: …/add/<npub>?n=<name>.
         let name = t.split("?n=").nth(1).map(|n| n.replace("%20", " ")).unwrap_or_default();
+        let key = t.rsplit('/').next().unwrap_or(&t);
+        let key = key.split('?').next().unwrap_or(key);
+        if drx_social::nostr::pubkey_from_text(key).is_none() {
+            // Not a code: a name to look for (FriendsHub.searchByName).
+            search_people(&ui, &app2, t);
+            return;
+        }
         add(&ui, &app2, t, name);
+    });
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    ui.on_friend_add_found(move |pubkey, name| {
+        let Some(ui) = ui_w.upgrade() else { return };
+        add(&ui, &app2, pubkey.to_string(), name.to_string());
+    });
+    let ui_w = ui.as_weak();
+    ui.on_friends_clear_found(move || {
+        if let Some(ui) = ui_w.upgrade() {
+            ui.set_friends_found(ModelRc::new(VecModel::from(Vec::<FriendRequestItem>::new())));
+            ui.set_friends_found_status("".into());
+        }
     });
 }
 
@@ -460,6 +479,49 @@ fn add(ui: &MainWindow, app: &App, code: String, name: String) {
                 Err(e) => ui.set_toast(format!("Не получилось: {e}").into()),
             }
             render(&ui, &app2);
+        });
+    });
+}
+
+/// «Найти по нику»: who allowed being found with that name (the relays get a few seconds).
+fn search_people(ui: &MainWindow, app: &App, query: String) {
+    if query.chars().count() < 2 {
+        ui.set_toast("Введите хотя бы две буквы ника".into());
+        return;
+    }
+    ui.set_friends_found(ModelRc::new(VecModel::from(Vec::<FriendRequestItem>::new())));
+    ui.set_friends_found_status(format!("Ищу «{query}»…").into());
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    app.runtime().spawn(async move {
+        let found = app2.search_people(&query).await;
+        let _ = slint::invoke_from_event_loop(move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            let known: Vec<String> = app2
+                .friends_state()
+                .map(|rx| rx.borrow().friends.iter().map(|f| f.pubkey.clone()).collect())
+                .unwrap_or_default();
+            let items: Vec<FriendRequestItem> = found
+                .iter()
+                .map(|f| {
+                    let name = plain(&f.name);
+                    let npub = drx_social::nostr::bech32_encode("npub", &hex_bytes(&f.pubkey));
+                    FriendRequestItem {
+                        pubkey: f.pubkey.clone().into(),
+                        initial: initial(&name).into(),
+                        name: name.into(),
+                        when: if known.contains(&f.pubkey) {
+                            "уже в друзьях".into()
+                        } else {
+                            format!("{}…{}", &npub[..12.min(npub.len())], &npub[npub.len().saturating_sub(6)..]).into()
+                        },
+                    }
+                })
+                .collect();
+            ui.set_friends_found_status(
+                if items.is_empty() { format!("По «{query}» никого: профиль скрыт или ник другой") } else { format!("Нашлось по «{query}» · {}", items.len()) }
+                    .into(),
+            );
+            ui.set_friends_found(ModelRc::new(VecModel::from(items)));
         });
     });
 }
