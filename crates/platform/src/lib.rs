@@ -88,6 +88,14 @@ impl Platform {
         let _ = keys;
     }
 
+    /// A notification (new messages): the tray icon's, a toast on Windows 10/11; a click shows the window.
+    pub fn notify(&self, title: &str, text: &str) {
+        #[cfg(windows)]
+        self.inner.notify(title, text);
+        #[cfg(not(windows))]
+        let _ = (title, text);
+    }
+
     /// Shows what plays now (title, artist, cover, play state, timeline).
     pub fn set_media(&self, info: MediaInfo) {
         #[cfg(windows)]

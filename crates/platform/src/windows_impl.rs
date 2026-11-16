@@ -51,6 +51,8 @@ const MENU_QUIT: usize = 9;
 enum Cmd {
     Media(MediaInfo),
     Hotkeys(Vec<Hotkey>),
+    /// A notification from the tray icon (title, text).
+    Notify(String, String),
 }
 
 const WM_HOTKEY: u32 = 0x0312;
@@ -111,6 +113,14 @@ impl Handle {
 
     pub fn set_hotkeys(&self, keys: Vec<Hotkey>) {
         if self.tx.send(Cmd::Hotkeys(keys)).is_ok() {
+            unsafe {
+                let _ = PostMessageW(Some(HWND(self.hwnd as _)), WM_CMD, WPARAM(0), LPARAM(0));
+            }
+        }
+    }
+
+    pub fn notify(&self, title: &str, text: &str) {
+        if self.tx.send(Cmd::Notify(title.to_string(), text.to_string())).is_ok() {
             unsafe {
                 let _ = PostMessageW(Some(HWND(self.hwnd as _)), WM_CMD, WPARAM(0), LPARAM(0));
             }
@@ -330,6 +340,34 @@ fn tray(hwnd: HWND, op: windows::Win32::UI::Shell::NOTIFY_ICON_MESSAGE) {
     });
 }
 
+/// A notification from the tray icon: Windows 10/11 shows it as a toast (in the notification centre too).
+fn balloon(hwnd: HWND, title: &str, text: &str) {
+    use windows::Win32::UI::Shell::{NIF_INFO, NIIF_LARGE_ICON, NIIF_USER};
+    STATE.with(|s| {
+        let s = s.borrow();
+        let Some(st) = s.as_ref() else { return };
+        let mut nid = NOTIFYICONDATAW {
+            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: hwnd,
+            uID: 1,
+            uFlags: NIF_INFO,
+            dwInfoFlags: NIIF_USER | NIIF_LARGE_ICON,
+            hBalloonIcon: st.icon,
+            ..Default::default()
+        };
+        for (i, c) in title.encode_utf16().take(nid.szInfoTitle.len() - 1).enumerate() {
+            nid.szInfoTitle[i] = c;
+        }
+        for (i, c) in text.encode_utf16().take(nid.szInfo.len() - 1).enumerate() {
+            nid.szInfo[i] = c;
+        }
+        // SAFETY: a filled, correctly sized NOTIFYICONDATAW for the icon this window added.
+        unsafe {
+            let _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
+        }
+    });
+}
+
 fn menu(hwnd: HWND) {
     let playing = STATE.with(|s| s.borrow().as_ref().is_some_and(|st| st.shown.playing));
     unsafe {
@@ -374,6 +412,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_CMD => {
             let mut changed = false;
             let mut busy: Vec<u32> = Vec::new();
+            let mut notes: Vec<(String, String)> = Vec::new();
             STATE.with(|s| {
                 let mut s = s.borrow_mut();
                 let Some(st) = s.as_mut() else { return };
@@ -382,6 +421,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     match cmd {
                         Cmd::Media(info) => last = Some(info),
                         Cmd::Hotkeys(keys) => busy = register_hotkeys(hwnd, &mut st.hotkeys, &keys),
+                        Cmd::Notify(t, b) => notes.push((t, b)),
                     }
                 }
                 if let Some(info) = last {
@@ -400,6 +440,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             for id in busy {
                 emit(PlatformEvent::HotkeyBusy(id));
             }
+            for (t, b) in notes {
+                balloon(hwnd, &t, &b);
+            }
             LRESULT(0)
         }
         WM_HOTKEY => {
@@ -409,6 +452,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_TRAY => {
             match lp.0 as u32 {
                 WM_LBUTTONUP => emit(PlatformEvent::Show),
+                // A click on the notification.
+                windows::Win32::UI::Shell::NIN_BALLOONUSERCLICK => emit(PlatformEvent::Show),
                 WM_RBUTTONUP => menu(hwnd),
                 _ => {}
             }

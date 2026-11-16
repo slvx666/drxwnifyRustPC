@@ -16,6 +16,7 @@ mod rooms_ui;
 mod sleep_ui;
 mod queue_ui;
 mod lyrics_ui;
+mod chat_notify;
 mod track_menu;
 mod nav;
 mod os;
@@ -1069,6 +1070,7 @@ fn main() {
     }
     os::register_scheme();
     let platform = os::start(&ui, &app, Some(&guard));
+    chat_notify::start(&ui, &app, platform.clone());
     {
         let (app2, ui_w, platform) = (app.clone(), ui.as_weak(), platform.clone());
         let (app3, ui_w3) = (app.clone(), ui.as_weak());

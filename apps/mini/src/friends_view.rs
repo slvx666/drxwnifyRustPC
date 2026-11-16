@@ -77,6 +77,11 @@ thread_local! {
     static SHOWN_AVATAR: std::cell::RefCell<Option<(String, String)>> = const { std::cell::RefCell::new(None) };
 }
 
+/// The friend whose page is open.
+pub fn open_peer() -> Option<String> {
+    OPEN.with(|o| o.borrow().clone())
+}
+
 /// The friend page's avatar for the picture viewer: (address, name).
 pub fn shown_avatar() -> Option<(String, String)> {
     SHOWN_AVATAR.with(|s| s.borrow().clone())
