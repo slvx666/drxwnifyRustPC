@@ -61,6 +61,7 @@ pub fn fill(ui: &MainWindow, app: &App) {
 const FLAGS: &[(&str, &str, &str, bool)] = &[
     ("autoSkipNextOnError", "Пропускать трек, если не включается", "Иначе воспроизведение останавливается на нём", false),
     ("autoLoadMore", "Продолжать похожими", "Когда очередь кончается, следом идёт радио по последнему треку", true),
+    (drx_app::sponsorblock::ENABLED_KEY, "Пропускать немузыкальные вставки", "SponsorBlock: разговоры и заставки в клипах с YouTube", false),
     ("persistentQueue", "Сохранять очередь", "После перезапуска — тот же трек с того же места", true),
     (crate::discord_ui::KEY, "Статус в Discord", "Что играет — в профиле Discord (нужен запущенный Discord на этом ПК)", false),
 ];

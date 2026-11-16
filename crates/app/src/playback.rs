@@ -712,6 +712,20 @@ impl Playback {
         self.queue_changed();
     }
 
+    /// The YouTube video a track plays from: its own id, or the resolver's YouTube match (None for other sources).
+    pub fn youtube_id_of(&self, t: &Track) -> Option<String> {
+        if is_youtube_video_id(&t.id) {
+            return Some(t.id.clone());
+        }
+        let cid = t.id.strip_prefix("mfb:").unwrap_or(&t.id);
+        self.resolved
+            .lock()
+            .expect("resolved")
+            .get(cid)
+            .filter(|(m, _)| m.provider == ProviderId::Youtube)
+            .map(|(m, _)| m.track_id.clone())
+    }
+
     /// Adds tracks at the end of the queue (the endless radio after the last track).
     pub fn append(&self, items: Vec<Playable>) {
         if items.is_empty() {

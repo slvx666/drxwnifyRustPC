@@ -983,6 +983,7 @@ fn main() {
     app.apply_playback_prefs();
     discord_ui::start(&app);
     app.keep_queue_going();
+    app.keep_sponsorblock();
     downloads_ui::wire(&ui, &app);
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());

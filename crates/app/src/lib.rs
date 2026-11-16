@@ -16,6 +16,7 @@ pub mod radio;
 pub mod rooms;
 pub mod sleep;
 pub mod downloads;
+pub mod sponsorblock;
 mod queue_store;
 mod search;
 pub mod social;
@@ -302,6 +303,13 @@ impl App {
         prefs.set(key, value);
         drx_core::paths::write_atomic(&path, &prefs.encode())
             .map_err(|e| AppError::Other(e.to_string()))
+    }
+    /// A text setting from `settings.preferences_pb`.
+    pub fn pref_string(&self, key: &str) -> Option<String> {
+        std::fs::read(self.inner.profile.prefs_pb())
+            .ok()
+            .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
+            .and_then(|p| p.get_str(key).map(str::to_string))
     }
     /// A switch from `settings.preferences_pb`.
     pub fn pref_bool(&self, key: &str) -> Option<bool> {
