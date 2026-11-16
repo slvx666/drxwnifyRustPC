@@ -1682,6 +1682,7 @@ component MainArea inherits VerticalLayout {
     in property <bool> can-save; // album / playlist / artist pages of a catalog
     in property <bool> can-share; // the page has a link to share (album, artist, a catalog's playlist)
     callback share-page();
+    callback export-list(string); // csv | m3u
     in property <bool> saved;
     callback toggle-save();
     in property <bool> can-edit; // an own playlist: rename and delete
@@ -1760,6 +1761,34 @@ component MainArea inherits VerticalLayout {
                     background: sha.has-hover ? Theme.fill-hover : Theme.fill;
                     Icon { icon: Icons.link; size: 17px; color: Theme.text; }
                     sha := TouchArea { mouse-cursor: pointer; clicked => { root.share-page(); } }
+                }
+                // Export the list (PlaylistExporter): CSV or M3U into «Загрузки».
+                if root.can-play: Rectangle {
+                    width: 38px;
+                    height: 38px;
+                    border-radius: min(Theme.chip-radius, 19px);
+                    background: exa.has-hover ? Theme.fill-hover : Theme.fill;
+                    Icon { icon: Icons.upload; size: 17px; color: Theme.text; }
+                    exa := TouchArea { mouse-cursor: pointer; clicked => { export-menu.show(); } }
+                    export-menu := PopupWindow {
+                        x: 0;
+                        y: parent.height + 6px;
+                        width: 220px;
+                        Rectangle {
+                            border-radius: Grid.item-radius;
+                            background: Theme.menu;
+                            border-color: Theme.panel-border;
+                            border-width: 1px;
+                            drop-shadow-blur: 16px;
+                            drop-shadow-color: #00000060;
+                            VerticalLayout {
+                                padding: 6px;
+                                spacing: 2px;
+                                MenuItem { icon: Icons.upload; label: "Экспорт в CSV"; clicked => { root.export-list("csv"); } }
+                                MenuItem { icon: Icons.upload; label: "Экспорт в M3U"; clicked => { root.export-list("m3u"); } }
+                            }
+                        }
+                    }
                 }
                 if root.can-edit: Rectangle {
                     width: 38px;
@@ -3643,6 +3672,7 @@ export component MainWindow inherits Window {
     in property <bool> view-can-save;
     in property <bool> view-can-share;
     callback share-view();
+    callback export-view(string);
     in property <bool> view-saved;
     callback toggle-view-save();
     callback back();
@@ -3781,6 +3811,7 @@ export component MainWindow inherits Window {
                         toggle-save => { root.toggle-view-save(); }
                         can-share: root.view-can-share;
                         share-page => { root.share-view(); }
+                        export-list(f) => { root.export-view(f); }
                         can-edit: root.view-can-edit;
                         rename-list => { root.rename-view(); }
                         delete-list => { root.delete-view(); }

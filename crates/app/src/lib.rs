@@ -940,27 +940,29 @@ impl App {
         self.inner.playback.toggle();
     }
 
+    /// A list as the phone's PlaylistExporter writes it: `csv` (Title,Artist,Album,YouTube Video ID) or `m3u`
+    /// (#EXTINF and #YTM:<id>), into `dir` as `<name>.<ext>`. Returns the file written.
+    pub async fn export_list(
+        &self,
+        handle: ListHandle,
+        name: &str,
+        format: &str,
+        dir: &std::path::Path,
+    ) -> Result<std::path::PathBuf, String> {
+        let items = self.list_items(handle).await.map_err(|e| e.to_string())?;
+        let tracks: Vec<&drx_catalog::model::Track> = items.iter().map(|p| &p.track).collect();
+        let (text, ext) = if format == "m3u" { (export_m3u(&tracks), "m3u") } else { (export_csv(&tracks), "csv") };
+        let path = unique_path(dir, name, ext);
+        tokio::fs::write(&path, text.as_bytes()).await.map_err(|e| e.to_string())?;
+        Ok(path)
+    }
+
     /// «Скачать» in the picture viewer (CoverSaver.save): the largest original into `dir` («Загрузки») as
     /// `<name>.<ext>` (` (2)`, ` (3)`… when taken). Returns the file written.
     pub async fn save_image(&self, url: &str, name: &str, dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
         let bytes = self.inner.images.original(url).await.ok_or("картинка не скачалась")?;
         let ext = drx_core::images::image_extension(&bytes);
-        let base: String = name
-            .chars()
-            .map(|c| if "\\/:*?\"<>|".contains(c) || c.is_control() { '_' } else { c })
-            .collect::<String>()
-            .trim()
-            .trim_end_matches('.')
-            .chars()
-            .take(120)
-            .collect();
-        let base = if base.is_empty() { "cover".to_string() } else { base };
-        let mut path = dir.join(format!("{base}.{ext}"));
-        let mut n = 2;
-        while path.exists() {
-            path = dir.join(format!("{base} ({n}).{ext}"));
-            n += 1;
-        }
+        let path = unique_path(dir, name, ext);
         tokio::fs::write(&path, &bytes).await.map_err(|e| e.to_string())?;
         Ok(path)
     }
@@ -1041,6 +1043,58 @@ impl App {
     pub fn clock(&self) -> PlaybackClock {
         self.inner.playback.clock()
     }
+}
+
+/// `dir/<name>.<ext>` with a name Windows takes (no \/:*?"<>|), ` (2)`, ` (3)`… when taken.
+fn unique_path(dir: &std::path::Path, name: &str, ext: &str) -> std::path::PathBuf {
+    let base: String = name
+        .chars()
+        .map(|c| if "\\/:*?\"<>|".contains(c) || c.is_control() { '_' } else { c })
+        .collect::<String>()
+        .trim()
+        .trim_end_matches('.')
+        .chars()
+        .take(120)
+        .collect();
+    let base = if base.is_empty() { "drxwnify".to_string() } else { base };
+    let mut path = dir.join(format!("{base}.{ext}"));
+    let mut n = 2;
+    while path.exists() {
+        path = dir.join(format!("{base} ({n}).{ext}"));
+        n += 1;
+    }
+    path
+}
+
+fn csv_cell(s: &str) -> String {
+    format!("\"{}\"", s.replace('"', "\"\""))
+}
+
+/// The id a phone knows a track by (its song id), for exports.
+fn song_id(t: &drx_catalog::model::Track) -> String {
+    crate::social::ref_of(t).media_id.unwrap_or_else(|| t.id.clone())
+}
+
+/// PlaylistExporter.exportPlaylistAsCSV.
+pub fn export_csv(tracks: &[&drx_catalog::model::Track]) -> String {
+    let mut out = String::from("Title,Artist,Album,YouTube Video ID\n");
+    for t in tracks {
+        let artists = t.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join("; ");
+        let album = t.album.as_ref().map(|a| a.name.as_str()).unwrap_or("");
+        out.push_str(&format!("{},{},{},{}\n", csv_cell(&t.title), csv_cell(&artists), csv_cell(album), song_id(t)));
+    }
+    out
+}
+
+/// PlaylistExporter.exportPlaylistAsM3U.
+pub fn export_m3u(tracks: &[&drx_catalog::model::Track]) -> String {
+    let mut out = String::from("#EXTM3U\n");
+    for t in tracks {
+        let artists = t.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(" - ");
+        out.push_str(&format!("#EXTINF:{},{artists} - {}\n", t.duration_ms / 1000, t.title));
+        out.push_str(&format!("#YTM:{}\n", song_id(t)));
+    }
+    out
 }
 
 fn row_of(p: &Playable) -> SongRow {

@@ -975,6 +975,34 @@ fn main() {
             }
         });
     }
+    // Export the list on screen (CSV / M3U, the phone's PlaylistExporter) into «Загрузки».
+    {
+        let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
+        ui.on_export_view(move |format| {
+            let Some(ui) = ui_w.upgrade() else { return };
+            let Some(dir) = drx_platform::downloads_dir() else {
+                ui.set_toast("Не нашлась папка «Загрузки»".into());
+                return;
+            };
+            let name = ui.get_view_title().to_string();
+            let (app3, ui_w2, h) = (app2.clone(), ui_w.clone(), songs2.handle());
+            app2.runtime().spawn(async move {
+                let got = app3.export_list(h, &name, &format, &dir).await;
+                let _ = ui_w2.upgrade_in_event_loop(move |ui| {
+                    ui.set_toast(
+                        match got {
+                            Ok(p) => format!(
+                                "Сохранено в «Загрузки»: {}",
+                                p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                            ),
+                            Err(e) => format!("Не сохранилось: {e}"),
+                        }
+                        .into(),
+                    );
+                });
+            });
+        });
+    }
     // «Поделиться» on a page: its link to the clipboard (the phone's AppLinks format).
     {
         let ui_w = ui.as_weak();
