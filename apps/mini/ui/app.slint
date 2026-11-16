@@ -1673,6 +1673,7 @@ component MainArea inherits VerticalLayout {
     callback hotkey-off(int);
     in property <[HomeSection]> sections;
     callback home-play(int, int); // section, card
+    callback home-random();
     callback play(int);
     callback import-backup();
     callback open-artist(string);
@@ -1712,6 +1713,24 @@ component MainArea inherits VerticalLayout {
             if root.kind-label != "": Caption { text: root.kind-label; }
             Text { text: title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: root.is-page ? 44px : 32px; color: Theme.text; overflow: elide; }
             Text { text: subtitle; font-family: Theme.body-font; font-size: 15px; color: Theme.dim; overflow: elide; }
+            // «Случайное» on the home page (Android's play-random button): a random card of the rows plays.
+            if root.home && root.sections.length > 0: HorizontalLayout {
+                padding-top: 6px;
+                alignment: start;
+                Rectangle {
+                    width: rnd-row.preferred-width + 32px;
+                    height: 38px;
+                    border-radius: min(Theme.chip-radius, 19px);
+                    background: rnd.has-hover ? Theme.accent2 : Theme.accent;
+                    rnd-row := HorizontalLayout {
+                        alignment: center;
+                        spacing: 6px;
+                        Middle { Icon { icon: Icons.shuffle; size: 16px; color: Theme.on-accent; } }
+                        Text { text: "Случайное"; font-family: Theme.body-font; font-weight: 700; font-size: 14px; color: Theme.on-accent; vertical-alignment: center; }
+                    }
+                    rnd := TouchArea { mouse-cursor: pointer; clicked => { root.home-random(); } }
+                }
+            }
             if root.can-play || root.can-edit || root.can-share: HorizontalLayout {
                 padding-top: 6px;
                 spacing: Grid.gap;
@@ -3540,6 +3559,7 @@ export component MainWindow inherits Window {
 
     callback open-library(LibItem);
     callback home-play(int, int);
+    callback home-random();
     callback open-settings();
     callback set-main-account(string);
     callback set-account-tab(string, bool);
@@ -3886,6 +3906,7 @@ export component MainWindow inherits Window {
                         set-day(v) => { root.set-day(v); }
                         sections: root.home-sections;
                         home-play(s, c) => { root.home-play(s, c); }
+                        home-random => { root.home-random(); }
                         open-artist(id) => { root.open-artist(id); }
                         like-song(id) => { root.like-song(id); }
                         song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }

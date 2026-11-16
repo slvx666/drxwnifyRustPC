@@ -173,6 +173,22 @@ pub fn show(ui: &MainWindow, app: &App, force: bool) {
 }
 
 /// A track card was clicked: its row plays from that card.
+/// «Случайное» (Android HomeViewModel.getRandomItem): a random track of the home rows plays, the rest of its row
+/// after it. False when the feed is empty.
+pub fn play_random(app: &App) -> bool {
+    let rows: Vec<Vec<drx_catalog::model::Track>> =
+        FEED.with(|f| f.borrow().as_ref().map(|feed| feed.rows.iter().map(|r| r.tracks.clone()).collect()).unwrap_or_default());
+    let all: Vec<(usize, usize)> =
+        rows.iter().enumerate().flat_map(|(s, r)| (0..r.len()).map(move |c| (s, c))).collect();
+    if all.is_empty() {
+        return false;
+    }
+    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(7);
+    let (s, c) = all[seed as usize % all.len()];
+    app.play_tracks(rows[s].clone(), c);
+    true
+}
+
 pub fn play(app: &App, section: usize, card: usize) {
     let tracks = FEED.with(|f| {
         f.borrow()

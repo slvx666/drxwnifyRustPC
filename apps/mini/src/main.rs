@@ -473,6 +473,14 @@ fn main() {
         ui.on_home_play(move |sec, card| {
             home_view::play(&app2, sec.max(0) as usize, card.max(0) as usize)
         });
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_home_random(move || {
+            if !home_view::play_random(&app2)
+                && let Some(ui) = ui_w.upgrade()
+            {
+                ui.set_toast("Главная ещё загружается".into());
+            }
+        });
     }
     {
         let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
