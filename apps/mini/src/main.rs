@@ -868,7 +868,10 @@ fn main() {
     }
     if std::env::var("DRX_DEMO").is_err() {
         nav::go(&ui, &app, &songs, nav::Page::home());
+        // The last run's queue, paused where it was (Android PersistentQueue).
+        app.restore_queue();
     }
+    app.keep_queue_saved();
     let demo_page = std::env::var("DRX_DEMO").ok();
     if demo_page.as_deref() == Some("history") {
         nav::go(&ui, &app, &songs, nav::Page::history());
@@ -1124,6 +1127,7 @@ fn main() {
     }
 
     ui.run().expect("run UI");
+    app.save_queue();
 }
 
 thread_local! {

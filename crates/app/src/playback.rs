@@ -598,6 +598,35 @@ impl Playback {
         });
     }
 
+    /// The queue of the last run (PersistentQueue): shown paused; «play» starts it at `position_s`.
+    pub fn restore(&self, items: Vec<Playable>, index: usize, position_s: f64) {
+        if items.is_empty() {
+            return;
+        }
+        let index = index.min(items.len() - 1);
+        let track = items[index].track.clone();
+        *self.queue.lock().expect("queue") = (items, index);
+        *self.original.lock().expect("original") = None;
+        *self.start_at.lock().expect("start at") = Some((track.id.clone(), position_s.max(0.0)));
+        let up = self.upcoming();
+        self.now.send_modify(|n| {
+            n.track = Some(track);
+            n.index = Some(index);
+            n.playing = false;
+            n.upcoming = up;
+            n.queue_rev += 1;
+        });
+    }
+
+    /// Where a track shown but not started yet will start (the restored one), else None.
+    fn pending_start(&self) -> Option<f64> {
+        if self.current_id.lock().expect("current").is_some() {
+            return None;
+        }
+        let id = self.now.borrow().track.as_ref().map(|t| t.id.clone())?;
+        self.start_at.lock().expect("start at").as_ref().filter(|(t, _)| *t == id).map(|(_, s)| *s)
+    }
+
     /// The whole queue and the playing index (the queue panel).
     pub fn queue_snapshot(&self) -> (Vec<Track>, usize) {
         let q = self.queue.lock().expect("queue");
@@ -743,10 +772,27 @@ impl Playback {
                     .take()
                     .filter(|(id, _)| *id == item.track.id)
                     .map_or(0.0, |(_, s)| s);
-                player.play(src, ext, at, gain)
+                // Opening a stream in the middle can be refused (YouTube answers a cold ranged request with 403):
+                // start from the top and jump once the sound runs.
+                player.play(src, ext, 0.0, gain).map(|id| (id, at, player))
             });
             match res {
-                Ok(id) => *this.current_id.lock().expect("current") = Some(id),
+                Ok((id, at, player)) => {
+                    *this.current_id.lock().expect("current") = Some(id);
+                    if at > 0.5 {
+                        for _ in 0..100 {
+                            let c = player.clock();
+                            if c.track == Some(id) && c.playing {
+                                player.seek(at);
+                                break;
+                            }
+                            if *this.current_id.lock().expect("current") != Some(id) {
+                                break;
+                            }
+                            std::thread::sleep(Duration::from_millis(100));
+                        }
+                    }
+                }
                 Err(e) => {
                     tracing::warn!("cannot play {}: {e}", item.track.id);
                     this.now.send_modify(|n| {
@@ -759,6 +805,17 @@ impl Playback {
     }
 
     pub fn toggle(self: &Arc<Self>) {
+        // The queue restored after launch: nothing is loaded yet, «play» starts its track (where it was left).
+        if self.current_id.lock().expect("current").is_none() {
+            let (has, i) = {
+                let q = self.queue.lock().expect("queue");
+                (q.1 < q.0.len(), q.1)
+            };
+            if has && !self.now.borrow().playing {
+                self.start_index(i);
+            }
+            return;
+        }
         let Some(p) = self.player.lock().expect("player lock").clone() else {
             return;
         };
@@ -852,8 +909,14 @@ impl Playback {
             }
             None => PlaybackClock {
                 track: None,
-                position_s: 0.0,
-                duration_s: None,
+                position_s: self.pending_start().unwrap_or(0.0),
+                duration_s: self
+                    .now
+                    .borrow()
+                    .track
+                    .as_ref()
+                    .map(|t| t.duration_ms as f64 / 1000.0)
+                    .filter(|d| *d > 0.0),
                 playing: false,
                 at: std::time::Instant::now(),
             },

@@ -15,6 +15,7 @@ pub mod playlists;
 pub mod radio;
 pub mod rooms;
 pub mod sleep;
+mod queue_store;
 mod search;
 pub mod social;
 pub mod songs;
