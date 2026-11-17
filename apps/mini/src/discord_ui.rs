@@ -7,6 +7,13 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 pub const KEY: &str = "pcDiscordRpc";
+/// The phone's «Расширенный режим» and its options (MusicService.updateDiscordRPC reads them only in that mode).
+pub const ADVANCED_KEY: &str = "discordAdvancedMode";
+pub const TYPE_KEY: &str = "discordActivityType";
+pub const BUTTON_KEY: &str = "discordButton1Visible";
+/// discordActivityType values and the Discord activity type of each.
+pub const TYPES: [(&str, &str, u8); 4] = [("listening", "Слушает", 2), ("playing", "Играет", 0), ("watching", "Смотрит", 3), ("competing", "Соревнуется", 5)];
+
 
 static RPC: OnceLock<Mutex<Option<Rpc>>> = OnceLock::new();
 
@@ -44,6 +51,7 @@ fn presence(app: &App) -> Option<Presence> {
         (n.track.clone(), n.playing)
     };
     let t = track.filter(|_| playing)?;
+    let advanced = app.pref_bool(ADVANCED_KEY).unwrap_or(false);
     let c = app.clock();
     let now = now_ms();
     let start = now - (c.position_s * 1000.0) as i64;
@@ -57,6 +65,14 @@ fn presence(app: &App) -> Option<Presence> {
         start_ms: Some(start),
         end_ms: (dur > 0).then_some(start + dur),
         link: link.filter(|_| !t.id.starts_with("local:")),
+        kind: if advanced {
+            let v = app.pref_string(TYPE_KEY).unwrap_or_default().to_lowercase();
+            TYPES.iter().find(|x| x.0 == v).map_or(2, |x| x.2)
+        } else {
+            2
+        },
+        details: true,
+        button: !advanced || app.pref_bool(BUTTON_KEY).unwrap_or(true),
     })
 }
 

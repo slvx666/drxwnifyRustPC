@@ -329,7 +329,7 @@ pub(crate) struct Playback {
     /// Equaliser profile and balance, set again when the device opens.
     effects: Mutex<(Option<drx_audio::dsp::EqProfile>, f32)>,
     /// Lyrics sources switched on: (LrcLib, KuGou) — enableLrclib / enableKugou.
-    pub lyrics_sources: Mutex<(bool, bool)>,
+    pub lyrics_sources: Mutex<drx_lyrics::Sources>,
 }
 
 impl Playback {
@@ -357,7 +357,7 @@ impl Playback {
             hold_next: std::sync::atomic::AtomicBool::new(false),
             prep: Mutex::new(None),
             effects: Mutex::new((None, 0.0)),
-            lyrics_sources: Mutex::new((true, true)),
+            lyrics_sources: Mutex::new(drx_lyrics::Sources::default()),
         })
     }
 
@@ -1075,15 +1075,14 @@ impl Playback {
         // Lyrics in the background; dropped if the track changed meanwhile.
         {
             let (now, http, t) = (self.now.clone(), self.http.clone(), item.track.clone());
-            let (lrclib, kugou) = *self.lyrics_sources.lock().expect("lyrics sources");
+            let sources = *self.lyrics_sources.lock().expect("lyrics sources");
             self.handle.spawn(async move {
                 let found = drx_lyrics::find_any(
                     &http,
                     &t.title,
                     t.artists.first().map(|a| a.name.as_str()).unwrap_or(""),
                     Some(t.duration_ms / 1000).filter(|d| *d > 0),
-                    lrclib,
-                    kugou,
+                    sources,
                 )
                 .await;
                 if let Some(l) = found {

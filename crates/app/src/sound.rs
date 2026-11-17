@@ -279,6 +279,37 @@ impl App {
         self.apply_sound();
     }
 
+    /// Imports an AutoEq «ParametricEQ.txt» (the phone's AutoEq import): a new profile named after the file,
+    /// switched on at once. Returns its name.
+    pub fn import_autoeq(&self, path: &std::path::Path) -> crate::AppResult<String> {
+        let text = std::fs::read_to_string(path).map_err(|e| crate::AppError::Other(e.to_string()))?;
+        let (preamp, bands) = parse_autoeq(&text);
+        if bands.is_empty() {
+            return Err(crate::AppError::Other("в файле нет фильтров AutoEq (Filter N: ON PK Fc … Hz Gain … dB Q …)".into()));
+        }
+        let name = path.file_stem().map(|s| s.to_string_lossy().replace(" ParametricEQ", "").trim().to_string()).unwrap_or_else(|| "AutoEq".into());
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+        let p = SavedProfile {
+            id: format!("autoeq_{now}"),
+            name: name.clone(),
+            device_model: name.clone(),
+            bands,
+            preamp,
+            is_custom: true,
+            is_active: true,
+            added_timestamp: now,
+        };
+        let (mut list, _) = self.eq_profiles();
+        for x in &mut list {
+            x.is_active = false;
+        }
+        let id = p.id.clone();
+        list.push(p);
+        self.write_eq(&list, Some(&id));
+        self.apply_sound();
+        Ok(name)
+    }
+
     /// Equaliser on (the graphic one, with its saved gains) or off (no active profile).
     pub fn set_eq_on(&self, on: bool) {
         if on {
@@ -292,9 +323,62 @@ impl App {
     }
 }
 
+/// Reads AutoEq's ParametricEQ.txt: `Preamp: -6.4 dB` and `Filter 1: ON PK Fc 105 Hz Gain -3.5 dB Q 0.70`
+/// (PK, LSC/LS, HSC/HS, LPQ/LP, HPQ/HP; filters that are OFF are skipped).
+pub fn parse_autoeq(text: &str) -> (f64, Vec<SavedBand>) {
+    let mut preamp = 0.0;
+    let mut bands = Vec::new();
+    for line in text.lines() {
+        let l = line.trim();
+        if let Some(v) = l.strip_prefix("Preamp:") {
+            preamp = v.trim().trim_end_matches("dB").trim().parse().unwrap_or(0.0);
+            continue;
+        }
+        if !l.starts_with("Filter") {
+            continue;
+        }
+        let Some((_, rest)) = l.split_once(':') else { continue };
+        let words: Vec<&str> = rest.split_whitespace().collect();
+        if words.first() != Some(&"ON") {
+            continue;
+        }
+        let kind = match words.get(1).copied().unwrap_or("") {
+            "PK" | "PEQ" => "PK",
+            "LSC" | "LS" => "LSC",
+            "HSC" | "HS" => "HSC",
+            "LPQ" | "LP" => "LPQ",
+            "HPQ" | "HP" => "HPQ",
+            _ => continue,
+        };
+        let after = |key: &str| words.iter().position(|w| *w == key).and_then(|i| words.get(i + 1)).and_then(|v| v.parse::<f64>().ok());
+        let Some(fc) = after("Fc") else { continue };
+        bands.push(SavedBand {
+            frequency: fc,
+            gain: after("Gain").unwrap_or(0.0),
+            q: after("Q").unwrap_or(0.707),
+            filter_type: kind.into(),
+            enabled: true,
+        });
+    }
+    (preamp, bands)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn autoeq_file_reads() {
+        let (pre, b) = parse_autoeq("Preamp: -6.4 dB
+Filter 1: ON LSC Fc 105 Hz Gain 5.5 dB Q 0.70
+Filter 2: OFF PK Fc 200 Hz Gain 1 dB Q 1
+Filter 3: ON PK Fc 3000 Hz Gain -2.1 dB Q 1.41
+");
+        assert_eq!(pre, -6.4);
+        assert_eq!(b.len(), 2);
+        assert_eq!((b[0].filter_type.as_str(), b[0].frequency, b[0].gain, b[0].q), ("LSC", 105.0, 5.5, 0.70));
+        assert_eq!(b[1].gain, -2.1);
+    }
 
     #[test]
     fn phone_profile_json_reads() {

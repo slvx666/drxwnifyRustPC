@@ -221,9 +221,6 @@ impl App {
         out
     }
 
-    fn hide_explicit(&self) -> bool {
-        self.pref_bool("hideExplicit").unwrap_or(false)
-    }
 
     /// Searches `query` in `source` (or opens the link it is).
     pub async fn search_page(&self, query: &str, source: SearchSource) -> AppResult<SearchOutcome> {

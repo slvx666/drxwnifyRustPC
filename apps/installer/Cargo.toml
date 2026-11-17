@@ -10,10 +10,11 @@ authors.workspace = true
 
 [dependencies]
 drx-platform = { path = "../../crates/platform" }
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+# xz (C liblzma, linked statically): Mini packed ~27 % smaller than with deflate.
+liblzma = { version = "0.4", default-features = false, features = ["static"] }
 
 [build-dependencies]
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+liblzma = { version = "0.4", default-features = false, features = ["static"] }
 
 [lints]
 workspace = true

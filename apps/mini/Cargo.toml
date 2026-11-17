@@ -19,6 +19,8 @@ drx-together.workspace = true
 drx-integrations.workspace = true
 drx-social.workspace = true
 base64 = "0.22"
+# URLs are ASCII here: the IDNA adapter without the ICU tables (~0.3 MB smaller).
+idna_adapter = "=1.0.0"
 # The patched copy in vendor/ (developer frame hook, see perf.rs).
 i-slint-backend-winit = { version = "=1.18.1", default-features = false }
 slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software", "software-renderer-path", "unstable-winit-030"] }

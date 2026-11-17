@@ -329,6 +329,12 @@ export struct LibItem {
     thumb: string, // the cover's URL (the page heading shows it big)
 }
 
+/// Opening animations (short, only while something opens: an idle window draws nothing). Rust may stretch them
+/// for checks (DRX_ANIM_MS).
+export global Anim {
+    in-out property <duration> page: 140ms;
+}
+
 export global Grid {
     out property <length> gutter: 12px;      // window edge, top bar to surface
     out property <length> pad: 16px;         // inside a section
@@ -1281,6 +1287,10 @@ component FlagRow inherits VerticalLayout {
 }
 
 component SettingsPage inherits Flickable {
+    // Fades in when it opens.
+    opacity: 0;
+    init => { self.opacity = 1; }
+    animate opacity { duration: Anim.page; easing: ease-out; }
     // Scrolled by the wheel only: a drag belongs to the sliders (equaliser bands), not to the page.
     interactive: false;
     content-y: -SettingsUi.start-y;
@@ -1614,6 +1624,10 @@ component SectionHead inherits HorizontalLayout {
 
 // The search page: source chips, best result beside the first tracks, then artists, albums, playlists.
 component SearchPage inherits Flickable {
+    // Fades in when it opens.
+    opacity: 0;
+    init => { self.opacity = 1; }
+    animate opacity { duration: Anim.page; easing: ease-out; }
     // Its content would cap the window (Settings squeezed it to the minimum width and stopped «maximise»).
     min-width: 0;
     max-width: 100000px;
@@ -1728,6 +1742,10 @@ component SearchPage inherits Flickable {
 
 // An artist page: popular tracks, then albums, singles, «Участие» and similar artists (Spotify / Android layout).
 component ArtistView inherits Flickable {
+    // Fades in when it opens.
+    opacity: 0;
+    init => { self.opacity = 1; }
+    animate opacity { duration: Anim.page; easing: ease-out; }
     // Its content would cap the window (Settings squeezed it to the minimum width and stopped «maximise»).
     min-width: 0;
     max-width: 100000px;
@@ -1863,6 +1881,10 @@ component HistoryView inherits HorizontalLayout {
 
 // Statistics: period chips, totals, top tracks, artists and albums.
 component StatsView inherits Flickable {
+    // Fades in when it opens.
+    opacity: 0;
+    init => { self.opacity = 1; }
+    animate opacity { duration: Anim.page; easing: ease-out; }
     // Its content would cap the window (Settings squeezed it to the minimum width and stopped «maximise»).
     min-width: 0;
     max-width: 100000px;
@@ -2001,6 +2023,10 @@ export global YtUi {
 }
 
 component YtView inherits Flickable {
+    // Fades in when it opens.
+    opacity: 0;
+    init => { self.opacity = 1; }
+    animate opacity { duration: Anim.page; easing: ease-out; }
     min-width: 0;
     max-width: 100000px;
     min-height: 0;

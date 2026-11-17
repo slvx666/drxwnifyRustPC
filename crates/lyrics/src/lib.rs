@@ -70,26 +70,43 @@ fn enc(s: &str) -> String {
         .collect()
 }
 
+pub mod betterlyrics;
 pub mod kugou;
+pub use betterlyrics::BetterLyrics;
 pub use kugou::KuGou;
 
-/// LrcLib first; when it has nothing synced, KuGou (synced lyrics beat plain ones), as the phone's provider order.
-pub async fn find_any(
-    http: &Http,
-    title: &str,
-    artist: &str,
-    duration_s: Option<u64>,
-    lrclib: bool,
-    kugou: bool,
-) -> Option<Lyrics> {
-    let first = if lrclib { LrcLib::new(http.clone()).find(title, artist, duration_s).await } else { None };
-    if matches!(first, Some(Lyrics::Synced(_))) || !kugou {
-        return first;
+/// Which providers are on (the phone's enableLrclib / enableBetterLyrics / enableKugou).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sources {
+    pub lrclib: bool,
+    pub better: bool,
+    pub kugou: bool,
+}
+
+impl Default for Sources {
+    fn default() -> Self {
+        Sources { lrclib: true, better: true, kugou: true }
     }
-    match KuGou::new(http.clone()).find(title, artist, duration_s).await {
-        Some(l) => Some(l),
-        None => first,
+}
+
+/// LrcLib first; while nothing synced is found, BetterLyrics, then KuGou (synced lyrics beat plain ones), as the
+/// phone's provider order.
+pub async fn find_any(http: &Http, title: &str, artist: &str, duration_s: Option<u64>, on: Sources) -> Option<Lyrics> {
+    let mut best = if on.lrclib { LrcLib::new(http.clone()).find(title, artist, duration_s).await } else { None };
+    if matches!(best, Some(Lyrics::Synced(_))) {
+        return best;
     }
+    if on.better
+        && let Some(l) = BetterLyrics::new(http.clone()).find(title, artist, duration_s).await
+    {
+        return Some(l);
+    }
+    if on.kugou
+        && let Some(l) = KuGou::new(http.clone()).find(title, artist, duration_s).await
+    {
+        best = Some(l);
+    }
+    best
 }
 
 pub struct LrcLib {

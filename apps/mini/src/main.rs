@@ -136,6 +136,8 @@ fn main() {
     }
     perf::init();
     perf::set_profile(app.profile().root());
+    // Quality and the content language/country of YouTube (keys shared with the phone).
+    app.apply_content_prefs(drx_platform::user_locale());
     let ui = MainWindow::new().expect("create window");
 
     // Developer check of other themes: `DRX_THEME=<id>` or `DRX_THEME=<id>:day`.
@@ -144,6 +146,10 @@ fn main() {
         Err(_) => (themes::current_theme_id(&app), themes::current_day(&app)),
     };
     themes::apply(&ui, &theme, day);
+    // DRX_ANIM_MS: stretch the opening animations (checks of a frame in the middle of one).
+    if let Some(ms) = std::env::var("DRX_ANIM_MS").ok().and_then(|v| v.parse::<i64>().ok()) {
+        ui.global::<Anim>().set_page(ms);
+    }
     ui.set_day_theme(day);
 
     let songs = Rc::new(LazySongs::new(app.clone(), ListSpec::LikedSongs));

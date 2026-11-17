@@ -299,6 +299,23 @@ pub fn copy_text(text: &str) -> bool {
     }
 }
 
+/// The user's language and country («ru», «RU») — the phone's SYSTEM_DEFAULT content language and country.
+pub fn user_locale() -> Option<(String, String)> {
+    #[cfg(windows)]
+    let name = {
+        let mut buf = [0u16; 85];
+        // SAFETY: the buffer is LOCALE_NAME_MAX_LENGTH wide as the call wants.
+        let n = unsafe { windows::Win32::Globalization::GetUserDefaultLocaleName(&mut buf) };
+        (n > 1).then(|| String::from_utf16_lossy(&buf[..n as usize - 1]))?
+    };
+    #[cfg(not(windows))]
+    let name = std::env::var("LANG").ok()?.split('.').next()?.replace('_', "-");
+    let mut parts = name.split('-');
+    let lang = parts.next()?.to_lowercase();
+    let country = parts.last().filter(|c| c.len() == 2).unwrap_or("").to_uppercase();
+    Some((lang, country))
+}
+
 /// The user's «Загрузки» folder (saved covers), wherever they moved it.
 pub fn downloads_dir() -> Option<std::path::PathBuf> {
     #[cfg(windows)]

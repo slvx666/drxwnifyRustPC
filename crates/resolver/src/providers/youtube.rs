@@ -84,9 +84,24 @@ const TVHTML5: Client = Client {
 const STREAM_CLIENTS: [&Client; 3] = [&VISIONOS, &ANDROID_VR_1_65_10, &TVHTML5];
 const STREAM_TTL: Duration = Duration::from_secs(60 * 60 * 5);
 
+/// «Качество звука: низкое» (the phone's audioQuality LOW): the smallest audio format instead of the best.
+pub static LOW_QUALITY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Content language and country of YouTube Music answers (the phone's contentLanguage / contentCountry).
+static LOCALE: std::sync::RwLock<(String, String)> = std::sync::RwLock::new((String::new(), String::new()));
+
+/// Sets the language (`hl`, e.g. "ru") and country (`gl`, e.g. "RU") of YouTube Music pages and search.
+pub fn set_content_locale(hl: &str, gl: &str) {
+    *LOCALE.write().expect("locale") = (hl.to_string(), gl.to_string());
+}
+
+fn locale() -> (String, String) {
+    let (hl, gl) = LOCALE.read().expect("locale").clone();
+    (if hl.is_empty() { "ru".into() } else { hl }, if gl.is_empty() { "RU".into() } else { gl })
+}
+
 fn context(c: &Client, visitor: Option<&str>) -> Value {
-    let mut client =
-        json!({ "clientName": c.name, "clientVersion": c.version, "hl": "ru", "gl": "RU" });
+    let (hl, gl) = locale();
+    let mut client = json!({ "clientName": c.name, "clientVersion": c.version, "hl": hl, "gl": gl });
     for (k, v) in [
         ("osName", c.os_name),
         ("osVersion", c.os_version),
@@ -225,7 +240,11 @@ pub(crate) fn best_audio(v: &Value) -> Option<(String, u32)> {
             let br = f.get("bitrate").and_then(Value::as_u64).unwrap_or(0) as u32;
             Some((opus, br, url.to_string()))
         })
-        .max_by_key(|(opus, br, _)| (*opus, *br))
+        .max_by_key(|(opus, br, _)| {
+            // Low quality: still Opus first (smaller for the same sound), then the smallest bitrate.
+            let br = if LOW_QUALITY.load(std::sync::atomic::Ordering::Relaxed) { u32::MAX - *br } else { *br };
+            (*opus, br)
+        })
         .map(|(_, br, url)| (url, br / 1000))
 }
 

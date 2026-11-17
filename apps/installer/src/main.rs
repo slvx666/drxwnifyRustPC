@@ -7,7 +7,7 @@
 fn main() {
     use drx_platform::setup::{APP_NAME, Layout, ask, install, tell};
     use std::io::Read;
-    const MINI: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/mini.gz"));
+    const MINI: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/mini.xz"));
     let version = env!("CARGO_PKG_VERSION");
     let quiet = std::env::args().any(|a| a == "--quiet");
     let Some(layout) = Layout::current() else {
@@ -32,7 +32,7 @@ fn main() {
         ask(APP_NAME, "Создать ярлык на рабочем столе?")
     };
     let mut exe = Vec::new();
-    if let Err(e) = flate2::read::GzDecoder::new(MINI).read_to_end(&mut exe) {
+    if let Err(e) = liblzma::read::XzDecoder::new(MINI).read_to_end(&mut exe) {
         if !quiet {
             tell(APP_NAME, &format!("Установщик повреждён: {e}"));
         }

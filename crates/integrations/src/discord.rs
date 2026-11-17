@@ -22,6 +22,12 @@ pub struct Presence {
     pub start_ms: Option<i64>,
     pub end_ms: Option<i64>,
     pub link: Option<String>,
+    /// Activity type: 2 «Слушает» (default), 0 «Играет», 3 «Смотрит», 5 «Соревнуется» (the phone's discordActivityType).
+    pub kind: u8,
+    /// Show the track and artist (discordUseDetails); off — only «Drxwnify».
+    pub details: bool,
+    /// The «Открыть в Drxwnify» button (discordButton1Visible).
+    pub button: bool,
 }
 
 /// A running presence: updates go to a background thread that keeps the pipe (and reconnects when Discord starts).
@@ -88,14 +94,13 @@ fn clip(s: &str, max: usize) -> String {
 
 /// The SET_ACTIVITY payload (type 2 = «Слушает»).
 pub fn activity(p: &Presence) -> Value {
-    let mut a = json!({
-        "type": 2,
-        "details": clip(&p.title, 128),
-        "state": clip(&p.artist, 128),
-        "instance": false,
-    });
+    let mut a = if p.details {
+        json!({ "type": p.kind, "details": clip(&p.title, 128), "state": clip(&p.artist, 128), "instance": false })
+    } else {
+        json!({ "type": p.kind, "details": "Drxwnify", "instance": false })
+    };
     let mut assets = serde_json::Map::new();
-    if let Some(c) = p.cover.as_ref().filter(|c| c.starts_with("https://")) {
+    if let Some(c) = p.cover.as_ref().filter(|c| c.starts_with("https://") && p.details) {
         assets.insert("large_image".into(), json!(c));
         if !p.album.is_empty() {
             assets.insert("large_text".into(), json!(clip(&p.album, 128)));
@@ -107,7 +112,7 @@ pub fn activity(p: &Presence) -> Value {
     if let (Some(s), Some(e)) = (p.start_ms, p.end_ms) {
         a["timestamps"] = json!({"start": s, "end": e});
     }
-    if let Some(l) = p.link.as_ref().filter(|l| l.starts_with("https://")) {
+    if let Some(l) = p.link.as_ref().filter(|l| l.starts_with("https://") && p.button) {
         a["buttons"] = json!([{"label": "Открыть в Drxwnify", "url": l}]);
     }
     a
@@ -182,6 +187,9 @@ mod tests {
             start_ms: Some(1000),
             end_ms: Some(2000),
             link: Some("https://drxwnify.pages.dev/track/x".into()),
+            kind: 2,
+            details: true,
+            button: true,
         });
         assert_eq!(a["type"], 2);
         assert_eq!(a["assets"]["large_image"], "https://i.scdn.co/image/x");

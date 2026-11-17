@@ -10,7 +10,8 @@ authors.workspace = true
 [dependencies]
 drx-core.workspace = true
 drx-catalog.workspace = true
-regex = "1"
+# Only the Unicode tables the matcher needs (case folding, word boundaries and spaces, letters); no DFA engines.
+regex = { version = "1", default-features = false, features = ["std", "unicode-case", "unicode-perl", "unicode-gencat"] }
 unicode-normalization = "0.1"
 tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
 tracing = "0.1"

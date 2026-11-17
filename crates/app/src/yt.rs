@@ -63,7 +63,15 @@ impl App {
 
     /// A YouTube Music page of sections (moods, a mood, new releases, an artist or channel, «all albums»).
     pub async fn yt_page(&self, browse_id: &str, params: Option<&str>) -> AppResult<YtPage> {
-        let page = self.yt().browse(browse_id, params).await.map_err(|e| AppError::Other(e.0))?;
+        let mut page = self.yt().browse(browse_id, params).await.map_err(|e| AppError::Other(e.0))?;
+        // Content filters (the phone's hideExplicit / hideVideoSongs).
+        let (no_explicit, no_video) = (self.hide_explicit(), self.hide_video());
+        if no_explicit || no_video {
+            for s in &mut page.sections {
+                s.items.retain(|i| !(no_explicit && i.explicit) && !(no_video && i.kind == YtKind::Video));
+            }
+            page.sections.retain(|s| !s.items.is_empty());
+        }
         let tracks: Vec<Track> = page.sections.iter().flat_map(|s| s.items.iter()).filter(|i| matches!(i.kind, YtKind::Song | YtKind::Video)).map(|i| track_of(i, Some(&page))).collect();
         self.remember(tracks.iter());
         Ok(page)

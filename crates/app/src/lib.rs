@@ -23,6 +23,7 @@ pub mod lastfm;
 pub use history::{HISTORY_DURATION_KEY, PAUSE_HISTORY_KEY};
 mod prefs_cache;
 mod queue_store;
+pub mod content;
 pub mod yt;
 mod search;
 pub mod social;
@@ -335,8 +336,11 @@ impl App {
     pub fn apply_playback_prefs(&self) {
         let on = self.pref_bool("autoSkipNextOnError").unwrap_or(false);
         self.inner.playback.skip_on_error.store(on, std::sync::atomic::Ordering::Relaxed);
-        *self.inner.playback.lyrics_sources.lock().expect("lyrics sources") =
-            (self.pref_bool("enableLrclib").unwrap_or(true), self.pref_bool("enableKugou").unwrap_or(true));
+        *self.inner.playback.lyrics_sources.lock().expect("lyrics sources") = drx_lyrics::Sources {
+            lrclib: self.pref_bool("enableLrclib").unwrap_or(true),
+            better: self.pref_bool("enableBetterLyrics").unwrap_or(true),
+            kugou: self.pref_bool("enableKugou").unwrap_or(true),
+        };
         self.apply_sound();
     }
     /// How many songs «Мой топ» holds (the phone's `topSize`, a text setting; 50 by default).
@@ -913,15 +917,22 @@ impl App {
     /// Audio sources available with this profile's sessions.
     fn install_providers(&self) {
         *self.inner.playback.store.lock().expect("store") = Some(self.store());
+        // The sources switched on, in the order of the setting (the phone's audioSourceYouTube… / audioSourceOrder).
         let mut list: Vec<Arc<dyn drx_resolver::provider::AudioProvider>> = Vec::new();
-        list.push(Arc::new(
-            drx_resolver::providers::soundcloud::SoundCloud::new(self.inner.http.clone()),
-        ));
-        list.push(Arc::new(drx_resolver::providers::youtube::YouTube::new(
-            self.inner.http.clone(),
-        )));
-        if let Some(vk) = self.vk() {
-            list.push(Arc::new(drx_resolver::providers::vk::VkProvider::new(vk)));
+        for (id, _, on) in self.source_order() {
+            if !on {
+                continue;
+            }
+            match id {
+                "SOUNDCLOUD" => list.push(Arc::new(drx_resolver::providers::soundcloud::SoundCloud::new(self.inner.http.clone()))),
+                "YOUTUBE" => list.push(Arc::new(drx_resolver::providers::youtube::YouTube::new(self.inner.http.clone()))),
+                "VK" => {
+                    if let Some(vk) = self.vk() {
+                        list.push(Arc::new(drx_resolver::providers::vk::VkProvider::new(vk)));
+                    }
+                }
+                _ => {}
+            }
         }
         *self.inner.playback.providers.lock().expect("providers") = list;
     }
