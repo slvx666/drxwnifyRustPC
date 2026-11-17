@@ -134,6 +134,41 @@ pub fn fill_flags(ui: &MainWindow, app: &App) {
     ui.set_settings_flags(ModelRc::new(VecModel::from(rows)));
 
     let mut more = Vec::new();
+    // Sound and sources (the phone's audioQuality, audioSource* and audioSourceOrder).
+    {
+        use drx_app::content::{AUDIO_QUALITY_KEY, COUNTRIES, LANGUAGES, QUALITIES, SYSTEM_DEFAULT};
+        let q = app.pref_string(AUDIO_QUALITY_KEY).unwrap_or_else(|| "AUTO".into());
+        let names: Vec<&str> = QUALITIES.iter().map(|x| x.1).collect();
+        more.push(choice(
+            AUDIO_QUALITY_KEY,
+            "Качество звука",
+            "«Низкое» — меньший поток с YouTube (меньше трафика); «Авто» и «Высокое» берут лучший",
+            &names,
+            QUALITIES.iter().map(|x| x.0 == q).collect(),
+            "ИСТОЧНИКИ ЗВУКА",
+        ));
+        let order = app.source_order();
+        let n = order.len();
+        for (i, (id, label, on)) in order.into_iter().enumerate() {
+            let hint = match (i, on) {
+                (_, false) => "Выключен: здесь не ищем",
+                (0, true) => "Ищем здесь первым",
+                _ => "Включён",
+            };
+            let opts = [if on { "Включён" } else { "Выключен" }, "Выше", "Ниже"];
+            let usable: Vec<&str> = opts.iter().enumerate().filter(|(k, _)| !(*k == 1 && i == 0) && !(*k == 2 && i + 1 == n)).map(|(_, o)| *o).collect();
+            let marks = usable.iter().map(|o| *o == "Включён").collect();
+            more.push(choice(&format!("src:{id}"), &format!("{}. {label}", i + 1), hint, &usable, marks, ""));
+        }
+        let lang = app.pref_string(drx_app::content::CONTENT_LANGUAGE_KEY).unwrap_or_else(|| SYSTEM_DEFAULT.into());
+        let names: Vec<&str> = LANGUAGES.iter().map(|x| x.1).collect();
+        more.push(choice(drx_app::content::CONTENT_LANGUAGE_KEY, "Язык контента", "Страницы и поиск YouTube Music", &names, LANGUAGES.iter().map(|x| x.0 == lang).collect(), "КОНТЕНТ"));
+        let country = app.pref_string(drx_app::content::CONTENT_COUNTRY_KEY).unwrap_or_else(|| SYSTEM_DEFAULT.into());
+        let names: Vec<&str> = COUNTRIES.iter().map(|x| x.1).collect();
+        more.push(choice(drx_app::content::CONTENT_COUNTRY_KEY, "Страна контента", "Новые релизы, настроения и подборки YouTube Music", &names, COUNTRIES.iter().map(|x| x.0 == country).collect(), ""));
+        more.push(switch(drx_app::content::HIDE_EXPLICIT_KEY, "Скрывать треки 18+ (explicit)", "В поиске и на страницах YouTube", app.hide_explicit(), ""));
+        more.push(switch(drx_app::content::HIDE_VIDEO_KEY, "Скрывать видео", "Клипы среди песен на страницах YouTube", app.hide_video(), ""));
+    }
     let secs = app.pref_f32(drx_app::HISTORY_DURATION_KEY).unwrap_or(30.0);
     let near = HISTORY_SECONDS
         .iter()
@@ -163,7 +198,21 @@ pub fn fill_flags(ui: &MainWindow, app: &App) {
         "",
     ));
     more.push(switch("enableLrclib", "LRCLIB", "Синхронные тексты, основной источник", app.pref_bool("enableLrclib").unwrap_or(true), "ТЕКСТЫ"));
-    more.push(switch("enableKugou", "KuGou", "Если в LRCLIB нет синхронного текста", app.pref_bool("enableKugou").unwrap_or(true), ""));
+    more.push(switch("enableBetterLyrics", "BetterLyrics", "Если в LRCLIB нет синхронного текста", app.pref_bool("enableBetterLyrics").unwrap_or(true), ""));
+    more.push(switch("enableKugou", "KuGou", "Если не нашлось и там", app.pref_bool("enableKugou").unwrap_or(true), ""));
+    more.push(choice("autoeq", "Профиль AutoEq", "Файл ParametricEQ.txt для своих наушников (autoeq.app) — включится сразу", &["Выбрать файл…"], vec![false], "ЭКВАЛАЙЗЕР"));
+    // Discord's advanced mode (the phone reads these options only in it).
+    {
+        use crate::discord_ui::{ADVANCED_KEY, BUTTON_KEY, TYPES, TYPE_KEY};
+        let adv = app.pref_bool(ADVANCED_KEY).unwrap_or(false);
+        more.push(switch(ADVANCED_KEY, "Расширенный статус Discord", "Свой тип активности и кнопка (когда «Статус в Discord» включён)", adv, "DISCORD"));
+        if adv {
+            let t = app.pref_string(TYPE_KEY).unwrap_or_else(|| "listening".into()).to_lowercase();
+            let names: Vec<&str> = TYPES.iter().map(|x| x.1).collect();
+            more.push(choice(TYPE_KEY, "Тип активности", "", &names, TYPES.iter().map(|x| x.0 == t).collect(), ""));
+            more.push(switch(BUTTON_KEY, "Кнопка «Открыть в Drxwnify»", "", app.pref_bool(BUTTON_KEY).unwrap_or(true), ""));
+        }
+    }
     let cats = sponsor_categories(app);
     let names: Vec<&str> = drx_app::sponsorblock::CATEGORIES.iter().map(|(_, n)| *n).collect();
     more.push(choice(
@@ -233,6 +282,9 @@ fn set_flag(ui: &MainWindow, app: &App, key: &str, on: bool) {
             if key == crate::discord_ui::KEY {
                 crate::discord_ui::set_enabled(app, on);
             }
+            if key.starts_with("discord") {
+                crate::discord_ui::refresh(app);
+            }
         }
     }
     fill_flags(ui, app);
@@ -286,6 +338,62 @@ fn pick(ui: &MainWindow, app: &App, key: &str, i: usize) {
                         fill_flags(&ui, &app3);
                     });
                 });
+            }
+        }
+        drx_app::content::AUDIO_QUALITY_KEY => {
+            if let Some((v, _)) = drx_app::content::QUALITIES.get(i) {
+                let _ = app.set_pref(key, PrefValue::String((*v).into()));
+                app.apply_content_prefs(drx_platform::user_locale());
+            }
+        }
+        drx_app::content::CONTENT_LANGUAGE_KEY | drx_app::content::CONTENT_COUNTRY_KEY => {
+            let list: &[(&str, &str)] =
+                if key == drx_app::content::CONTENT_LANGUAGE_KEY { &drx_app::content::LANGUAGES } else { &drx_app::content::COUNTRIES };
+            if let Some((v, _)) = list.get(i) {
+                let _ = app.set_pref(key, PrefValue::String((*v).into()));
+                app.apply_content_prefs(drx_platform::user_locale());
+            }
+        }
+        crate::discord_ui::TYPE_KEY => {
+            if let Some((v, _, _)) = crate::discord_ui::TYPES.get(i) {
+                let _ = app.set_pref(key, PrefValue::String((*v).into()));
+                crate::discord_ui::refresh(app);
+            }
+        }
+        "autoeq" => {
+            if let Some(path) = drx_platform::pick_file("Профиль AutoEq", "AutoEq (ParametricEQ.txt)", "*.txt") {
+                match app.import_autoeq(&path) {
+                    Ok(name) => ui.set_toast(format!("Эквалайзер: {name}").into()),
+                    Err(e) => ui.set_toast(format!("Не получилось: {e}").into()),
+                }
+                crate::sound_ui::fill(ui, app);
+            }
+        }
+        k if k.starts_with("src:") => {
+            let id = &k[4..];
+            // The chips shown: [on/off, up?, down?] — up is missing for the first, down for the last.
+            let order = app.source_order();
+            let at = order.iter().position(|s| s.0 == id).unwrap_or(0);
+            let mut acts = vec!["toggle"];
+            if at > 0 {
+                acts.push("up");
+            }
+            if at + 1 < order.len() {
+                acts.push("down");
+            }
+            match acts.get(i).copied() {
+                Some("toggle") => {
+                    let on = order.get(at).is_some_and(|s| s.2);
+                    // At least one source stays on (otherwise nothing could play).
+                    if on && order.iter().filter(|s| s.2).count() <= 1 {
+                        ui.set_toast("Хотя бы один источник должен остаться включённым".into());
+                    } else {
+                        app.set_source_on(id, !on);
+                    }
+                }
+                Some("up") => app.move_source(id, -1),
+                Some("down") => app.move_source(id, 1),
+                _ => {}
             }
         }
         "privacy:now" | "privacy:history" => {

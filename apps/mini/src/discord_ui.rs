@@ -14,6 +14,13 @@ pub const BUTTON_KEY: &str = "discordButton1Visible";
 /// discordActivityType values and the Discord activity type of each.
 pub const TYPES: [(&str, &str, u8); 4] = [("listening", "Слушает", 2), ("playing", "Играет", 0), ("watching", "Смотрит", 3), ("competing", "Соревнуется", 5)];
 
+/// The settings changed: the status is sent again with them.
+pub fn refresh(app: &App) {
+    if let Some(r) = slot().lock().expect("discord").as_ref() {
+        r.set(presence(app));
+    }
+}
+
 
 static RPC: OnceLock<Mutex<Option<Rpc>>> = OnceLock::new();
 
