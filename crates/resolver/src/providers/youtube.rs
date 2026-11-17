@@ -295,6 +295,23 @@ impl YouTube {
         resp.json().await.map_err(|e| ProviderError(e.to_string()))
     }
 
+    /// A YouTube Music page (moods, new releases, an artist or channel, a playlist or album) — see
+    /// `yt_browse`. `browse_id` as the page's links carry it (VL…, MPREb…, UC…, FEmusic_…).
+    pub async fn browse(&self, browse_id: &str, params: Option<&str>) -> Result<super::yt_browse::YtPage, ProviderError> {
+        let mut body = json!({ "browseId": browse_id });
+        if let Some(p) = params {
+            body["params"] = json!(p);
+        }
+        let v = self.post("browse", &WEB_REMIX, body).await?;
+        Ok(super::yt_browse::parse_page(&v))
+    }
+
+    /// The next part of a long YouTube Music list (its `continuation` token).
+    pub async fn browse_more(&self, token: &str) -> Result<(Vec<super::yt_browse::YtItem>, Option<String>), ProviderError> {
+        let v = self.post("browse", &WEB_REMIX, json!({ "continuation": token })).await?;
+        Ok(super::yt_browse::parse_continuation(&v))
+    }
+
     /// Search suggestions as YouTube Music shows them while typing (`music/get_search_suggestions`, WEB_REMIX),
     /// the source Android uses for its search box.
     pub async fn suggestions(&self, query: &str) -> Vec<String> {

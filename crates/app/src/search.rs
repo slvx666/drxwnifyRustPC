@@ -222,11 +222,7 @@ impl App {
     }
 
     fn hide_explicit(&self) -> bool {
-        std::fs::read(self.profile().prefs_pb())
-            .ok()
-            .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
-            .and_then(|p| p.get_bool("hideExplicit"))
-            .unwrap_or(false)
+        self.pref_bool("hideExplicit").unwrap_or(false)
     }
 
     /// Searches `query` in `source` (or opens the link it is).

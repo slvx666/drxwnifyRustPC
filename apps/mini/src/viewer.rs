@@ -91,8 +91,12 @@ pub fn wire(ui: &MainWindow, app: &App) {
 /// does not load (YouTube has no maxres thumbnail for some videos). Called again when images arrive.
 pub fn refresh(ui: &MainWindow, app: &App) {
     let Some((url, _)) = SHOWN.with(|s| s.borrow().clone()) else { return };
+    // Already showing it (the pixels were taken out of the core's cache, so do not ask for them again).
+    if ui.get_viewer_has_image() {
+        return;
+    }
     let big = drx_core::images::largest(&url);
-    let pick = app.image(&big, VIEW_SIZE).or_else(|| app.image(&url, VIEW_SIZE));
+    let pick = app.take_image(&big, VIEW_SIZE).or_else(|| app.take_image(&url, VIEW_SIZE));
     match pick {
         Some(p) => {
             let buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(&p.rgba, p.size, p.size);

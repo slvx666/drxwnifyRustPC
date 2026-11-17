@@ -22,6 +22,9 @@ mod downloads_ui;
 mod track_menu;
 mod nav;
 mod os;
+mod yt_view;
+mod covers;
+mod perf;
 mod search_view;
 mod settings_view;
 mod sound_ui;
@@ -131,6 +134,8 @@ fn main() {
             eprintln!("import failed: {e}");
         }
     }
+    perf::init();
+    perf::set_profile(app.profile().root());
     let ui = MainWindow::new().expect("create window");
 
     // Developer check of other themes: `DRX_THEME=<id>` or `DRX_THEME=<id>:day`.
@@ -144,6 +149,7 @@ fn main() {
     let songs = Rc::new(LazySongs::new(app.clone(), ListSpec::LikedSongs));
     ui.set_songs(ModelRc::from(songs.clone()));
     nav::init(&songs);
+    nav::set_ui(&ui, &app);
     refresh_library(&ui, &app, &songs);
     ui.set_view_subtitle(format!("{} треков", songs.len()).into());
 
@@ -187,6 +193,11 @@ fn main() {
             if id.is_empty() {
                 return;
             }
+            // A YouTube artist or channel (UC…) opens its YouTube page.
+            if id.starts_with("UC") {
+                nav::go(&ui, &app2, &songs2, nav::Page::yt(&id, None, ""));
+                return;
+            }
             let spec = app2.runtime().block_on(app2.artist_page(&id));
             let page = nav::Page::list(spec, "", "", None);
             nav::go(&ui, &app2, &songs2, page);
@@ -197,7 +208,12 @@ fn main() {
             if id.is_empty() {
                 return;
             }
-            let spec = app2.runtime().block_on(app2.album_page(&id));
+            // A YouTube Music album (MPREb…) opens as a YouTube list.
+            let spec = if id.starts_with("MPRE") {
+                ListSpec::YtList { id: id.to_string() }
+            } else {
+                app2.runtime().block_on(app2.album_page(&id))
+            };
             let page = nav::Page::list(spec, "", "", None);
             nav::go(&ui, &app2, &songs2, page);
         });
@@ -792,13 +808,9 @@ fn main() {
     {
         let (app2, songs2) = (app.clone(), songs.clone());
         let ui_w = ui.as_weak();
-        ui.on_list_changed(move || {
-            songs2.invalidate();
-            if let Some(ui) = ui_w.upgrade() {
-                artist_view::set_tracks(&ui, &songs2);
-                nav::refresh_header(&ui, &app2);
-            }
-        });
+        let _ = (app2, ui_w);
+        // The heading and the artist's tracks follow when the new count comes (nav::list_loaded).
+        ui.on_list_changed(move || songs2.invalidate());
     }
     {
         let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
@@ -808,7 +820,6 @@ fn main() {
             ui.set_view_title("Любимые треки".into());
             ui.set_selected_id("liked".into());
             refresh_library(&ui, &app2, &songs2);
-            ui.set_view_subtitle(format!("{} треков", songs2.len()).into());
         });
     }
 
@@ -857,6 +868,7 @@ fn main() {
                 search_view::refresh_covers(&ui, &app3);
                 artist_view::refresh_covers(&ui, &app3, &songs3);
                 history_view::refresh_covers(&ui);
+                yt_view::refresh_covers(&ui, &app3);
                 stats_view::refresh_covers(&ui, &app3);
                 viewer::refresh(&ui, &app3);
                 queue_ui::refresh_covers(&ui, &app3);
@@ -936,6 +948,16 @@ fn main() {
         nav::go(&ui, &app, &songs, nav::Page::history());
     } else if demo_page.as_deref() == Some("stats") {
         nav::go(&ui, &app, &songs, nav::Page::stats());
+    } else if let Some(y) = std::env::var("DRX_DEMO").ok().and_then(|d| d.strip_prefix("yt:").map(str::to_string)) {
+        // DRX_DEMO=yt:moods|new, yt:<browse id> (a page), yt:list:<id> (a playlist or album).
+        let page = match y.as_str() {
+            "moods" | "new" => yt_view::root_page(&y),
+            _ => match y.strip_prefix("list:") {
+                Some(id) => nav::Page::list(ListSpec::YtList { id: id.to_string() }, "", "", None),
+                None => nav::Page::yt(&y, None, ""),
+            },
+        };
+        nav::go(&ui, &app, &songs, page);
     } else if let Some(q) = std::env::var("DRX_DEMO")
         .ok()
         .and_then(|d| d.strip_prefix("search:").map(str::to_string))
@@ -1018,6 +1040,7 @@ fn main() {
     playlists_ui::wire(&ui, &app);
     friends_view::wire(&ui, &app);
     viewer::wire(&ui, &app);
+    yt_view::wire(&ui, &app);
     portrait_view::wire(&ui, &app);
     rooms_ui::wire(&ui, &app);
     sleep_ui::wire(&ui, &app);
@@ -1309,8 +1332,10 @@ fn main() {
         });
     }
 
+    perf::start_tour(&ui, &app);
     ui.run().expect("run UI");
     app.save_queue();
+    app.flush_prefs();
 }
 
 thread_local! {
@@ -1422,25 +1447,7 @@ pub fn theme_r(max: f32, decoded: u32, shown: f32) -> f32 {
 /// A cover with rounded corners baked into its pixels (`radius` in decoded px; size/2 = a circle). The software
 /// renderer does not clip images to rounded rectangles, so the corners are made transparent here, antialiased.
 pub fn cover_r(app: &App, url: &str, size: u32, radius: f32) -> Option<slint::Image> {
-    match app.image(url, size) {
-        Some(p) => {
-            let mut buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
-                &p.rgba, p.size, p.size,
-            );
-            if radius >= 0.5 {
-                round_corners(
-                    buf.make_mut_slice(),
-                    p.size as usize,
-                    radius.min(p.size as f32 / 2.0),
-                );
-            }
-            Some(slint::Image::from_rgba8(buf))
-        }
-        None => {
-            app.request_image(url, size);
-            None
-        }
-    }
+    covers::get(app, url, size, radius, |px, n, r| round_corners(px, n, r))
 }
 
 fn round_corners(px: &mut [slint::Rgba8Pixel], n: usize, r: f32) {

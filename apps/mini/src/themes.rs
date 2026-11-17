@@ -23,22 +23,14 @@ fn mini_specs() -> Vec<Value> {
 }
 
 pub fn current_theme_id(app: &App) -> String {
-    std::fs::read(app.profile().prefs_pb())
-        .ok()
-        .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
-        .and_then(|p| p.get_str(THEME_KEY).map(str::to_string))
-        .unwrap_or_else(|| "tategaki".into())
+    app.pref_string(THEME_KEY).unwrap_or_else(|| "tategaki".into())
 }
 
 /// Setting key for the day (light) variant of the theme (PC only).
 pub const DAY_KEY: &str = "pcThemeDay";
 
 pub fn current_day(app: &App) -> bool {
-    std::fs::read(app.profile().prefs_pb())
-        .ok()
-        .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
-        .and_then(|p| p.get_bool(DAY_KEY))
-        .unwrap_or(false)
+    app.pref_bool(DAY_KEY).unwrap_or(false)
 }
 
 /// Every theme for the settings page: id, name, accent and background of the night or day variant.

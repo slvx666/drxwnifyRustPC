@@ -1975,6 +1975,135 @@ component StatsView inherits Flickable {
     }
 }
 
+/// A YouTube Music page (moods and genres, a mood, new releases, an artist or channel): rows of mood
+/// buttons, cards or tracks. Rust fills `YtUi.rows` and maps (row, item) back to the page's links.
+export struct YtChip {
+    title: string,
+    color: color,
+}
+
+export struct YtRow {
+    kind: string, // chips | cards | round | tracks
+    title: string,
+    more: bool,
+    chips: [YtChip],
+    cards: [HomeCard],
+    tracks: [SongItem],
+}
+
+export global YtUi {
+    in-out property <[YtRow]> rows;
+    in-out property <string> state; // "" | error text
+    callback open(int, int); // row, chip/card
+    callback play(int, int); // row, track
+    callback more(int);
+    callback root-page(string); // new | moods
+}
+
+component YtView inherits Flickable {
+    min-width: 0;
+    max-width: 100000px;
+    min-height: 0;
+    max-height: 100000px;
+    in property <string> now-id;
+    callback open-album(string);
+    callback open-artist(string);
+    callback like-song(string);
+    callback song-menu(string, int, length, length);
+    content-height: body.preferred-height + Grid.pad;
+    body := VerticalLayout {
+        width: root.width;
+        spacing: 10px;
+        alignment: start;
+        if YtUi.state != "": Text {
+            x: Grid.pad + 4px;
+            text: YtUi.state;
+            font-family: Theme.body-font; font-size: 15px; color: Theme.dim;
+        }
+        for row[ri] in YtUi.rows: VerticalLayout {
+            spacing: 8px;
+            if row.title != "": HorizontalLayout {
+                padding-left: Grid.pad + 4px;
+                padding-right: Grid.pad;
+                padding-top: 6px;
+                height: 38px;
+                Text { horizontal-stretch: 1; text: row.title; font-family: Theme.heading-font; font-weight: 700; font-size: 22px; color: Theme.text; vertical-alignment: center; overflow: elide; }
+                if row.more: Link { text: "Показать все"; font-size: 14px; clicked => { YtUi.more(ri); } }
+            }
+            if row.kind == "chips": HorizontalLayout {
+                padding-left: Grid.pad + 4px;
+                padding-right: Grid.pad;
+                spacing: 10px;
+                for c[ci] in row.chips: Rectangle {
+                    horizontal-stretch: 1;
+                    height: 48px;
+                    border-radius: min(Theme.cover-radius, 8px);
+                    background: c.title == "" ? transparent : (cta.has-hover ? Theme.fill-hover : Theme.fill);
+                    clip: true;
+                    if c.title != "": Rectangle { x: 0; y: 0; width: 6px; height: parent.height; background: c.color; }
+                    Text { x: 18px; width: parent.width - 26px; height: parent.height; text: c.title; font-family: Theme.body-font; font-weight: 600; font-size: 15px; color: Theme.text; vertical-alignment: center; overflow: elide; }
+                    cta := TouchArea { enabled: c.title != ""; mouse-cursor: pointer; clicked => { YtUi.open(ri, ci); } }
+                }
+            }
+            if row.kind == "cards" || row.kind == "round": CardStrip {
+                cards: row.cards;
+                round: row.kind == "round";
+                clicked(i) => { YtUi.open(ri, i); }
+            }
+            if row.kind == "tracks": VerticalLayout {
+                padding-left: Grid.pad;
+                padding-right: Grid.pad;
+                for t[ti] in row.tracks: SongRow {
+                    song: t;
+                    current: root.now-id != "" && t.id == root.now-id;
+                    play => { YtUi.play(ri, ti); }
+                    open-artist(id) => { root.open-artist(id); }
+                    open-album(id) => { root.open-album(id); }
+                    like-song(id) => { root.like-song(id); }
+                    song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
+                }
+            }
+        }
+    }
+}
+
+/// A page whose data is still loading (Rust sets `loading` while a background load runs).
+export global PageState {
+    in-out property <bool> loading;
+}
+
+/// Placeholder rows while a page loads. Cheap for the software renderer: no running animation, a lighter band
+/// steps down the rows five times a second (only those two rows are redrawn), and it shows only after 150 ms so
+/// fast pages never flash it.
+component Skeleton inherits Rectangle {
+    in property <int> rows: 9;
+    property <int> lit: -1;
+    property <bool> shown: false;
+    Timer { interval: 150ms; running: !root.shown; triggered => { root.shown = true; } }
+    Timer { interval: 200ms; running: root.shown; triggered => { root.lit = mod(root.lit + 1, root.rows + 3); } }
+    if root.shown: VerticalLayout {
+        padding-top: 8px;
+        spacing: 8px;
+        alignment: start;
+        for i in root.rows: Rectangle {
+            height: 52px;
+            border-radius: min(Theme.cover-radius, 8px);
+            background: i == root.lit ? Theme.fill-hover : Theme.fill;
+            HorizontalLayout {
+                padding: 8px;
+                spacing: 14px;
+                Rectangle { width: 36px; border-radius: min(Theme.cover-radius, 5px); background: Theme.fill; }
+                VerticalLayout {
+                    spacing: 8px;
+                    alignment: center;
+                    Rectangle { height: 10px; width: root.width * (0.30 + mod(i * 37, 25) / 100); border-radius: 5px; background: Theme.fill; }
+                    Rectangle { height: 8px; width: root.width * (0.16 + mod(i * 53, 15) / 100); border-radius: 4px; background: Theme.fill; }
+                }
+            }
+        }
+    }
+}
+
 component MainArea inherits VerticalLayout {
     in property <string> title;
     in property <string> subtitle;
@@ -1996,6 +2125,7 @@ component MainArea inherits VerticalLayout {
     in property <bool> search; // the search page
     in property <bool> artist-view; // an artist page (sections instead of the track list)
     in property <bool> history;
+    in property <bool> yt; // a YouTube Music page (YtUi)
     in property <[HistoryItem]> h-items;
     callback h-play(int);
     callback h-remove(int);
@@ -2102,10 +2232,12 @@ component MainArea inherits VerticalLayout {
             Text { text: title; font-family: Theme.heading-font; font-weight: Theme.heading-weight; font-size: root.is-page ? 44px : 32px; color: Theme.text; overflow: elide; }
             Text { text: subtitle; font-family: Theme.body-font; font-size: 15px; color: Theme.dim; overflow: elide; }
             // «Случайное» on the home page (Android's play-random button): a random card of the rows plays.
-            if root.home && root.sections.length > 0: HorizontalLayout {
+            // …and YouTube Music's own pages (the phone's Explore): new releases, moods and genres (no charts: owner's call).
+            if root.home: HorizontalLayout {
                 padding-top: 6px;
+                spacing: 8px;
                 alignment: start;
-                Rectangle {
+                if root.sections.length > 0: Rectangle {
                     width: rnd-row.preferred-width + 32px;
                     height: 38px;
                     border-radius: min(Theme.chip-radius, 19px);
@@ -2118,6 +2250,8 @@ component MainArea inherits VerticalLayout {
                     }
                     rnd := TouchArea { mouse-cursor: pointer; clicked => { root.home-random(); } }
                 }
+                Middle { Chip { label: "Новые релизы"; clicked => { YtUi.root-page("new"); } } }
+                Middle { Chip { label: "Настроения и жанры"; clicked => { YtUi.root-page("moods"); } } }
             }
             // Chips of the page (the periods of «Мой топ»): their own row, so they never widen the heading.
             if PageChips.labels.length > 0: HorizontalLayout {
@@ -2268,7 +2402,8 @@ component MainArea inherits VerticalLayout {
             }
         }
     }
-    if root.history: HistoryView {
+    if PageState.loading: Skeleton { vertical-stretch: 1; }
+    if root.history && !PageState.loading: HistoryView {
         vertical-stretch: 1;
         items: root.h-items;
         now-id: root.now-id;
@@ -2279,7 +2414,15 @@ component MainArea inherits VerticalLayout {
         like-song(id) => { root.like-song(id); }
         song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
     }
-    if root.stats: StatsView {
+    if root.yt && !PageState.loading: YtView {
+        vertical-stretch: 1;
+        now-id: root.now-id;
+        open-artist(id) => { root.open-artist(id); }
+        open-album(id) => { root.open-album(id); }
+        like-song(id) => { root.like-song(id); }
+        song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
+    }
+    if root.stats && !PageState.loading: StatsView {
         vertical-stretch: 1;
         periods: root.st-periods;
         tiles: root.st-tiles;
@@ -2298,7 +2441,7 @@ component MainArea inherits VerticalLayout {
         song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
         open-album(id) => { root.open-album(id); }
     }
-    if root.artist-view && !root.empty-library: ArtistView {
+    if root.artist-view && !root.empty-library && !PageState.loading: ArtistView {
         vertical-stretch: 1;
         tracks: root.a-tracks;
         tracks-total: root.a-total;
@@ -2444,7 +2587,7 @@ component MainArea inherits VerticalLayout {
             }
         }
     }
-    if !root.home && !root.settings && !root.search && !root.artist-view && !root.history && !root.stats && !root.empty-library: HorizontalLayout {
+    if !root.home && !root.settings && !root.search && !root.artist-view && !root.history && !root.stats && !root.yt && !root.empty-library && !PageState.loading: HorizontalLayout {
         vertical-stretch: 1;
         padding-left: 8px;
         padding-right: 4px;
@@ -4146,6 +4289,7 @@ export component MainWindow inherits Window {
     in property <bool> view-search;
     in property <bool> view-artist;
     in property <bool> view-history;
+    in property <bool> view-yt;
     in property <[HistoryItem]> history-items;
     in property <bool> view-stats;
     in property <[SourceChip]> stats-periods;
@@ -4517,7 +4661,7 @@ export component MainWindow inherits Window {
                         zoom-cover => { root.view-picture("page"); }
                         kind-label: root.view-kind;
                         liked-cover: root.view-liked-cover;
-                        can-play: root.view-can-play && !root.view-home && !root.view-settings && !root.view-search && !root.view-history && !root.view-stats;
+                        can-play: root.view-can-play && !root.view-home && !root.view-settings && !root.view-search && !root.view-history && !root.view-stats && !root.view-yt;
                         play-all => { root.play-all(); }
                         shuffle-all => { root.shuffle-all(); }
                         cover: root.view-cover;
@@ -4537,6 +4681,7 @@ export component MainWindow inherits Window {
                         search: root.view-search;
                         artist-view: root.view-artist;
                         history: root.view-history;
+                        yt: root.view-yt;
                         h-items: root.history-items;
                         h-play(i) => { root.history-play(i); }
                         h-remove(e) => { root.history-remove(e); }

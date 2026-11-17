@@ -40,7 +40,7 @@ impl LazyLibrary {
                 .borrow()
                 .get(row)
                 .and_then(|e| e.thumbnail.clone())
-                .is_some_and(|u| self.app.image(&u, crate::ROW_COVER).is_some());
+                .is_some_and(|u| crate::covers::ready(&self.app, &u, crate::ROW_COVER));
             if ready {
                 self.missing.borrow_mut().remove(&row);
                 self.notify.row_changed(row);

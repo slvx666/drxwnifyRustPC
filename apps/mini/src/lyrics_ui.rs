@@ -88,9 +88,14 @@ pub fn wire(ui: &MainWindow, app: &App) {
                 (n.lyrics.clone(), n.track.as_ref().map(|t| t.id.clone()).unwrap_or_default())
             };
             let key = (lyrics.as_ref().map(|l| Arc::as_ptr(l) as usize), track.clone());
-            if key != last {
+            if key == last {
+                // Play/pause: the line timer runs only while it has something to follow.
+                let (app3, ui_w3) = (app2.clone(), ui_w.clone());
+                let _ = ui_w3.upgrade_in_event_loop(move |ui| update_timer(&ui, &app3));
+            } else {
                 let new_track = key.1 != last.1;
                 last = key;
+                let app3 = app2.clone();
                 let _ = ui_w.upgrade_in_event_loop(move |ui| {
                     SHOWN.with(|s| {
                         let mut s = s.borrow_mut();
@@ -98,6 +103,7 @@ pub fn wire(ui: &MainWindow, app: &App) {
                         *s = (lyrics.clone(), track, since);
                     });
                     set_lines(&ui, lyrics.as_deref());
+                    update_timer(&ui, &app3);
                 });
             }
             if rx.changed().await.is_err() {
@@ -105,12 +111,40 @@ pub fn wire(ui: &MainWindow, app: &App) {
             }
         }
     });
-    // The sung line, five times a second (cheap: a scan of a few dozen lines).
-    let (app3, ui_w3) = (app.clone(), ui.as_weak());
-    let timer = Box::leak(Box::new(slint::Timer::default()));
-    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(200), move || {
-        if let Some(ui) = ui_w3.upgrade() {
-            tick(&ui, &app3);
+}
+
+thread_local! {
+    static TIMER: slint::Timer = slint::Timer::default();
+}
+
+/// The sung line, five times a second (a scan of a few dozen lines), but only while synced lyrics play or the
+/// lyrics are still being looked for; otherwise nothing wakes the window.
+fn update_timer(ui: &MainWindow, app: &App) {
+    let (lyrics, track, since) = SHOWN.with(|s| s.borrow().clone());
+    let run = match lyrics.as_deref() {
+        Some(Lyrics::Synced(_)) => app.clock().playing,
+        Some(Lyrics::Plain(_)) => false,
+        None => !track.is_empty() && since.elapsed().as_secs() < 9,
+    };
+    tick(ui, app);
+    TIMER.with(|t| {
+        if !run {
+            t.stop();
+        } else if !t.running() {
+            let (app, ui_w) = (app.clone(), ui.as_weak());
+            t.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(200), move || {
+                if let Some(ui) = ui_w.upgrade() {
+                    tick(&ui, &app);
+                    // Done looking: stop (the status line has its final words).
+                    let done = SHOWN.with(|s| {
+                        let s = s.borrow();
+                        s.0.is_none() && (s.1.is_empty() || s.2.elapsed().as_secs() >= 9)
+                    });
+                    if done {
+                        TIMER.with(|t| t.stop());
+                    }
+                }
+            });
         }
     });
 }

@@ -37,6 +37,7 @@ pub fn fill(ui: &MainWindow, app: &App) {
         })
         .collect();
     ui.set_settings_accounts(ModelRc::new(VecModel::from(accounts)));
+    crate::perf::step("accounts");
     let day = crate::themes::current_day(app);
     let current = crate::themes::current_theme_id(app);
     let themes: Vec<ThemeChip> = crate::themes::list(day)
@@ -51,11 +52,16 @@ pub fn fill(ui: &MainWindow, app: &App) {
         .collect();
     ui.set_settings_themes(ModelRc::new(VecModel::from(themes)));
     ui.set_day_theme(day);
+    crate::perf::step("themes");
     ui.set_global_hotkeys(crate::os::hotkeys_on(app));
     ui.set_autostart(crate::os::autostart_on());
+    crate::perf::step("autostart");
     fill_flags(ui, app);
+    crate::perf::step("flags");
     fill_hotkeys(ui, app);
+    crate::perf::step("hotkeys");
     crate::sound_ui::fill(ui, app);
+    crate::perf::step("sound");
 }
 
 /// The playback switches (booleans of settings.preferences_pb, the phone's keys): (key, label, hint, default).

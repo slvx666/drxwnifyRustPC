@@ -18,10 +18,7 @@ const ICON_PNGS: &[(&str, &[u8])] = &[
 ];
 
 fn saved_icon(app: &App) -> Option<String> {
-    std::fs::read(app.profile().prefs_pb())
-        .ok()
-        .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
-        .and_then(|p| p.get_str(app_icons::PREF_KEY).map(str::to_owned))
+    app.pref_string(app_icons::PREF_KEY)
 }
 
 /// Sets the window (and so taskbar) icon to the chosen variant.

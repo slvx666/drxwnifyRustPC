@@ -4,7 +4,7 @@
 use crate::nav::{length_words, plays_word};
 use crate::{HomeCard, MainWindow, SongItem, SourceChip, StatTile};
 use drx_app::{App, StatPeriod, Stats};
-use slint::{Model, ModelRc, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -88,6 +88,17 @@ pub fn wire_wrapped(ui: &MainWindow, app: &App) {
     });
 }
 
+/// The page was left: its numbers and cards are let go.
+pub fn release(ui: &MainWindow) {
+    if DATA.with(|d| d.borrow_mut().take()).is_some() {
+        CARDS.with(|c| c.borrow_mut().clear());
+        ui.set_stats_tracks(ModelRc::default());
+        ui.set_stats_artists(ModelRc::default());
+        ui.set_stats_albums(ModelRc::default());
+        ui.set_stats_tiles(ModelRc::default());
+    }
+}
+
 pub fn show(ui: &MainWindow, app: &App) {
     let period = StatPeriod::ALL[PERIOD.with(|p| p.get())];
     let chips: Vec<SourceChip> = StatPeriod::ALL
@@ -100,10 +111,23 @@ pub fn show(ui: &MainWindow, app: &App) {
     ui.set_stats_periods(ModelRc::new(VecModel::from(chips)));
     ui.set_view_subtitle("Прослушивания в этом приложении".into());
     ui.set_stats_note("".into());
-    let stats = app
-        .runtime()
-        .block_on(app.stats(period))
-        .unwrap_or_default();
+    crate::nav::set_loading(ui, true);
+    let generation = crate::nav::generation();
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    app.runtime().spawn(async move {
+        let stats = app2.stats(period).await.unwrap_or_default();
+        let _ = slint::invoke_from_event_loop(move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            // Another page, or another period chosen meanwhile.
+            if crate::nav::generation() == generation && StatPeriod::ALL[PERIOD.with(|p| p.get())] == period {
+                crate::nav::set_loading(&ui, false);
+                fill(&ui, &app2, period, stats);
+            }
+        });
+    });
+}
+
+fn fill(ui: &MainWindow, app: &App, period: StatPeriod, stats: drx_app::Stats) {
     // Wrapped: the year's line and its playlist (the phone's last pages).
     {
         use slint::ComponentHandle;

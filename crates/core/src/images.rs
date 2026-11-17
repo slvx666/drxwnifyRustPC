@@ -192,6 +192,18 @@ impl Images {
         self.lru.lock().expect("lru").get(&(url.to_string(), size))
     }
 
+    /// Takes the image out of the memory cache (the UI keeps its own copy, so the pixels are not held twice).
+    pub fn take(&self, url: &str, size: u32) -> Option<Arc<Pixels>> {
+        let mut lru = self.lru.lock().expect("lru");
+        let key = (url.to_string(), size);
+        let p = lru.map.remove(&key)?;
+        lru.bytes -= p.rgba.len();
+        if let Some(pos) = lru.order.iter().position(|x| *x == key) {
+            lru.order.remove(pos);
+        }
+        Some(p)
+    }
+
     /// Loads (disk cache or network), decodes and resizes. Returns None for broken images.
     pub async fn load(&self, url: &str, size: u32) -> Option<Arc<Pixels>> {
         let key = (url.to_string(), size);

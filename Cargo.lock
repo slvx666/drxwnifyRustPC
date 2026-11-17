@@ -1743,6 +1743,7 @@ dependencies = [
  "drx-social",
  "drx-together",
  "embed-resource",
+ "i-slint-backend-winit",
  "rfd",
  "serde_json",
  "slint",

@@ -51,7 +51,8 @@ impl EditionProfile {
             auto_spectrum: false,
             story_animations: false,
             po_token: PoTokenMode::Helper,
-            image_cache_bytes: 32 << 20,
+            // Only covers not yet picked up by the UI stay here (Mini keeps the finished pictures, covers.rs).
+            image_cache_bytes: 12 << 20,
         }
     }
 

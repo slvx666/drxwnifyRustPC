@@ -72,10 +72,7 @@ pub fn decode(id: u32, s: &str) -> Option<Hotkey> {
 
 /// The combination of an action now (None = switched off).
 pub fn combo_of(app: &App, id: u32) -> Option<Hotkey> {
-    let prefs = std::fs::read(app.profile().prefs_pb())
-        .ok()
-        .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
-        .unwrap_or_default();
+    let prefs = app.prefs();
     match prefs.get_str(&pref_key(id)?) {
         None | Some("default") => default_of(id),
         Some("") => None,

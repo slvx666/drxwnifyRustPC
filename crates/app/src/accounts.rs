@@ -58,11 +58,8 @@ fn err(e: impl std::fmt::Display) -> AppError {
 }
 
 impl App {
-    pub(crate) fn prefs_now(&self) -> drx_core::prefs::Prefs {
-        std::fs::read(self.inner.profile.prefs_pb())
-            .ok()
-            .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
-            .unwrap_or_default()
+    pub(crate) fn prefs_now(&self) -> Arc<drx_core::prefs::Prefs> {
+        self.prefs()
     }
 
     fn vault_now(&self) -> Option<drx_core::secrets::Vault> {
@@ -336,7 +333,11 @@ impl App {
             .clone()
     }
 
-    fn set_rows(&self, handle: ListHandle, rows: Vec<Playable>, version: u64) {
+    pub(crate) fn set_rows(&self, handle: ListHandle, rows: Vec<Playable>, version: u64) {
+        // The page was left before its rows came: nothing keeps them.
+        if self.inner.lists.spec(handle).is_none() {
+            return;
+        }
         self.remember(rows.iter().map(|p| &p.track));
         self.inner
             .remote
@@ -363,6 +364,7 @@ impl App {
         };
         let rows: Vec<Playable> = match &spec {
             ListSpec::Downloads => plain(self.downloads().into_iter().map(|e| e.track).collect()),
+            ListSpec::YtList { id } => self.load_yt_list(handle, id).await?,
             ListSpec::VkMyMusic | ListSpec::VkPlaylist { .. } => {
                 let vk = self.vk().ok_or_else(|| err("нет входа во ВКонтакте"))?;
                 let found = match &spec {

@@ -63,6 +63,10 @@ pub enum ListSpec {
     Downloads,
     /// «Мой топ» (Android TopPlaylistScreen): the most listened songs (by time) of a period, `size` of them.
     Top { period: TopPeriod, size: usize },
+    /// A YouTube Music playlist, album or podcast (`VL…`/`PL…`, `MPREb…`, `MPSP…`), loaded over the network.
+    YtList {
+        id: String,
+    },
 }
 
 /// MyTopFilter: the period «Мой топ» counts.

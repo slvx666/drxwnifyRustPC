@@ -41,6 +41,8 @@ pub enum PageKind {
     Search(String, drx_app::SearchSource),
     History,
     Stats,
+    /// A YouTube Music page: browse id and params.
+    Yt(String, Option<String>),
 }
 
 #[derive(Clone)]
@@ -103,6 +105,10 @@ impl Page {
 
     pub fn stats() -> Self {
         Self::special(PageKind::Stats, "Статистика")
+    }
+
+    pub fn yt(id: &str, params: Option<&str>, title: &str) -> Self {
+        Self::special(PageKind::Yt(id.to_string(), params.map(str::to_string)), title)
     }
 }
 
@@ -182,6 +188,84 @@ pub fn init(songs: &Rc<LazySongs>) {
     SONGS.with(|s| *s.borrow_mut() = Some(songs.clone()));
 }
 
+thread_local! {
+    static UI: RefCell<Option<(slint::Weak<MainWindow>, App)>> = const { RefCell::new(None) };
+    /// The list on screen has not had its heading yet (the catalog extras of a library artist load once).
+    static FIRST_LOAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The window and core for the background completions below.
+pub fn set_ui(ui: &MainWindow, app: &App) {
+    UI.with(|u| *u.borrow_mut() = Some((ui.as_weak(), app.clone())));
+}
+
+/// The centre list model.
+pub fn songs() -> Option<Rc<LazySongs>> {
+    songs_rc()
+}
+
+/// The list model got its count and first rows (opened or changed): the heading, length and «Слушать» follow,
+/// the length and heading again from the background.
+pub fn list_loaded(h: drx_app::ListHandle) {
+    let Some((ui, app)) = UI.with(|u| u.borrow().as_ref().and_then(|(w, a)| Some((w.upgrade()?, a.clone())))) else { return };
+    if current_handle() != Some(h) {
+        return;
+    }
+    refresh_artist_tracks(&ui);
+    let Some(page) = current().filter(|p| p.kind == PageKind::List) else { return };
+    let n = current_len();
+    if page.spec.is_remote() {
+        return;
+    }
+    set_loading(&ui, false);
+    ui.set_view_can_play(n > 0);
+    let first = FIRST_LOAD.with(|f| f.replace(false));
+    let generation = generation();
+    let (app2, ui_w, spec) = (app.clone(), ui.as_weak(), page.spec.clone());
+    app.runtime().spawn(async move {
+        let secs = app2.list_seconds(h).await.unwrap_or(0);
+        let local = app2.local_header(&spec).await;
+        let (app3, ui_w2, spec2, local2) = (app2.clone(), ui_w.clone(), spec.clone(), local.clone());
+        let _ = slint::invoke_from_event_loop(move || {
+            let Some(ui) = ui_w2.upgrade() else { return };
+            if self::generation() != generation || current_handle() != Some(h) {
+                return;
+            }
+            let n = current_len();
+            match local2 {
+                Some(mut head) => {
+                    // A renamed playlist keeps the name the page shows now.
+                    if matches!(spec2, ListSpec::Playlist { .. }) && !ui.get_view_title().is_empty() {
+                        head.title = ui.get_view_title().to_string();
+                    }
+                    if head.image.is_none() && !first {
+                        set_header_image(&ui, &app3, None);
+                    }
+                    apply_header(&ui, &app3, &head, n, secs);
+                }
+                None => ui.set_view_subtitle(count_line(&page.subtitle, n, secs).into()),
+            }
+        });
+        // A library artist who is also in a catalog: its photo and releases join the page (once).
+        if first && let ListSpec::Artist { id } = &spec {
+            let (name, local_image) = local.map(|h| (h.title, h.image)).unwrap_or_default();
+            let Some(mut head) = app2.library_artist_header(id, &name).await else { return };
+            head.title = name;
+            if head.image.is_none() {
+                head.image = local_image;
+            }
+            let secs = app2.list_seconds(h).await.unwrap_or(0);
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(ui) = ui_w.upgrade() else { return };
+                if self::generation() != generation || current_handle() != Some(h) {
+                    return;
+                }
+                apply_header(&ui, &app2, &head, current_len(), secs);
+            });
+        }
+    });
+}
+
 /// The liked flag of the open list's row with this id (when that row is loaded).
 pub fn row_liked(id: &str) -> Option<bool> {
     SONGS.with(|s| s.borrow().as_ref().and_then(|m| m.liked_of(id)))
@@ -231,34 +315,6 @@ pub fn go(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     });
     show(ui, app, songs, page);
     update_arrows(ui);
-}
-
-/// The open library list changed (a row moved, came or went): its heading says the new count, length and cover.
-pub fn refresh_header(ui: &MainWindow, app: &App) {
-    let Some(page) = HISTORY.with(|h| {
-        let h = h.borrow();
-        h.pages.get(h.at).cloned()
-    }) else {
-        return;
-    };
-    if page.kind != PageKind::List || page.spec.is_remote() {
-        return;
-    }
-    let Some(h) = current_handle() else { return };
-    let n = current_len();
-    let secs = app.runtime().block_on(app.list_seconds(h)).unwrap_or(0);
-    ui.set_view_can_play(n > 0);
-    match app.runtime().block_on(app.local_header(&page.spec)) {
-        Some(mut head) => {
-            // A renamed playlist keeps the name the page shows now.
-            head.title = ui.get_view_title().to_string();
-            if head.image.is_none() {
-                set_header_image(ui, app, None);
-            }
-            apply_header(ui, app, &head, n, secs);
-        }
-        None => ui.set_view_subtitle(count_line(&page.subtitle, n, secs).into()),
-    }
 }
 
 fn songs_rc() -> Option<Rc<LazySongs>> {
@@ -416,6 +472,9 @@ fn kind_of(spec: &ListSpec) -> (&'static str, bool) {
         ListSpec::History | ListSpec::RecentSongs => ("ИСТОРИЯ", false),
         ListSpec::Downloads => ("ЗАГРУЗКИ", false),
         ListSpec::Top { .. } => ("АВТОПЛЕЙЛИСТ", false),
+        ListSpec::YtList { id } if id.starts_with("MPRE") => ("АЛЬБОМ", false),
+        ListSpec::YtList { id } if id.starts_with("MPSP") => ("ПОДКАСТ", false),
+        ListSpec::YtList { .. } => ("ПЛЕЙЛИСТ", false),
         _ => ("", false),
     }
 }
@@ -481,12 +540,57 @@ fn apply_header(ui: &MainWindow, app: &App, h: &ListHeader, n: usize, secs: i64)
     set_releases(ui, app, h.releases.clone());
 }
 
+fn perf_name(page: &Page) -> &'static str {
+    match &page.kind {
+        PageKind::Friends => "friends",
+        PageKind::List => "list",
+        PageKind::Home => "home",
+        PageKind::Settings => "settings",
+        PageKind::Search(..) => "search",
+        PageKind::History => "history",
+        PageKind::Stats => "stats",
+        PageKind::Yt(..) => "youtube",
+    }
+}
+
+thread_local! {
+    /// Bumped on every page shown: a background load checks it before filling the page it started for.
+    static GENERATION: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The page generation now (see [`GENERATION`]).
+pub fn generation() -> u64 {
+    GENERATION.with(|g| g.get())
+}
+
+/// Shows the loading placeholder while a page's data comes from a background load.
+pub fn set_loading(ui: &MainWindow, on: bool) {
+    ui.global::<crate::PageState>().set_loading(on);
+}
+
 fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
+    let _perf = crate::perf::page(perf_name(&page));
+    GENERATION.with(|g| g.set(g.get() + 1));
+    set_loading(ui, false);
+    // What the other pages held goes (they load again when opened).
+    if page.kind != PageKind::History {
+        crate::history_view::release(ui);
+    }
+    if page.kind != PageKind::Stats {
+        crate::stats_view::release(ui);
+    }
+    if !matches!(page.kind, PageKind::Search(..)) {
+        crate::search_view::release(ui);
+    }
+    if !matches!(page.kind, PageKind::Yt(..)) {
+        crate::yt_view::release(ui);
+    }
     ui.set_view_home(page.kind == PageKind::Home);
     ui.set_view_settings(page.kind == PageKind::Settings);
     ui.set_view_search(matches!(page.kind, PageKind::Search(..)));
     ui.set_view_history(page.kind == PageKind::History);
     ui.set_view_stats(page.kind == PageKind::Stats);
+    ui.set_view_yt(matches!(page.kind, PageKind::Yt(..)));
     ui.set_view_friends(page.kind == PageKind::Friends);
     ui.set_view_artist(
         page.kind == PageKind::List
@@ -519,9 +623,11 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
         PageKind::History => return crate::history_view::show(ui, app),
         PageKind::Stats => return crate::stats_view::show(ui, app),
         PageKind::Friends => return crate::friends_view::show(ui, app),
+        PageKind::Yt(id, params) => return crate::yt_view::show(ui, app, id, params.as_deref()),
         PageKind::List => {}
     }
     songs.reopen(page.spec.clone());
+    crate::perf::step("reopen");
     ui.set_selected_id(page.selected.clone().into());
     ui.set_view_title(page.title.clone().into());
     ui.set_current_index(-1);
@@ -549,42 +655,10 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
     crate::likes_ui::page_opened(ui, app, Some(&page.spec));
     crate::playlists_ui::page_opened(ui, Some(&page.spec), &page.title);
     if !page.spec.is_remote() {
-        let n = songs.len();
-        let secs = app
-            .runtime()
-            .block_on(app.list_seconds(songs.handle()))
-            .unwrap_or(0);
-        ui.set_view_can_play(n > 0);
-        crate::artist_view::set_tracks(ui, songs);
-        let local = app.runtime().block_on(app.local_header(&page.spec));
-        match &local {
-            Some(h) => apply_header(ui, app, h, n, secs),
-            None => ui.set_view_subtitle(count_line(&page.subtitle, n, secs).into()),
-        }
-        let (name, local_image) = local.map(|h| (h.title, h.image)).unwrap_or_default();
-        // A library artist who is also in a catalog: its photo and releases join the page.
-        if let ListSpec::Artist { id } = &page.spec {
-            let (app2, h, ui_w, id) = (app.clone(), songs.handle(), ui.as_weak(), id.clone());
-            app.runtime().spawn(async move {
-                let Some(mut head) = app2.library_artist_header(&id, &name).await else {
-                    return;
-                };
-                // The library's own picture and name stay when it has them.
-                head.title = name;
-                if head.image.is_none() {
-                    head.image = local_image;
-                }
-                let _ = slint::invoke_from_event_loop(move || {
-                    let Some(ui) = ui_w.upgrade() else { return };
-                    if current_handle() != Some(h) {
-                        return;
-                    }
-                    let n = current_len();
-                    let secs = app2.runtime().block_on(app2.list_seconds(h)).unwrap_or(0);
-                    apply_header(&ui, &app2, &head, n, secs);
-                });
-            });
-        }
+        // The count, heading and length come from the background (`list_loaded`); the skeleton shows meanwhile
+        // (only after 150 ms, so a quick list never flashes it).
+        set_loading(ui, true);
+        FIRST_LOAD.with(|f| f.set(true));
         return;
     }
     ui.set_view_subtitle(
@@ -595,6 +669,7 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
         }
         .into(),
     );
+    set_loading(ui, true);
     let (app2, h, ui_w) = (app.clone(), songs.handle(), ui.as_weak());
     app.runtime().spawn(async move {
         let res = app2.load_remote(h).await;
@@ -606,6 +681,7 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
             if current_handle() != Some(h) {
                 return;
             }
+            set_loading(&ui, false);
             if let Ok(n) = res {
                 ui.set_view_can_play(n > 0 && !search);
                 refresh_artist_tracks(&ui);

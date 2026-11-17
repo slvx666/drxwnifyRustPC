@@ -1397,3 +1397,9 @@ fn test_window_accessor_and_rwh() {
 
     slint::run_event_loop().unwrap();
 }
+
+/// Drxwnify patch: hooks for the app (developer timing).
+pub mod drx_hooks {
+    /// Called after every software-rendered frame with the time it took and the pixels presented.
+    pub static FRAME: std::sync::OnceLock<fn(std::time::Duration, u64)> = std::sync::OnceLock::new();
+}

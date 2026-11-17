@@ -3,7 +3,7 @@
 
 use crate::{HistoryItem, MainWindow, SongItem};
 use drx_app::{App, HistoryEntry};
-use slint::{Model, ModelNotify, ModelRc, ModelTracker};
+use slint::{ComponentHandle, Model, ModelNotify, ModelRc, ModelTracker};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -190,10 +190,22 @@ impl Model for HistoryModel {
 /// Opens the history (the whole of it: thousands of rows are cheap, covers load lazily).
 pub fn show(ui: &MainWindow, app: &App) {
     ui.set_view_subtitle("Загрузка…".into());
-    let entries = app
-        .runtime()
-        .block_on(app.history(0, 100_000))
-        .unwrap_or_default();
+    crate::nav::set_loading(ui, true);
+    let generation = crate::nav::generation();
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    app.runtime().spawn(async move {
+        let entries = app2.history(0, 100_000).await.unwrap_or_default();
+        let _ = slint::invoke_from_event_loop(move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            if crate::nav::generation() == generation {
+                crate::nav::set_loading(&ui, false);
+                fill(&ui, &app2, entries);
+            }
+        });
+    });
+}
+
+fn fill(ui: &MainWindow, app: &App, entries: Vec<drx_app::HistoryEntry>) {
     let n = entries.len();
     let model = Rc::new(HistoryModel::new(app.clone(), entries));
     ui.set_history_items(ModelRc::from(model.clone()));
@@ -206,6 +218,13 @@ pub fn show(ui: &MainWindow, app: &App) {
         }
         .into(),
     );
+}
+
+/// The page was left: its rows (the whole history) are let go.
+pub fn release(ui: &MainWindow) {
+    if MODEL.with(|m| m.borrow_mut().take()).is_some() {
+        ui.set_history_items(ModelRc::default());
+    }
 }
 
 /// Plays the history from a song (the rest of the history follows, newest to oldest).

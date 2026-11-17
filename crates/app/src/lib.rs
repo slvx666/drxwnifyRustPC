@@ -21,7 +21,9 @@ pub mod sound;
 pub mod import;
 pub mod lastfm;
 pub use history::{HISTORY_DURATION_KEY, PAUSE_HISTORY_KEY};
+mod prefs_cache;
 mod queue_store;
+pub mod yt;
 mod search;
 pub mod social;
 pub mod songs;
@@ -209,6 +211,10 @@ struct Inner {
     download_running: std::sync::atomic::AtomicBool,
     sleep_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     chats: std::sync::OnceLock<Option<Arc<chats::ChatStore>>>,
+    /// `settings.preferences_pb` in memory (see `prefs_cache`).
+    prefs: prefs_cache::PrefsCache,
+    /// YouTube Music pages (no account).
+    yt: std::sync::OnceLock<Arc<drx_resolver::providers::youtube::YouTube>>,
 }
 
 /// The running core. Cheap to clone; UIs call the async methods through [`App::runtime`].
@@ -266,6 +272,8 @@ impl App {
             sleep_task: Mutex::default(),
             chats: std::sync::OnceLock::new(),
             lists: lists::Lists::default(),
+            prefs: prefs_cache::PrefsCache::new(profile.prefs_pb()),
+            yt: std::sync::OnceLock::new(),
             profile,
             edition,
             store: RwLock::new(store),
@@ -301,30 +309,27 @@ impl App {
         &self.inner.profile
     }
 
-    /// Changes one setting in `settings.preferences_pb` (the file the phone's backup carries).
+    /// Changes one setting in `settings.preferences_pb` (the file the phone's backup carries). Memory changes at
+    /// once; the file is written in the background.
     pub fn set_pref(&self, key: &str, value: drx_core::prefs::PrefValue) -> AppResult<()> {
-        let path = self.inner.profile.prefs_pb();
-        let mut prefs = std::fs::read(&path)
-            .ok()
-            .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
-            .unwrap_or_default();
-        prefs.set(key, value);
-        drx_core::paths::write_atomic(&path, &prefs.encode())
-            .map_err(|e| AppError::Other(e.to_string()))
+        self.inner.prefs.set(key, value);
+        Ok(())
+    }
+    /// All settings now (from memory; the file is read again only when it changed on disk).
+    pub fn prefs(&self) -> Arc<drx_core::prefs::Prefs> {
+        self.inner.prefs.get()
+    }
+    /// Waits until every setting change is in the file (before exit).
+    pub fn flush_prefs(&self) {
+        self.inner.prefs.flush(std::time::Duration::from_secs(2));
     }
     /// A text setting from `settings.preferences_pb`.
     pub fn pref_string(&self, key: &str) -> Option<String> {
-        std::fs::read(self.inner.profile.prefs_pb())
-            .ok()
-            .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
-            .and_then(|p| p.get_str(key).map(str::to_string))
+        self.prefs().get_str(key).map(str::to_string)
     }
     /// A switch from `settings.preferences_pb`.
     pub fn pref_bool(&self, key: &str) -> Option<bool> {
-        std::fs::read(self.inner.profile.prefs_pb())
-            .ok()
-            .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
-            .and_then(|p| p.get_bool(key))
+        self.prefs().get_bool(key)
     }
     /// «Пропускать трек, если не включается» (Android autoSkipNextOnError) applied to the player.
     pub fn apply_playback_prefs(&self) {
@@ -350,17 +355,11 @@ impl App {
 
     /// A number setting stored as a float in `settings.preferences_pb`.
     pub fn pref_f32(&self, key: &str) -> Option<f32> {
-        std::fs::read(self.inner.profile.prefs_pb())
-            .ok()
-            .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
-            .and_then(|p| p.get_f32(key))
+        self.prefs().get_f32(key)
     }
     /// A number setting from `settings.preferences_pb`.
     pub fn pref_i64(&self, key: &str) -> Option<i64> {
-        std::fs::read(self.inner.profile.prefs_pb())
-            .ok()
-            .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
-            .and_then(|p| p.get_i64(key))
+        self.prefs().get_i64(key)
     }
     fn store(&self) -> Store {
         self.inner.store.read().expect("store lock").clone()
@@ -484,6 +483,7 @@ impl App {
                         .await
                         .map_err(|e| AppError::Other(e.to_string()))??
                 };
+                self.inner.prefs.flush(std::time::Duration::from_secs(2));
                 self.store().shutdown();
                 let opts = ImportOptions {
                     keep_youtube_session,
@@ -497,6 +497,7 @@ impl App {
                     .map_err(|e| AppError::Other(e.to_string()))?
                 };
                 // Reopen whatever is on disk now (new data, or the old file if the import failed early).
+                self.inner.prefs.invalidate();
                 let store = Store::open(&profile.song_db())?;
                 *self.inner.store.write().expect("store lock") = store;
                 // New sessions came with the backup: rebuild the clients and audio sources.
@@ -720,6 +721,8 @@ impl App {
     pub fn close_list(&self, handle: ListHandle) {
         self.inner.lists.close(handle);
         self.inner.headers.lock().expect("headers").remove(&handle);
+        // A catalog page's rows go with it (they stayed for the whole run before: every playlist opened).
+        self.inner.remote.lock().expect("remote").remove(&handle);
     }
 
     /// The heading of a catalog page, once its load has fetched it.
@@ -733,6 +736,9 @@ impl App {
     }
 
     pub(crate) fn set_header(&self, handle: ListHandle, h: ListHeader) {
+        if self.inner.lists.spec(handle).is_none() {
+            return;
+        }
         self.inner
             .headers
             .lock()
@@ -984,6 +990,11 @@ impl App {
     /// A decoded cover if it is already cached at this size (cheap; call from the UI thread).
     pub fn image(&self, url: &str, size: u32) -> Option<Arc<drx_core::images::Pixels>> {
         self.inner.images.cached(url, size)
+    }
+
+    /// Takes a decoded cover out of the core's cache (the UI caches the finished picture itself).
+    pub fn take_image(&self, url: &str, size: u32) -> Option<Arc<drx_core::images::Pixels>> {
+        self.inner.images.take(url, size)
     }
 
     /// Starts loading a cover; [`AppEvent::ImageReady`] follows when it is decoded.

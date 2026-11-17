@@ -29,6 +29,18 @@ thread_local! {
     static MODELS: RefCell<Vec<Rc<VecModel<HomeCard>>>> = const { RefCell::new(Vec::new()) };
 }
 
+/// The page was left: its results and cards are let go (a few recent searches stay in the cache for «back»).
+pub fn release(ui: &MainWindow) {
+    if SHOWN.with(|s| s.borrow_mut().take()).is_some() {
+        MODELS.with(|m| m.borrow_mut().clear());
+        ui.set_search_tracks(ModelRc::default());
+        ui.set_search_artists(ModelRc::default());
+        ui.set_search_albums(ModelRc::default());
+        ui.set_search_playlists(ModelRc::default());
+        ui.set_search_top_cover(slint::Image::default());
+    }
+}
+
 fn key(q: &str, s: SearchSource) -> (String, String) {
     (q.trim().to_lowercase(), format!("{s:?}"))
 }
@@ -126,7 +138,7 @@ pub fn show(ui: &MainWindow, app: &App, query: &str, source: SearchSource) {
                 Ok(o) => {
                     CACHE.with(|c| {
                         let mut c = c.borrow_mut();
-                        if c.len() > 30 {
+                        if c.len() > 8 {
                             c.clear();
                         }
                         c.insert(key(&q, source), o.clone());

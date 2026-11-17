@@ -145,6 +145,7 @@ impl super::WinitCompatibleRenderer for WinitSoftwareRenderer {
             .buffer_mut()
             .map_err(|e| format!("Error retrieving softbuffer rendering buffer: {e}"))?;
 
+        let drx_started = std::time::Instant::now();
         let age = target_buffer.age();
         let force_full = self.force_full.take();
         self.renderer.set_repaint_buffer_type(match age {
@@ -216,6 +217,11 @@ impl super::WinitCompatibleRenderer for WinitSoftwareRenderer {
             target_buffer
                 .present_with_damage(&damage)
                 .map_err(|e| format!("Error presenting softbuffer buffer: {e}"))?;
+        }
+        // Drxwnify patch: tell the app a frame was drawn (developer timing and idle checks).
+        if let Some(hook) = crate::drx_hooks::FRAME.get() {
+            let px: u64 = damage.iter().map(|r| r.width.get() as u64 * r.height.get() as u64).sum();
+            hook(drx_started.elapsed(), px);
         }
         Ok(DrawOutcome::Success)
     }

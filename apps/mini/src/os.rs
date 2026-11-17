@@ -12,11 +12,7 @@ use std::sync::Arc;
 pub const HOTKEYS_KEY: &str = "pcGlobalHotkeys";
 
 pub fn hotkeys_on(app: &App) -> bool {
-    std::fs::read(app.profile().prefs_pb())
-        .ok()
-        .and_then(|b| drx_core::prefs::Prefs::decode(&b).ok())
-        .and_then(|p| p.get_bool(HOTKEYS_KEY))
-        .unwrap_or(true)
+    app.pref_bool(HOTKEYS_KEY).unwrap_or(true)
 }
 
 /// Registers or drops the global hotkeys per the setting. Test runs (a test copy of the profile) never grab the

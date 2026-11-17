@@ -59,14 +59,11 @@ pub fn wire(ui: &MainWindow, app: &App) {
             let _ = app2.set_pref(key, PrefValue::Int(i32::from(on)));
         });
     }
-    // The time left, once a second.
-    let (app2, ui_w) = (app.clone(), ui.as_weak());
-    let timer = Box::leak(Box::new(slint::Timer::default()));
-    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(1), move || {
-        if let Some(ui) = ui_w.upgrade() {
-            refresh(&ui, &app2);
-        }
-    });
+    refresh(ui, app);
+}
+
+thread_local! {
+    static TIMER: slint::Timer = slint::Timer::default();
 }
 
 fn refresh(ui: &MainWindow, app: &App) {
@@ -80,6 +77,19 @@ fn refresh(ui: &MainWindow, app: &App) {
     if ui.get_sleep_label() != label.as_str() {
         ui.set_sleep_label(label.into());
     }
+    // The time left, once a second — only while the timer runs (it also notices when it fired).
+    TIMER.with(|t| {
+        if !s.active() {
+            t.stop();
+        } else if !t.running() {
+            let (app, ui_w) = (app.clone(), ui.as_weak());
+            t.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(1), move || {
+                if let Some(ui) = ui_w.upgrade() {
+                    refresh(&ui, &app);
+                }
+            });
+        }
+    });
 }
 
 #[cfg(test)]

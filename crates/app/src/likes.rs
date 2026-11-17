@@ -166,7 +166,8 @@ impl App {
     /// Keeps tracks the UI was handed, so a heart on any of their rows knows the whole track.
     pub(crate) fn remember<'a>(&self, tracks: impl Iterator<Item = &'a Track>) {
         let mut k = self.inner.known.lock().expect("known");
-        if k.len() > 20_000 {
+        // About 0.5 KB a track: a few MB at most, then it starts over (a missing one is read from the library).
+        if k.len() > 5_000 {
             k.clear();
         }
         for t in tracks {
