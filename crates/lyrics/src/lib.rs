@@ -89,9 +89,53 @@ impl Default for Sources {
     }
 }
 
+/// Strips common suffixes that break lyrics search: "(Remastered 2024)", "(feat. X)",
+/// "[Deluxe Edition]", "(Live)", etc. Port of TitleCleaner / cleanTitleForSearch from Android.
+pub fn clean_title(title: &str) -> String {
+    let mut out = title.to_string();
+    // Remove content in parentheses/brackets that matches known noise patterns.
+    for (open, close) in [('(', ')'), ('[', ']')] {
+        loop {
+            let Some(start) = out.find(open) else { break };
+            let Some(end) = out[start..].find(close).map(|i| start + i) else { break };
+            let inner = out[start + 1..end].to_lowercase();
+            let noise = inner.contains("remaster")
+                || inner.contains("feat.")
+                || inner.contains("feat ")
+                || inner.contains("ft.")
+                || inner.contains("ft ")
+                || inner.contains("deluxe")
+                || inner.contains("special edition")
+                || inner.contains("bonus track")
+                || inner.contains("expanded")
+                || inner.contains("anniversary")
+                || inner.starts_with("live")
+                || inner == "acoustic"
+                || inner == "demo"
+                || inner.contains("remix")
+                || inner.contains("radio edit");
+            if noise {
+                out = format!("{}{}", &out[..start], &out[end + 1..]);
+            } else {
+                break;
+            }
+        }
+    }
+    // " - Remastered 2024" at the end
+    if let Some(i) = out.rfind(" - ") {
+        let tail = out[i + 3..].to_lowercase();
+        if tail.contains("remaster") {
+            out = out[..i].to_string();
+        }
+    }
+    out.trim().to_string()
+}
+
 /// LrcLib first; while nothing synced is found, BetterLyrics, then KuGou (synced lyrics beat plain ones), as the
 /// phone's provider order.
 pub async fn find_any(http: &Http, title: &str, artist: &str, duration_s: Option<u64>, on: Sources) -> Option<Lyrics> {
+    let clean = clean_title(title);
+    let title = if clean.is_empty() { title } else { &clean };
     let mut best = if on.lrclib { LrcLib::new(http.clone()).find(title, artist, duration_s).await } else { None };
     if matches!(best, Some(Lyrics::Synced(_))) {
         return best;
@@ -226,5 +270,13 @@ mod tests {
             ),
             Some(Lyrics::Plain("words".into()))
         );
+    }
+
+    #[test]
+    fn clean_title_removes_noise() {
+        assert_eq!(clean_title("Love Exchange Failure (Remastered 2024)"), "Love Exchange Failure");
+        assert_eq!(clean_title("Song Title (feat. Someone)"), "Song Title");
+        assert_eq!(clean_title("In the End [Deluxe Edition]"), "In the End");
+        assert_eq!(clean_title("Numb - Remastered 2020"), "Numb");
     }
 }
