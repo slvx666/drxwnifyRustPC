@@ -214,8 +214,12 @@ impl App {
         )];
         out.push((SearchSource::Library, "Медиатека".to_string()));
         for s in [Source::Spotify, Source::Yandex, Source::Vk] {
-            if Some(s) != main && self.has_account(s) {
-                out.push((SearchSource::Catalog(s), source_label(s).to_string()));
+            if Some(s) != main {
+                // Spotify is always available via anonymous GraphQL (spotify_or_public).
+                // Yandex and VK need a session.
+                if s == Source::Spotify || self.has_account(s) {
+                    out.push((SearchSource::Catalog(s), source_label(s).to_string()));
+                }
             }
         }
         out

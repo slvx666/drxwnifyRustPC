@@ -617,7 +617,7 @@ fn main() {
             // The place chosen last stays (the main catalog at first).
             let source = search_view::current()
                 .map(|(_, s)| s)
-                .unwrap_or(drx_app::SearchSource::Main);
+                .unwrap_or(drx_app::SearchSource::Catalog(drx_app::Source::Spotify));
             nav::go(&ui, &app2, &songs2, nav::Page::search(&q, source));
         });
     }
