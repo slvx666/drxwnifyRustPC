@@ -1041,6 +1041,10 @@ impl Playback {
 
     fn start_index(self: &Arc<Self>, index: usize) {
         self.drop_prep();
+        // Stop current audio immediately so old sound does not linger while new stream is resolving
+        if let Ok(player) = self.player() {
+            player.stop();
+        }
         // Increment the generation: any older thread that finishes after us is stale.
         let generation = self.epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let Some(item) = self.announce(index) else { return };

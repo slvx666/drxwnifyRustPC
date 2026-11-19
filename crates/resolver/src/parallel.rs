@@ -11,13 +11,13 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 pub const CONFIDENCE_MARGIN: f64 = 0.15;
-pub const STRONG_MATCH: f64 = 0.85;
-pub const AUTO_INSTANT_MATCH: f64 = 0.88;
+pub const STRONG_MATCH: f64 = 0.82;
+pub const AUTO_INSTANT_MATCH: f64 = 0.82;
 pub const LOW_KBPS: u32 = 120;
-pub const AUTO_LOW_GRACE: Duration = Duration::from_millis(800);
+pub const AUTO_LOW_GRACE: Duration = Duration::from_millis(300);
 pub const AUTO_CONFIDENCE_MARGIN: f64 = 0.05;
-pub const SOFT_DEADLINE: Duration = Duration::from_millis(1_200);
-pub const HARD_DEADLINE: Duration = Duration::from_millis(6_000);
+pub const SOFT_DEADLINE: Duration = Duration::from_millis(700);
+pub const HARD_DEADLINE: Duration = Duration::from_millis(4_000);
 
 #[derive(Debug, Clone)]
 pub struct Outcome {

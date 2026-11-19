@@ -249,13 +249,11 @@ impl Decoder {
     /// Seeks to `secs`. Returns the time actually reached (the container may land on an earlier packet).
     pub fn seek(&mut self, secs: f64) -> DecodeResult<f64> {
         let time = Time::try_from_secs_f64(secs.max(0.0)).unwrap_or(Time::ZERO);
-        let to = self.format.seek(
-            SeekMode::Accurate,
-            SeekTo::Time {
-                time,
-                track_id: Some(self.track_id),
-            },
-        )?;
+        let track_id = Some(self.track_id);
+        let to = self
+            .format
+            .seek(SeekMode::Coarse, SeekTo::Time { time, track_id })
+            .or_else(|_| self.format.seek(SeekMode::Accurate, SeekTo::Time { time, track_id }))?;
         match &mut self.inner {
             Inner::Sym(d) => d.reset(),
             Inner::Opus {
