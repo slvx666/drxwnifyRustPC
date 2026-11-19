@@ -310,6 +310,8 @@ pub(crate) struct Playback {
     pub skip_on_error: std::sync::atomic::AtomicBool,
     /// Tracks skipped in a row for errors (a run of them stops: the network is likely down).
     skipped: std::sync::atomic::AtomicU32,
+    /// Generation counter: incremented on every start_index; stale threads check this before playing.
+    epoch: std::sync::atomic::AtomicU64,
     /// Downloaded tracks: track id → (file, format hint). Played from disk, no network.
     pub downloaded: Mutex<std::collections::HashMap<String, (PathBuf, Option<String>)>>,
     /// The sleep timer's fade (0..1) on top of the volume.
@@ -349,6 +351,7 @@ impl Playback {
             downloaded: Mutex::new(std::collections::HashMap::new()),
             skip_on_error: std::sync::atomic::AtomicBool::new(false),
             skipped: std::sync::atomic::AtomicU32::new(0),
+            epoch: std::sync::atomic::AtomicU64::new(0),
             providers: Mutex::new(Vec::new()),
             store: Mutex::new(None),
             resolved: Mutex::new(std::collections::HashMap::new()),
@@ -1038,10 +1041,12 @@ impl Playback {
 
     fn start_index(self: &Arc<Self>, index: usize) {
         self.drop_prep();
+        // Increment the generation: any older thread that finishes after us is stale.
+        let generation = self.epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let Some(item) = self.announce(index) else { return };
         let this = self.clone();
         // Opening a stream does network round-trips; never on the UI thread.
-        std::thread::spawn(move || this.open_and_play(item, index));
+        std::thread::spawn(move || this.open_and_play(item, index, generation));
     }
 
     /// Makes `index` the playing entry for everyone (queue, now playing, lyrics) without touching the sound.
@@ -1099,10 +1104,18 @@ impl Playback {
         Some(item)
     }
 
-    fn open_and_play(self: &Arc<Self>, item: Playable, index: usize) {
+    fn open_and_play(self: &Arc<Self>, item: Playable, index: usize, generation: u64) {
         let this = self;
+        // Stale check #1: a newer start_index already fired — abort.
+        if this.epoch.load(std::sync::atomic::Ordering::SeqCst) != generation {
+            return;
+        }
         {
             let res = this.source_for(&item).and_then(|(src, ext, gain)| {
+                // Stale check #2: right before opening the player.
+                if this.epoch.load(std::sync::atomic::Ordering::SeqCst) != generation {
+                    return Err("cancelled".into());
+                }
                 let player = this.player()?;
                 // A position picked before the track started (only for this very track).
                 let at = this
@@ -1118,6 +1131,10 @@ impl Playback {
             });
             match res {
                 Ok((id, at, player)) => {
+                    // Stale check #3: after play() returned, before updating state.
+                    if this.epoch.load(std::sync::atomic::Ordering::SeqCst) != generation {
+                        return;
+                    }
                     *this.current_id.lock().expect("current") = Some(id);
                     this.skipped.store(0, std::sync::atomic::Ordering::Relaxed);
                     if at > 0.5 {
@@ -1135,6 +1152,10 @@ impl Playback {
                     }
                 }
                 Err(e) => {
+                    // Stale error: do NOT skip forward.
+                    if this.epoch.load(std::sync::atomic::Ordering::SeqCst) != generation {
+                        return;
+                    }
                     tracing::warn!("cannot play {}: {e}", item.track.id);
                     use std::sync::atomic::Ordering::Relaxed;
                     let more = {
