@@ -64,14 +64,6 @@ pub fn fill(ui: &MainWindow, app: &App) {
     crate::perf::step("sound");
 }
 
-/// The playback switches (booleans of settings.preferences_pb, the phone's keys): (key, label, hint, default).
-const FLAGS: &[(&str, &str, &str, bool)] = &[
-    ("autoSkipNextOnError", "Пропускать трек, если не включается", "Иначе воспроизведение останавливается на нём", false),
-    ("autoLoadMore", "Продолжать похожими", "Когда очередь кончается, следом идёт радио по последнему треку", true),
-    (drx_app::sponsorblock::ENABLED_KEY, "Пропускать немузыкальные вставки", "SponsorBlock: разговоры и заставки в клипах с YouTube", false),
-    ("persistentQueue", "Сохранять очередь", "После перезапуска — тот же трек с того же места", true),
-    (crate::discord_ui::KEY, "Статус в Discord", "Что играет — в профиле Discord (нужен запущенный Discord на этом ПК)", false),
-];
 
 fn switch(key: &str, label: &str, hint: &str, on: bool, header: &str) -> crate::FlagItem {
     crate::FlagItem {
@@ -124,65 +116,303 @@ fn sponsor_categories(app: &App) -> Vec<String> {
 }
 
 pub fn fill_flags(ui: &MainWindow, app: &App) {
-    let rows: Vec<crate::FlagItem> = FLAGS
-        .iter()
-        .enumerate()
-        .map(|(i, (key, label, hint, default))| {
-            switch(key, label, hint, app.pref_bool(key).unwrap_or(*default), if i == 0 { "ВОСПРОИЗВЕДЕНИЕ" } else { "" })
-        })
-        .collect();
-    ui.set_settings_flags(ModelRc::new(VecModel::from(rows)));
+    use drx_app::content::{AUDIO_QUALITY_KEY, COUNTRIES, LANGUAGES, QUALITIES, SYSTEM_DEFAULT};
+    use crate::discord_ui::{ADVANCED_KEY, BUTTON_KEY, TYPES, TYPE_KEY};
 
-    let mut more = Vec::new();
-    // Sound and sources (the phone's audioQuality, audioSource* and audioSourceOrder).
-    {
-        use drx_app::content::{AUDIO_QUALITY_KEY, COUNTRIES, LANGUAGES, QUALITIES, SYSTEM_DEFAULT};
-        let q = app.pref_string(AUDIO_QUALITY_KEY).unwrap_or_else(|| "AUTO".into());
-        let names: Vec<&str> = QUALITIES.iter().map(|x| x.1).collect();
-        more.push(choice(
-            AUDIO_QUALITY_KEY,
-            "Качество звука",
-            "«Низкое» — меньший поток с YouTube (меньше трафика); «Авто» и «Высокое» берут лучший",
-            &names,
-            QUALITIES.iter().map(|x| x.0 == q).collect(),
-            "ИСТОЧНИКИ ЗВУКА",
+    let mut sound = Vec::new();
+    let mut content = Vec::new();
+    let mut integrations = Vec::new();
+    let mut privacy = Vec::new();
+
+    // --- 1. Sound flags ---
+    let q = app.pref_string(AUDIO_QUALITY_KEY).unwrap_or_else(|| "AUTO".into());
+    let names: Vec<&str> = QUALITIES.iter().map(|x| x.1).collect();
+    sound.push(choice(
+        AUDIO_QUALITY_KEY,
+        "Качество звука",
+        "«Низкое» — меньший поток с YouTube (меньше трафика); «Авто» и «Высокое» берут лучший",
+        &names,
+        QUALITIES.iter().map(|x| x.0 == q).collect(),
+        "КАЧЕСТВО И ПОВЕДЕНИЕ",
+    ));
+    sound.push(switch(
+        "autoSkipNextOnError",
+        "Пропускать трек, если не включается",
+        "Иначе воспроизведение останавливается на нём",
+        app.pref_bool("autoSkipNextOnError").unwrap_or(false),
+        "",
+    ));
+    sound.push(switch(
+        "autoLoadMore",
+        "Продолжать похожими",
+        "Когда очередь кончается, следом идёт радио по последнему треку",
+        app.pref_bool("autoLoadMore").unwrap_or(true),
+        "",
+    ));
+    sound.push(switch(
+        "persistentQueue",
+        "Сохранять очередь",
+        "После перезапуска — тот же трек с того же места",
+        app.pref_bool("persistentQueue").unwrap_or(true),
+        "",
+    ));
+    sound.push(choice(
+        "autoeq",
+        "Профиль AutoEq",
+        "Файл ParametricEQ.txt для своих наушников (autoeq.app) — включится сразу",
+        &["Выбрать файл…"],
+        vec![false],
+        "ЭКВАЛАЙЗЕР AUTOEQ",
+    ));
+
+    // --- 2. Content flags ---
+    let order = app.source_order();
+    let n = order.len();
+    for (i, (id, label, on)) in order.into_iter().enumerate() {
+        let hint = match (i, on) {
+            (_, false) => "Выключен: здесь не ищем",
+            (0, true) => "Ищем здесь первым",
+            _ => "Включён",
+        };
+        let opts = [if on { "Включён" } else { "Выключен" }, "Выше", "Ниже"];
+        let usable: Vec<&str> = opts
+            .iter()
+            .enumerate()
+            .filter(|(k, _)| !(*k == 1 && i == 0) && !(*k == 2 && i + 1 == n))
+            .map(|(_, o)| *o)
+            .collect();
+        let marks = usable.iter().map(|o| *o == "Включён").collect();
+        content.push(choice(
+            &format!("src:{id}"),
+            &format!("{}. {label}", i + 1),
+            hint,
+            &usable,
+            marks,
+            if i == 0 { "ПРИОРИТЕТ ИСТОЧНИКОВ" } else { "" },
         ));
-        let order = app.source_order();
-        let n = order.len();
-        for (i, (id, label, on)) in order.into_iter().enumerate() {
-            let hint = match (i, on) {
-                (_, false) => "Выключен: здесь не ищем",
-                (0, true) => "Ищем здесь первым",
-                _ => "Включён",
-            };
-            let opts = [if on { "Включён" } else { "Выключен" }, "Выше", "Ниже"];
-            let usable: Vec<&str> = opts.iter().enumerate().filter(|(k, _)| !(*k == 1 && i == 0) && !(*k == 2 && i + 1 == n)).map(|(_, o)| *o).collect();
-            let marks = usable.iter().map(|o| *o == "Включён").collect();
-            more.push(choice(&format!("src:{id}"), &format!("{}. {label}", i + 1), hint, &usable, marks, ""));
-        }
-        let lang = app.pref_string(drx_app::content::CONTENT_LANGUAGE_KEY).unwrap_or_else(|| SYSTEM_DEFAULT.into());
-        let names: Vec<&str> = LANGUAGES.iter().map(|x| x.1).collect();
-        more.push(choice(drx_app::content::CONTENT_LANGUAGE_KEY, "Язык контента", "Страницы и поиск YouTube Music", &names, LANGUAGES.iter().map(|x| x.0 == lang).collect(), "КОНТЕНТ"));
-        let country = app.pref_string(drx_app::content::CONTENT_COUNTRY_KEY).unwrap_or_else(|| SYSTEM_DEFAULT.into());
-        let names: Vec<&str> = COUNTRIES.iter().map(|x| x.1).collect();
-        more.push(choice(drx_app::content::CONTENT_COUNTRY_KEY, "Страна контента", "Новые релизы, настроения и подборки YouTube Music", &names, COUNTRIES.iter().map(|x| x.0 == country).collect(), ""));
-        more.push(switch(drx_app::content::HIDE_EXPLICIT_KEY, "Скрывать треки 18+ (explicit)", "В поиске и на страницах YouTube", app.hide_explicit(), ""));
-        more.push(switch(drx_app::content::HIDE_VIDEO_KEY, "Скрывать видео", "Клипы среди песен на страницах YouTube", app.hide_video(), ""));
     }
-    let secs = app.pref_f32(drx_app::HISTORY_DURATION_KEY).unwrap_or(30.0);
-    let near = HISTORY_SECONDS
-        .iter()
-        .enumerate()
-        .min_by(|a, b| (a.1 - secs).abs().total_cmp(&(b.1 - secs).abs()))
-        .map_or(2, |(i, _)| i);
-    more.push(switch(
+    let lang = app.pref_string(drx_app::content::CONTENT_LANGUAGE_KEY).unwrap_or_else(|| SYSTEM_DEFAULT.into());
+    let names: Vec<&str> = LANGUAGES.iter().map(|x| x.1).collect();
+    content.push(choice(
+        drx_app::content::CONTENT_LANGUAGE_KEY,
+        "Язык контента",
+        "Страницы и поиск YouTube Music",
+        &names,
+        LANGUAGES.iter().map(|x| x.0 == lang).collect(),
+        "РЕГИОН И КОНТЕНТ",
+    ));
+    let country = app.pref_string(drx_app::content::CONTENT_COUNTRY_KEY).unwrap_or_else(|| SYSTEM_DEFAULT.into());
+    let names: Vec<&str> = COUNTRIES.iter().map(|x| x.1).collect();
+    content.push(choice(
+        drx_app::content::CONTENT_COUNTRY_KEY,
+        "Страна контента",
+        "Новые релизы, настроения и подборки YouTube Music",
+        &names,
+        COUNTRIES.iter().map(|x| x.0 == country).collect(),
+        "",
+    ));
+    content.push(switch(
+        drx_app::content::HIDE_EXPLICIT_KEY,
+        "Скрывать треки 18+ (explicit)",
+        "В поиске и на страницах YouTube",
+        app.hide_explicit(),
+        "",
+    ));
+    content.push(switch(
+        drx_app::content::HIDE_VIDEO_KEY,
+        "Скрывать видео",
+        "Клипы среди песен на страницах YouTube",
+        app.hide_video(),
+        "",
+    ));
+    content.push(switch(
+        "enableLrclib",
+        "LRCLIB",
+        "Синхронные тексты, основной источник",
+        app.pref_bool("enableLrclib").unwrap_or(true),
+        "ТЕКСТЫ ПЕСЕН",
+    ));
+    content.push(switch(
+        "enableBetterLyrics",
+        "BetterLyrics",
+        "Если в LRCLIB нет синхронного текста",
+        app.pref_bool("enableBetterLyrics").unwrap_or(true),
+        "",
+    ));
+    content.push(switch(
+        "enableKugou",
+        "KuGou",
+        "Если не нашлось и там",
+        app.pref_bool("enableKugou").unwrap_or(true),
+        "",
+    ));
+
+    // --- 3. Integration flags ---
+    let discord_on = app.pref_bool(crate::discord_ui::KEY).unwrap_or(false);
+    integrations.push(switch(
+        crate::discord_ui::KEY,
+        "Статус в Discord",
+        "Что играет — в профиле Discord (нужен запущенный Discord на этом ПК)",
+        discord_on,
+        "DISCORD",
+    ));
+    let adv = app.pref_bool(ADVANCED_KEY).unwrap_or(false);
+    integrations.push(switch(
+        ADVANCED_KEY,
+        "Расширенный статус Discord",
+        "Свой тип активности и кнопка (когда «Статус в Discord» включён)",
+        adv,
+        "",
+    ));
+    if adv {
+        let t = app.pref_string(TYPE_KEY).unwrap_or_else(|| "listening".into()).to_lowercase();
+        let names: Vec<&str> = TYPES.iter().map(|x| x.1).collect();
+        integrations.push(choice(
+            TYPE_KEY,
+            "Тип активности",
+            "",
+            &names,
+            TYPES.iter().map(|x| x.0 == t).collect(),
+            "",
+        ));
+        integrations.push(switch(
+            BUTTON_KEY,
+            "Кнопка «Открыть в Drxwnify»",
+            "",
+            app.pref_bool(BUTTON_KEY).unwrap_or(true),
+            "",
+        ));
+    }
+
+    let lf = app.lastfm_state();
+    match (&lf.user, lf.available) {
+        (_, false) => integrations.push(switch_info("Last.fm", "Нет ключа приложения Last.fm в этой сборке", "LAST.FM")),
+        (None, true) => {
+            integrations.push(choice(
+                "lastfm:account",
+                "Аккаунт Last.fm",
+                "Вход через браузер: подтвердите доступ на странице Last.fm",
+                &["Войти через Last.fm"],
+                vec![false],
+                "LAST.FM",
+            ));
+        }
+        (Some(u), true) => {
+            integrations.push(choice(
+                "lastfm:account",
+                &format!("Аккаунт: {u}"),
+                "",
+                &["Выйти"],
+                vec![false],
+                "LAST.FM",
+            ));
+            integrations.push(switch(
+                drx_app::lastfm::SCROBBLE_KEY,
+                "Скробблинг",
+                "Прослушанное попадает в профиль Last.fm (после половины трека или 3 минут)",
+                lf.scrobble,
+                "",
+            ));
+            integrations.push(switch(
+                drx_app::lastfm::NOW_PLAYING_KEY,
+                "«Сейчас слушает»",
+                "Last.fm показывает, что играет прямо сейчас",
+                lf.now_playing,
+                "",
+            ));
+            integrations.push(switch(
+                drx_app::lastfm::LOVE_KEY,
+                "Отправлять лайки",
+                "Лайк трека — «love» в Last.fm",
+                lf.love,
+                "",
+            ));
+        }
+    }
+
+    let sb_on = app.pref_bool(drx_app::sponsorblock::ENABLED_KEY).unwrap_or(false);
+    integrations.push(switch(
+        drx_app::sponsorblock::ENABLED_KEY,
+        "Пропускать немузыкальные вставки",
+        "SponsorBlock: разговоры и заставки в клипах с YouTube",
+        sb_on,
+        "SPONSORBLOCK",
+    ));
+    let cats = sponsor_categories(app);
+    let names: Vec<&str> = drx_app::sponsorblock::CATEGORIES.iter().map(|(_, n)| *n).collect();
+    integrations.push(choice(
+        "sb:cats",
+        "Что пропускать",
+        "В клипах с YouTube, когда включено «Пропускать немузыкальные вставки»",
+        &names,
+        drx_app::sponsorblock::CATEGORIES.iter().map(|(k, _)| cats.iter().any(|c| c == k)).collect(),
+        "",
+    ));
+    integrations.push(switch(
+        drx_app::sponsorblock::TOAST_KEY,
+        "Сообщать о пропуске",
+        "Короткое уведомление, что именно пропущено",
+        app.pref_bool(drx_app::sponsorblock::TOAST_KEY).unwrap_or(false),
+        "",
+    ));
+
+    // --- 4. Privacy & History flags ---
+    if let Some(f) = app.friends() {
+        let p = f.privacy();
+        let marks = |a: drx_social::friends::Audience| AUDIENCES.iter().map(|(x, _)| *x == a).collect::<Vec<bool>>();
+        let opts: Vec<&str> = AUDIENCES.iter().map(|(_, n)| *n).collect();
+        privacy.push(choice(
+            "privacy:now",
+            "Кто видит, что я слушаю",
+            "То, что публикует этот компьютер",
+            &opts,
+            marks(p.now),
+            "ДРУЗЬЯ И ПРИВАТНОСТЬ",
+        ));
+        privacy.push(choice(
+            "privacy:history",
+            "Кто видит историю прослушиваний",
+            "",
+            &opts,
+            marks(p.history),
+            "",
+        ));
+        privacy.push(switch(
+            "privacy:along",
+            "Разрешить слушать вместе со мной",
+            "Друзья могут включить «Слушать вместе»",
+            p.listen_along,
+            "",
+        ));
+        privacy.push(switch(
+            "privacy:read",
+            "Отметки «прочитано» и «печатает…»",
+            "Друзья видят, что вы прочитали и пишете ответ",
+            p.read_receipts,
+            "",
+        ));
+        privacy.push(switch(
+            "chat:notify",
+            "Уведомления о сообщениях",
+            "Уведомление Windows, когда окно свёрнуто",
+            app.chat_notify_on(),
+            "",
+        ));
+    }
+    privacy.push(switch(
         drx_app::PAUSE_HISTORY_KEY,
         "Не записывать историю прослушиваний",
         "Пока включено, прослушанное не попадает в историю и к друзьям",
         app.pref_bool(drx_app::PAUSE_HISTORY_KEY).unwrap_or(false),
         "ИСТОРИЯ",
     ));
-    more.push(choice(
+    let secs = app.pref_f32(drx_app::HISTORY_DURATION_KEY).unwrap_or(30.0);
+    let near = HISTORY_SECONDS
+        .iter()
+        .enumerate()
+        .min_by(|a, b| (a.1 - secs).abs().total_cmp(&(b.1 - secs).abs()))
+        .map_or(2, |(i, _)| i);
+    privacy.push(choice(
         drx_app::HISTORY_DURATION_KEY,
         "Засчитывать прослушивание после",
         "Короткие треки — почти целиком",
@@ -190,71 +420,19 @@ pub fn fill_flags(ui: &MainWindow, app: &App) {
         (0..HISTORY_SECONDS.len()).map(|i| i == near).collect(),
         "",
     ));
-    more.push(switch(
+    privacy.push(switch(
         "pauseSearchHistory",
         "Не запоминать поиски",
         "Новые запросы не попадают в историю поиска",
         app.pref_bool("pauseSearchHistory").unwrap_or(false),
         "",
     ));
-    more.push(switch("enableLrclib", "LRCLIB", "Синхронные тексты, основной источник", app.pref_bool("enableLrclib").unwrap_or(true), "ТЕКСТЫ"));
-    more.push(switch("enableBetterLyrics", "BetterLyrics", "Если в LRCLIB нет синхронного текста", app.pref_bool("enableBetterLyrics").unwrap_or(true), ""));
-    more.push(switch("enableKugou", "KuGou", "Если не нашлось и там", app.pref_bool("enableKugou").unwrap_or(true), ""));
-    more.push(choice("autoeq", "Профиль AutoEq", "Файл ParametricEQ.txt для своих наушников (autoeq.app) — включится сразу", &["Выбрать файл…"], vec![false], "ЭКВАЛАЙЗЕР"));
-    // Discord's advanced mode (the phone reads these options only in it).
-    {
-        use crate::discord_ui::{ADVANCED_KEY, BUTTON_KEY, TYPES, TYPE_KEY};
-        let adv = app.pref_bool(ADVANCED_KEY).unwrap_or(false);
-        more.push(switch(ADVANCED_KEY, "Расширенный статус Discord", "Свой тип активности и кнопка (когда «Статус в Discord» включён)", adv, "DISCORD"));
-        if adv {
-            let t = app.pref_string(TYPE_KEY).unwrap_or_else(|| "listening".into()).to_lowercase();
-            let names: Vec<&str> = TYPES.iter().map(|x| x.1).collect();
-            more.push(choice(TYPE_KEY, "Тип активности", "", &names, TYPES.iter().map(|x| x.0 == t).collect(), ""));
-            more.push(switch(BUTTON_KEY, "Кнопка «Открыть в Drxwnify»", "", app.pref_bool(BUTTON_KEY).unwrap_or(true), ""));
-        }
-    }
-    let cats = sponsor_categories(app);
-    let names: Vec<&str> = drx_app::sponsorblock::CATEGORIES.iter().map(|(_, n)| *n).collect();
-    more.push(choice(
-        "sb:cats",
-        "Что пропускать",
-        "В клипах с YouTube, когда включено «Пропускать немузыкальные вставки»",
-        &names,
-        drx_app::sponsorblock::CATEGORIES.iter().map(|(k, _)| cats.iter().any(|c| c == k)).collect(),
-        "SPONSORBLOCK",
-    ));
-    more.push(switch(
-        drx_app::sponsorblock::TOAST_KEY,
-        "Сообщать о пропуске",
-        "Короткое уведомление, что именно пропущено",
-        app.pref_bool(drx_app::sponsorblock::TOAST_KEY).unwrap_or(false),
-        "",
-    ));
-    // Last.fm (the phone's LastFMSettings): this PC's own sign-in through the browser, then its switches.
-    let lf = app.lastfm_state();
-    match (&lf.user, lf.available) {
-        (_, false) => more.push(switch_info("Last.fm", "Нет ключа приложения Last.fm в этой сборке", "LAST.FM")),
-        (None, true) => {
-            more.push(choice("lastfm:account", "Аккаунт Last.fm", "Вход через браузер: подтвердите доступ на странице Last.fm", &["Войти через Last.fm"], vec![false], "LAST.FM"));
-        }
-        (Some(u), true) => {
-            more.push(choice("lastfm:account", &format!("Аккаунт: {u}"), "", &["Выйти"], vec![false], "LAST.FM"));
-            more.push(switch(drx_app::lastfm::SCROBBLE_KEY, "Скробблинг", "Прослушанное попадает в профиль Last.fm (после половины трека или 3 минут)", lf.scrobble, ""));
-            more.push(switch(drx_app::lastfm::NOW_PLAYING_KEY, "«Сейчас слушает»", "Last.fm показывает, что играет прямо сейчас", lf.now_playing, ""));
-            more.push(switch(drx_app::lastfm::LOVE_KEY, "Отправлять лайки", "Лайк трека — «love» в Last.fm", lf.love, ""));
-        }
-    }
-    if let Some(f) = app.friends() {
-        let p = f.privacy();
-        let marks = |a: drx_social::friends::Audience| AUDIENCES.iter().map(|(x, _)| *x == a).collect::<Vec<bool>>();
-        let opts: Vec<&str> = AUDIENCES.iter().map(|(_, n)| *n).collect();
-        more.push(choice("privacy:now", "Кто видит, что я слушаю", "То, что публикует этот компьютер", &opts, marks(p.now), "ДРУЗЬЯ И ПРИВАТНОСТЬ"));
-        more.push(choice("privacy:history", "Кто видит историю прослушиваний", "", &opts, marks(p.history), ""));
-        more.push(switch("privacy:along", "Разрешить слушать вместе со мной", "Друзья могут включить «Слушать вместе»", p.listen_along, ""));
-        more.push(switch("privacy:read", "Отметки «прочитано» и «печатает…»", "Друзья видят, что вы прочитали и пишете ответ", p.read_receipts, ""));
-        more.push(switch("chat:notify", "Уведомления о сообщениях", "Уведомление Windows, когда окно свёрнуто", app.chat_notify_on(), ""));
-    }
-    ui.global::<crate::SettingsUi>().set_more(ModelRc::new(VecModel::from(more)));
+
+    let g = ui.global::<crate::SettingsUi>();
+    g.set_sound(ModelRc::new(VecModel::from(sound)));
+    g.set_content(ModelRc::new(VecModel::from(content)));
+    g.set_integrations(ModelRc::new(VecModel::from(integrations)));
+    g.set_privacy(ModelRc::new(VecModel::from(privacy)));
 }
 
 fn set_flag(ui: &MainWindow, app: &App, key: &str, on: bool) {

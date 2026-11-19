@@ -184,9 +184,14 @@ export struct FlagItem {
     marks: [bool], // which chips are picked
 }
 
-// Settings rows after the sound section, and the callbacks of every settings row.
+// Settings rows organized into categories (Android style), and the callbacks of every settings row.
 export global SettingsUi {
+    in property <[FlagItem]> sound;
+    in property <[FlagItem]> content;
+    in property <[FlagItem]> integrations;
+    in property <[FlagItem]> privacy;
     in property <[FlagItem]> more;
+    in-out property <int> active-tab: 0;
     in property <length> start-y; // developer check without input: the page opens scrolled this far
     callback set-flag(string, bool);
     callback pick(string, int);
@@ -345,8 +350,8 @@ export global Grid {
     // rows and the player bar at most 5 px. Square themes stay square. Mirrored in main.rs (baked corners).
     out property <length> cover-radius: round(Theme.cover-radius * 2 / 3 / 1px) * 1px;
     out property <length> row-cover-radius: min(5px, round(Theme.cover-radius * 2 / 3 / 1px) * 1px);
-    in-out property <length> lib-width: 320px; // dragged by the owner (saved), see Splitter
-    in-out property <length> side-width: 340px;
+    in-out property <length> lib-width: 280px; // dragged by the owner (saved), see Splitter
+    in-out property <length> side-width: 300px;
     out property <length> top-height: 64px;
     out property <length> bar-height: 84px;
     out property <length> control: 40px;     // top bar controls
@@ -1326,259 +1331,317 @@ component SettingsPage inherits Flickable {
         padding-right: Grid.pad + 4px;
         spacing: Grid.gap;
         alignment: start;
-        Caption { text: "АККАУНТЫ"; }
-        Text {
-            text: "Основной аккаунт отвечает за поиск, главную и страницы исполнителей. Остальные можно показать в медиатеке.";
-            font-family: Theme.body-font; font-size: 14px; color: Theme.mute; wrap: word-wrap;
-        }
-        for a in root.accounts: Rectangle {
-            border-radius: Grid.item-radius;
-            background: Theme.fill;
-            HorizontalLayout {
-                padding-left: Grid.pad;
-                padding-right: Grid.pad;
-                padding-top: 10px;
-                padding-bottom: 10px;
-                spacing: Grid.pad;
-                VerticalLayout {
-                    horizontal-stretch: 1;
+
+        // Category tabs (Android-style organization)
+        HorizontalLayout {
+            spacing: 8px;
+            padding-bottom: 6px;
+            for tab[i] in ["Оформление", "Звук", "Контент", "Интеграции", "Приватность"]: Rectangle {
+                height: 36px;
+                border-radius: min(Theme.chip-radius, 18px);
+                background: SettingsUi.active-tab == i ? Theme.accent : (cta.has-hover ? Theme.fill-hover : Theme.fill);
+                border-color: SettingsUi.active-tab == i ? Theme.accent : Theme.panel-border;
+                border-width: 1px;
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
                     alignment: center;
-                    spacing: 2px;
-                    Text { text: a.label; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.text; }
                     Text {
-                        text: !a.linked ? "Не подключён: войдите на телефоне и перенесите резервную копию" : (a.main ? "Основной аккаунт" : "Подключён");
-                        font-family: Theme.body-font; font-size: 14px; color: a.main ? Theme.accent : Theme.mute; overflow: elide;
+                        text: tab;
+                        font-family: Theme.body-font;
+                        font-weight: SettingsUi.active-tab == i ? 700 : 500;
+                        font-size: 14px;
+                        color: SettingsUi.active-tab == i ? Theme.bg : Theme.text;
+                        vertical-alignment: center;
                     }
                 }
-                if a.linked && !a.main: Middle {
-                    horizontal-stretch: 0;
+                cta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { SettingsUi.active-tab = i; }
+                }
+            }
+        }
+
+        // ================= 0: ОФОРМЛЕНИЕ =================
+        if SettingsUi.active-tab == 0: VerticalLayout {
+            spacing: Grid.gap;
+            Caption { text: "ТЕМЫ ОФОРМЛЕНИЯ"; }
+            themes-strip := ArrowStrip {
+                property <int> hover-i: -1;
+                height: 104px;
+                content-w: root.themes.length * 116px;
+                hot: self.hover-i >= 0;
+                arrow-y: 16px;
+                for t[i] in root.themes: Rectangle {
+                    x: i * 116px;
+                    width: 104px;
+                    height: 104px;
+                    VerticalLayout {
+                        spacing: 6px;
+                        Rectangle {
+                            height: 72px;
+                            border-radius: Grid.item-radius;
+                            background: t.bg;
+                            border-color: t.selected ? Theme.accent : (tta.has-hover ? Theme.dim : Theme.panel-border);
+                            border-width: t.selected ? 2px : 1px;
+                            Rectangle {
+                                width: 28px;
+                                height: 28px;
+                                border-radius: 14px;
+                                background: t.accent;
+                            }
+                        }
+                        Text { text: t.name; font-family: Theme.body-font; font-size: 14px; color: t.selected ? Theme.accent : Theme.text; horizontal-alignment: center; overflow: elide; }
+                    }
+                    tta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.set-theme(t.id); }
+                        changed has-hover => {
+                            if self.has-hover { themes-strip.hover-i = i; } else if themes-strip.hover-i == i { themes-strip.hover-i = -1; }
+                        }
+                    }
+                }
+            }
+            Rectangle { height: 4px; }
+            Caption { text: "ИНТЕРФЕЙС И КЛАВИШИ"; }
+            SettingRow {
+                label: "Светлая тема";
+                hint: "Дневной вариант выбранной темы";
+                Middle { Toggle { on: root.day; toggled(v) => { root.set-day(v); } } }
+            }
+            SettingRow {
+                label: "Запускать вместе с Windows";
+                hint: "Окно откроется свёрнутым";
+                Middle { Toggle { on: root.autostart; toggled(v) => { root.set-autostart(v); } } }
+            }
+            SettingRow {
+                label: "Глобальные горячие клавиши";
+                hint: root.hotkeys ? "Работают в любой программе, даже в игре" : "Только пока окно Drxwnify активно";
+                Middle { Toggle { on: root.hotkeys; toggled(v) => { root.set-hotkeys(v); } } }
+            }
+            for hk in root.hotkey-rows: SettingRow {
+                label: hk.label;
+                hint: hk.note;
+                Middle {
+                    Rectangle {
+                        width: kc.preferred-width + 24px;
+                        height: 32px;
+                        border-radius: 7px;
+                        background: root.recording == hk.id ? Theme.fill-hover : (kca.has-hover ? Theme.fill-hover : Theme.fill);
+                        border-color: root.recording == hk.id ? Theme.accent : (hk.taken ? #E5484D : Theme.panel-border);
+                        border-width: 1px;
+                        kc := Text {
+                            text: root.recording == hk.id ? "Нажмите сочетание…" : (hk.combo == "" ? "выключено" : hk.combo);
+                            font-family: Theme.mono-font;
+                            font-size: 14px;
+                            color: root.recording == hk.id ? Theme.accent : (hk.combo == "" ? Theme.mute : Theme.text);
+                        }
+                        kca := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.recording = hk.id; root.hotkey-start(hk.id); rec-scope.focus(); }
+                        }
+                    }
+                }
+                if !hk.is-default: Middle { IconButton { icon: Icons.repeat; size: 30px; icon-size: 15px; clicked => { root.hotkey-reset(hk.id); } } }
+                if hk.combo != "": Middle { IconButton { icon: Icons.x; size: 30px; icon-size: 15px; clicked => { root.hotkey-off(hk.id); } } }
+            }
+            rec-scope := FocusScope {
+                width: 0;
+                height: 0;
+                key-pressed(e) => {
+                    if root.recording < 0 { return reject; }
+                    if e.text == Key.Escape { root.recording = -1; root.hotkey-cancel(); return accept; }
+                    // A modifier alone: wait for the key.
+                    if e.text == Key.Control || e.text == Key.ControlR || e.text == Key.Shift || e.text == Key.ShiftR
+                        || e.text == Key.Alt || e.text == Key.AltGr || e.text == Key.Meta || e.text == Key.MetaR {
+                        return accept;
+                    }
+                    root.hotkey-captured(root.recording, e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift);
+                    accept
+                }
+                changed has-focus => { if !self.has-focus && root.recording >= 0 { root.recording = -1; root.hotkey-cancel(); } }
+            }
+            Text {
+                text: "Нажмите на сочетание, чтобы задать своё: зажмите Ctrl, Alt или Shift (лучше два-три сразу) и клавишу. Esc — отмена.";
+                font-family: Theme.body-font;
+                font-size: 14px;
+                color: Theme.mute;
+                wrap: word-wrap;
+            }
+        }
+
+        // ================= 1: ЗВУК =================
+        if SettingsUi.active-tab == 1: VerticalLayout {
+            spacing: Grid.gap;
+            Caption { text: "ПАРАМЕТРЫ ЗВУКА"; }
+            SettingRow {
+                label: "Нормализация громкости";
+                hint: "Треки с YouTube звучат одинаково громко";
+                Middle { Toggle { on: SoundUi.data.normalize; toggled(v) => { SoundUi.set-bool("audioNormalization", v); } } }
+            }
+            SettingRow {
+                label: "Пропускать тишину";
+                hint: "Паузы внутри трека длиннее 0,15 с вырезаются";
+                Middle { Toggle { on: SoundUi.data.skip-silence; toggled(v) => { SoundUi.set-bool("skipSilence", v); } } }
+            }
+            SettingRow {
+                label: "Кроссфейд";
+                hint: "Текущий трек плавно затухает, пока нарастает следующий";
+                Middle { Toggle { on: SoundUi.data.crossfade; toggled(v) => { SoundUi.set-bool("crossfadeEnabled", v); } } }
+            }
+            if SoundUi.data.crossfade: SettingRow {
+                label: "Длительность кроссфейда";
+                hint: round(SoundUi.data.crossfade-s) + " с";
+                Middle {
+                    Slider {
+                        width: 240px;
+                        value: (SoundUi.data.crossfade-s - 1) / 14;
+                        picked(v) => { SoundUi.set-num("crossfadeDurationFloat", round(1 + v * 14)); }
+                    }
+                }
+            }
+            if SoundUi.data.crossfade: SettingRow {
+                label: "Отключать для альбомов без пауз";
+                hint: "Треки одного альбома идут встык, без затухания";
+                Middle { Toggle { on: SoundUi.data.album; toggled(v) => { SoundUi.set-bool("crossfadeGapless", v); } } }
+            }
+            SettingRow {
+                property <float> b: SoundUi.data.balance;
+                label: "Баланс";
+                hint: abs(self.b) < 0.005 ? "По центру"
+                    : "Л " + round((self.b > 0 ? 1 - self.b : 1) * 100) + "% · П " + round((self.b < 0 ? 1 + self.b : 1) * 100) + "%";
+                if abs(SoundUi.data.balance) >= 0.005: Middle {
                     Rectangle {
                         height: 30px;
-                        width: mt.preferred-width + 24px;
+                        width: bc.preferred-width + 24px;
                         border-radius: min(Theme.chip-radius, 15px);
-                        background: mta.has-hover ? Theme.fill-hover : transparent;
+                        background: bca.has-hover ? Theme.fill-hover : transparent;
                         border-color: Theme.panel-border;
                         border-width: 1px;
-                        mt := Text { text: "Сделать основным"; font-family: Theme.body-font; font-size: 14px; color: Theme.text; }
-                        mta := TouchArea { mouse-cursor: pointer; clicked => { root.set-main(a.key); } }
+                        bc := Text { text: "По центру"; font-family: Theme.body-font; font-size: 14px; color: Theme.text; }
+                        bca := TouchArea { mouse-cursor: pointer; clicked => { SoundUi.set-num("stereoBalance", 0); } }
                     }
                 }
-                if a.linked: HorizontalLayout {
-                    horizontal-stretch: 0;
-                    spacing: 8px;
-                    Text { text: "В медиатеке"; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; vertical-alignment: center; }
-                    Middle { Toggle { on: a.tab; enabled: !a.main; toggled(v) => { root.set-tab(a.key, v); } } }
+                Middle {
+                    Slider {
+                        width: 240px;
+                        value: (SoundUi.data.balance + 1) / 2;
+                        picked(v) => { SoundUi.set-num("stereoBalance", abs(v * 2 - 1) < 0.04 ? 0 : round((v * 2 - 1) * 100) / 100); }
+                    }
                 }
             }
-        }
-        for f in root.flags: FlagRow { f: f; }
-        Rectangle { height: 8px; }
-        Caption { text: "ЗВУК"; }
-        SettingRow {
-            label: "Нормализация громкости";
-            hint: "Треки с YouTube звучат одинаково громко";
-            Middle { Toggle { on: SoundUi.data.normalize; toggled(v) => { SoundUi.set-bool("audioNormalization", v); } } }
-        }
-        SettingRow {
-            label: "Пропускать тишину";
-            hint: "Паузы внутри трека длиннее 0,15 с вырезаются";
-            Middle { Toggle { on: SoundUi.data.skip-silence; toggled(v) => { SoundUi.set-bool("skipSilence", v); } } }
-        }
-        SettingRow {
-            label: "Кроссфейд";
-            hint: "Текущий трек плавно затухает, пока нарастает следующий";
-            Middle { Toggle { on: SoundUi.data.crossfade; toggled(v) => { SoundUi.set-bool("crossfadeEnabled", v); } } }
-        }
-        if SoundUi.data.crossfade: SettingRow {
-            label: "Длительность кроссфейда";
-            hint: round(SoundUi.data.crossfade-s) + " с";
-            Middle {
-                Slider {
-                    width: 240px;
-                    value: (SoundUi.data.crossfade-s - 1) / 14;
-                    picked(v) => { SoundUi.set-num("crossfadeDurationFloat", round(1 + v * 14)); }
-                }
+            SettingRow {
+                label: "Эквалайзер";
+                hint: SoundUi.data.other != "" ? "Включён профиль «" + SoundUi.data.other + "» с телефона; полосы ниже заменят его"
+                    : (SoundUi.data.eq-on ? SoundUi.data.eq-name : "Выключен");
+                Middle { Toggle { on: SoundUi.data.eq-on; toggled(v) => { SoundUi.set-bool("eq", v); } } }
             }
-        }
-        if SoundUi.data.crossfade: SettingRow {
-            label: "Отключать для альбомов без пауз";
-            hint: "Треки одного альбома идут встык, без затухания";
-            Middle { Toggle { on: SoundUi.data.album; toggled(v) => { SoundUi.set-bool("crossfadeGapless", v); } } }
-        }
-        SettingRow {
-            property <float> b: SoundUi.data.balance;
-            label: "Баланс";
-            hint: abs(self.b) < 0.005 ? "По центру"
-                : "Л " + round((self.b > 0 ? 1 - self.b : 1) * 100) + "% · П " + round((self.b < 0 ? 1 + self.b : 1) * 100) + "%";
-            if abs(SoundUi.data.balance) >= 0.005: Middle {
-                Rectangle {
-                    height: 30px;
-                    width: bc.preferred-width + 24px;
-                    border-radius: min(Theme.chip-radius, 15px);
-                    background: bca.has-hover ? Theme.fill-hover : transparent;
-                    border-color: Theme.panel-border;
-                    border-width: 1px;
-                    bc := Text { text: "По центру"; font-family: Theme.body-font; font-size: 14px; color: Theme.text; }
-                    bca := TouchArea { mouse-cursor: pointer; clicked => { SoundUi.set-num("stereoBalance", 0); } }
-                }
-            }
-            Middle {
-                Slider {
-                    width: 240px;
-                    value: (SoundUi.data.balance + 1) / 2;
-                    picked(v) => { SoundUi.set-num("stereoBalance", abs(v * 2 - 1) < 0.04 ? 0 : round((v * 2 - 1) * 100) / 100); }
-                }
-            }
-        }
-        SettingRow {
-            label: "Эквалайзер";
-            hint: SoundUi.data.other != "" ? "Включён профиль «" + SoundUi.data.other + "» с телефона; полосы ниже заменят его"
-                : (SoundUi.data.eq-on ? SoundUi.data.eq-name : "Выключен");
-            Middle { Toggle { on: SoundUi.data.eq-on; toggled(v) => { SoundUi.set-bool("eq", v); } } }
-        }
-        presets-strip := ArrowStrip {
-            property <int> hover-i: -1;
-            height: 40px;
-            content-w: prow.preferred-width;
-            hot: self.hover-i >= 0;
-            arrow-y: 0px;
-            prow := HorizontalLayout {
-                spacing: 8px;
+            presets-strip := ArrowStrip {
+                property <int> hover-i: -1;
                 height: 40px;
-                for p[i] in SoundUi.presets: pm := Middle {
-                    property <bool> sel: SoundUi.data.eq-on && SoundUi.data.other == "" && SoundUi.data.eq-name == p;
-                    Rectangle {
-                        height: 32px;
-                        width: pt.preferred-width + 24px;
-                        border-radius: min(Theme.chip-radius, 16px);
-                        background: pm.sel ? Theme.accent : (pa.has-hover ? Theme.fill-hover : Theme.fill);
-                        pt := Text { text: p; font-family: Theme.body-font; font-size: 14px; color: pm.sel ? Theme.bg : Theme.text; }
-                        pa := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => { SoundUi.preset(i); }
-                            changed has-hover => {
-                                if self.has-hover { presets-strip.hover-i = i; } else if presets-strip.hover-i == i { presets-strip.hover-i = -1; }
+                content-w: prow.preferred-width;
+                hot: self.hover-i >= 0;
+                arrow-y: 0px;
+                prow := HorizontalLayout {
+                    spacing: 8px;
+                    height: 40px;
+                    for p[i] in SoundUi.presets: pm := Middle {
+                        property <bool> sel: SoundUi.data.eq-on && SoundUi.data.other == "" && SoundUi.data.eq-name == p;
+                        Rectangle {
+                            height: 32px;
+                            width: pt.preferred-width + 24px;
+                            border-radius: min(Theme.chip-radius, 16px);
+                            background: pm.sel ? Theme.accent : (pa.has-hover ? Theme.fill-hover : Theme.fill);
+                            pt := Text { text: p; font-family: Theme.body-font; font-size: 14px; color: pm.sel ? Theme.bg : Theme.text; }
+                            pa := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { SoundUi.preset(i); }
+                                changed has-hover => {
+                                    if self.has-hover { presets-strip.hover-i = i; } else if presets-strip.hover-i == i { presets-strip.hover-i = -1; }
+                                }
                             }
                         }
                     }
                 }
             }
-        }
-        HorizontalLayout {
-            alignment: start;
-            spacing: 6px;
-            for g[i] in SoundUi.data.gains: EqBand {
-                gain: g;
-                label: SoundUi.labels[i];
-                enabled: SoundUi.data.eq-on && SoundUi.data.other == "";
-                picked(v) => { SoundUi.set-gain(i, v); }
-            }
-        }
-        for f in SettingsUi.more: FlagRow { f: f; }
-        Rectangle { height: 8px; }
-        Caption { text: "ОФОРМЛЕНИЕ"; }
-        SettingRow {
-            label: "Светлая тема";
-            hint: "Дневной вариант выбранной темы";
-            Middle { Toggle { on: root.day; toggled(v) => { root.set-day(v); } } }
-        }
-        SettingRow {
-            label: "Запускать вместе с Windows";
-            hint: "Окно откроется свёрнутым";
-            Middle { Toggle { on: root.autostart; toggled(v) => { root.set-autostart(v); } } }
-        }
-        SettingRow {
-            label: "Глобальные горячие клавиши";
-            hint: root.hotkeys ? "Работают в любой программе, даже в игре" : "Только пока окно Drxwnify активно";
-            Middle { Toggle { on: root.hotkeys; toggled(v) => { root.set-hotkeys(v); } } }
-        }
-        // Each action's combination: a click on it records a new one (Esc cancels), ↺ brings back the default,
-        // × switches it off (pc/ KeysSection).
-        for hk in root.hotkey-rows: SettingRow {
-            label: hk.label;
-            hint: hk.note;
-            Middle {
-                Rectangle {
-                    width: kc.preferred-width + 24px;
-                    height: 32px;
-                    border-radius: 7px;
-                    background: root.recording == hk.id ? Theme.fill-hover : (kca.has-hover ? Theme.fill-hover : Theme.fill);
-                    border-color: root.recording == hk.id ? Theme.accent : (hk.taken ? #E5484D : Theme.panel-border);
-                    border-width: 1px;
-                    kc := Text {
-                        text: root.recording == hk.id ? "Нажмите сочетание…" : (hk.combo == "" ? "выключено" : hk.combo);
-                        font-family: Theme.mono-font;
-                        font-size: 14px;
-                        color: root.recording == hk.id ? Theme.accent : (hk.combo == "" ? Theme.mute : Theme.text);
-                    }
-                    kca := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => { root.recording = hk.id; root.hotkey-start(hk.id); rec-scope.focus(); }
-                    }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 6px;
+                for g[i] in SoundUi.data.gains: EqBand {
+                    gain: g;
+                    label: SoundUi.labels[i];
+                    enabled: SoundUi.data.eq-on && SoundUi.data.other == "";
+                    picked(v) => { SoundUi.set-gain(i, v); }
                 }
             }
-            if !hk.is-default: Middle { IconButton { icon: Icons.repeat; size: 30px; icon-size: 15px; clicked => { root.hotkey-reset(hk.id); } } }
-            if hk.combo != "": Middle { IconButton { icon: Icons.x; size: 30px; icon-size: 15px; clicked => { root.hotkey-off(hk.id); } } }
+            for f in SettingsUi.sound: FlagRow { f: f; }
         }
-        rec-scope := FocusScope {
-            width: 0;
-            height: 0;
-            key-pressed(e) => {
-                if root.recording < 0 { return reject; }
-                if e.text == Key.Escape { root.recording = -1; root.hotkey-cancel(); return accept; }
-                // A modifier alone: wait for the key.
-                if e.text == Key.Control || e.text == Key.ControlR || e.text == Key.Shift || e.text == Key.ShiftR
-                    || e.text == Key.Alt || e.text == Key.AltGr || e.text == Key.Meta || e.text == Key.MetaR {
-                    return accept;
-                }
-                root.hotkey-captured(root.recording, e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift);
-                accept
+
+        // ================= 2: КОНТЕНТ =================
+        if SettingsUi.active-tab == 2: VerticalLayout {
+            spacing: Grid.gap;
+            Caption { text: "ИСТОЧНИКИ И КОНТЕНТ"; }
+            for f in SettingsUi.content: FlagRow { f: f; }
+        }
+
+        // ================= 3: ИНТЕГРАЦИИ =================
+        if SettingsUi.active-tab == 3: VerticalLayout {
+            spacing: Grid.gap;
+            Caption { text: "ПОДКЛЮЧЁННЫЕ АККАУНТЫ"; }
+            Text {
+                text: "Основной аккаунт отвечает за поиск, главную и страницы исполнителей. Остальные можно показать в медиатеке.";
+                font-family: Theme.body-font; font-size: 14px; color: Theme.mute; wrap: word-wrap;
             }
-            changed has-focus => { if !self.has-focus && root.recording >= 0 { root.recording = -1; root.hotkey-cancel(); } }
-        }
-        Text {
-            text: "Нажмите на сочетание, чтобы задать своё: зажмите Ctrl, Alt или Shift (лучше два-три сразу) и клавишу. Esc — отмена.";
-            font-family: Theme.body-font;
-            font-size: 14px;
-            color: Theme.mute;
-            wrap: word-wrap;
-        }
-        // Theme cards: a swatch of the theme's background and accent, the name under it.
-        themes-strip := ArrowStrip {
-            property <int> hover-i: -1;
-            height: 104px;
-            content-w: root.themes.length * 116px;
-            hot: self.hover-i >= 0;
-            arrow-y: 16px;
-            for t[i] in root.themes: Rectangle {
-                x: i * 116px;
-                width: 104px;
-                height: 104px;
-                VerticalLayout {
-                    spacing: 6px;
-                    Rectangle {
-                        height: 72px;
-                        border-radius: Grid.item-radius;
-                        background: t.bg;
-                        border-color: t.selected ? Theme.accent : (tta.has-hover ? Theme.dim : Theme.panel-border);
-                        border-width: t.selected ? 2px : 1px;
-                        Rectangle {
-                            width: 28px;
-                            height: 28px;
-                            border-radius: 14px;
-                            background: t.accent;
+            for a in root.accounts: Rectangle {
+                border-radius: Grid.item-radius;
+                background: Theme.fill;
+                HorizontalLayout {
+                    padding-left: Grid.pad;
+                    padding-right: Grid.pad;
+                    padding-top: 10px;
+                    padding-bottom: 10px;
+                    spacing: Grid.pad;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: a.label; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.text; }
+                        Text {
+                            text: !a.linked ? "Не подключён: войдите на телефоне и перенесите резервную копию" : (a.main ? "Основной аккаунт" : "Подключён");
+                            font-family: Theme.body-font; font-size: 14px; color: a.main ? Theme.accent : Theme.mute; overflow: elide;
                         }
                     }
-                    Text { text: t.name; font-family: Theme.body-font; font-size: 14px; color: t.selected ? Theme.accent : Theme.text; horizontal-alignment: center; overflow: elide; }
-                }
-                tta := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => { root.set-theme(t.id); }
-                    changed has-hover => {
-                        if self.has-hover { themes-strip.hover-i = i; } else if themes-strip.hover-i == i { themes-strip.hover-i = -1; }
+                    if a.linked && !a.main: Middle {
+                        horizontal-stretch: 0;
+                        Rectangle {
+                            height: 30px;
+                            width: mt.preferred-width + 24px;
+                            border-radius: min(Theme.chip-radius, 15px);
+                            background: mta.has-hover ? Theme.fill-hover : transparent;
+                            border-color: Theme.panel-border;
+                            border-width: 1px;
+                            mt := Text { text: "Сделать основным"; font-family: Theme.body-font; font-size: 14px; color: Theme.text; }
+                            mta := TouchArea { mouse-cursor: pointer; clicked => { root.set-main(a.key); } }
+                        }
+                    }
+                    if a.linked: HorizontalLayout {
+                        horizontal-stretch: 0;
+                        spacing: 8px;
+                        Text { text: "В медиатеке"; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; vertical-alignment: center; }
+                        Middle { Toggle { on: a.tab; enabled: !a.main; toggled(v) => { root.set-tab(a.key, v); } } }
                     }
                 }
             }
+            Rectangle { height: 4px; }
+            Caption { text: "СЕРВИСЫ И ИНТЕГРАЦИИ"; }
+            for f in SettingsUi.integrations: FlagRow { f: f; }
+        }
+
+        // ================= 4: ПРИВАТНОСТЬ =================
+        if SettingsUi.active-tab == 4: VerticalLayout {
+            spacing: Grid.gap;
+            Caption { text: "ПРИВАТНОСТЬ И ИСТОРИЯ"; }
+            for f in SettingsUi.privacy: FlagRow { f: f; }
         }
     }
 }
@@ -2774,6 +2837,7 @@ component RightPanel inherits VerticalLayout {
     callback queue-move(int, int);
     callback queue-clear();
     callback queue-close();
+    callback close-panel();
     property <length> cover-size: root.width - 2 * Grid.pad;
     padding: Grid.pad;
     padding-bottom: 0;
@@ -2803,7 +2867,10 @@ component RightPanel inherits VerticalLayout {
         }
         if root.queue-more > 0: Text { text: "и ещё " + root.queue-more; font-family: Theme.body-font; font-size: 13px; color: Theme.mute; }
     }
-    if !root.queue-open: Header { SectionTitle { text: "Сейчас играет"; } }
+    if !root.queue-open: Header {
+        SectionTitle { text: "Сейчас играет"; horizontal-stretch: 1; }
+        Middle { IconButton { size: 30px; icon-size: 15px; icon: Icons.x; clicked => { root.close-panel(); } } }
+    }
     if !root.queue-open: HorizontalLayout {
         alignment: start;
         Cover { size: root.cover-size; source: root.cover; has-source: root.has-cover; placeholder-size: 64px; zoomable: true; zoom => { root.zoom-cover(); } }
@@ -2904,6 +2971,8 @@ component PlayerBar inherits HorizontalLayout {
     callback toggle-queue();
     in property <bool> lyrics-open;
     callback toggle-lyrics();
+    in property <bool> right-panel-open;
+    callback toggle-right-panel();
     height: Grid.bar-height;
     HorizontalLayout {
         width: Grid.lib-width + 1px;
@@ -2973,7 +3042,7 @@ component PlayerBar inherits HorizontalLayout {
         }
     }
     HorizontalLayout {
-        width: Grid.side-width + 1px;
+        width: root.right-panel-open ? (Grid.side-width + 1px) : 300px;
         padding-left: Grid.pad;
         padding-right: Grid.pad;
         spacing: 4px;
@@ -3077,6 +3146,7 @@ component PlayerBar inherits HorizontalLayout {
         Middle { IconButton { icon: root.day ? Icons.sun : Icons.moon; clicked => { root.set-day(!root.day); } } }
         Middle { IconButton { icon: Icons.microphone; active: root.lyrics-open; active-color: Theme.accent; clicked => { root.toggle-lyrics(); } } }
         Middle { IconButton { icon: Icons.list; active: root.queue-open; active-color: Theme.accent; clicked => { root.toggle-queue(); } } }
+        Middle { IconButton { icon: Icons.layout-right; active: root.right-panel-open; active-color: Theme.accent; clicked => { root.toggle-right-panel(); } } }
         Middle {
             IconButton {
                 icon: root.volume <= 0.001 ? Icons.volume-off : Icons.volume;
@@ -4425,6 +4495,7 @@ export component MainWindow inherits Window {
     callback sleep-option(string);
     in-out property <bool> queue-open;
     in-out property <bool> lyrics-open;
+    in-out property <bool> right-panel-open: true;
     in property <[LyricLine]> lyrics-lines;
     in property <int> lyrics-current: -1;
     in property <bool> lyrics-synced;
@@ -4859,7 +4930,7 @@ export component MainWindow inherits Window {
                         like-song(id) => { root.like-song(id); }
                         song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
                     }
-                    Splitter {
+                    if root.right-panel-open: Splitter {
                         current: Grid.side-width;
                         min-w: 240px;
                         max-w: max(240px, min(520px, root.width - Grid.lib-width - 480px));
@@ -4867,8 +4938,9 @@ export component MainWindow inherits Window {
                         resize(w) => { Grid.side-width = w; }
                         done => { root.panels-resized(); }
                     }
-                    RightPanel {
+                    if root.right-panel-open: RightPanel {
                         width: Grid.side-width;
+                        close-panel => { root.right-panel-open = false; }
                         title: root.now-title;
                         artists: root.now-artists;
                         info: root.now-info;
@@ -4925,6 +4997,8 @@ export component MainWindow inherits Window {
                     toggle-queue => { root.queue-open = !root.queue-open; root.queue-toggled(); }
                     lyrics-open: root.lyrics-open;
                     toggle-lyrics => { root.lyrics-open = !root.lyrics-open; root.lyrics-toggled(); }
+                    right-panel-open: root.right-panel-open;
+                    toggle-right-panel => { root.right-panel-open = !root.right-panel-open; }
                     shuffle: root.now-shuffle;
                     repeat: root.now-repeat;
                     toggle-shuffle => { root.toggle-shuffle(); }
