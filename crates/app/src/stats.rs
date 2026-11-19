@@ -175,7 +175,7 @@ impl App {
     /// Statistics for a period: totals and the top songs, artists and albums by listening time.
     pub async fn stats(&self, period: StatPeriod) -> AppResult<Stats> {
         let (from, to) = period.range();
-        Ok(self
+        let stats: Stats = self
             .store()
             .call(move |c| {
                 let (total_ms, plays): (i64, i64) = c.query_row(
@@ -212,7 +212,20 @@ impl App {
                     .collect::<Result<Vec<_>, _>>()?;
                 // The first artist of each song gets its time (as Android's mostPlayedArtists).
                 let mut st = c.prepare(
-                    "SELECT ar.id, ar.name, ar.thumbnailUrl, count(*), sum(e.playTime) FROM event e
+                    "SELECT ar.id, ar.name,
+                            coalesce(
+                                ar.thumbnailUrl,
+                                (SELECT s2.thumbnailUrl FROM event e2
+                                 JOIN song s2 ON s2.id = e2.songId
+                                 JOIN song_artist_map sam ON sam.songId = s2.id
+                                 WHERE sam.artistId = ar.id AND s2.thumbnailUrl IS NOT NULL AND s2.thumbnailUrl != ''
+                                 ORDER BY e2.playTime DESC LIMIT 1),
+                                (SELECT s3.thumbnailUrl FROM song s3
+                                 JOIN song_artist_map sam2 ON sam2.songId = s3.id
+                                 WHERE sam2.artistId = ar.id AND s3.thumbnailUrl IS NOT NULL AND s3.thumbnailUrl != ''
+                                 LIMIT 1)
+                            ) AS thumb,
+                            count(*), sum(e.playTime) FROM event e
                      JOIN song_artist_map m ON m.songId = e.songId AND m.position = 0
                      JOIN artist ar ON ar.id = m.artistId
                      WHERE e.timestamp >= ?1 AND e.timestamp < ?2 GROUP BY ar.id ORDER BY sum(e.playTime) DESC LIMIT 30",
@@ -260,7 +273,51 @@ impl App {
                     unique_artists: unique_artists as u32,
                 })
             })
-            .await?)
+            .await?;
+
+        // Background resolve high-res Spotify artist avatars for artists missing photos
+        let this = self.clone();
+        let missing: Vec<String> = stats
+            .artists
+            .iter()
+            .filter(|a| a.id.starts_with("SP_"))
+            .map(|a| a.id.clone())
+            .collect();
+        tokio::spawn(async move {
+            for id in missing {
+                let has_artist_thumb: bool = this
+                    .store()
+                    .call({
+                        let id = id.clone();
+                        move |c| {
+                            let t: Option<String> = c
+                                .query_row("SELECT thumbnailUrl FROM artist WHERE id = ?1", [&id], |r| r.get(0))
+                                .unwrap_or(None);
+                            Ok(t.is_some())
+                        }
+                    })
+                    .await
+                    .unwrap_or(true);
+                if !has_artist_thumb {
+                    if let Some(sp_id) = id.strip_prefix("SP_") {
+                        if let Ok(page) = this.spotify_or_public().artist(sp_id).await {
+                            if let Some(img) = page.images.first() {
+                                let thumb = img.url.clone();
+                                let _ = this.store().call({
+                                    let id = id.clone();
+                                    move |c| {
+                                        c.execute("UPDATE artist SET thumbnailUrl = ?1 WHERE id = ?2", [&thumb, &id])?;
+                                        Ok(())
+                                    }
+                                }).await;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(stats)
     }
 
     /// Wrapped's playlist (WrappedManager.createPlaylist): every song of 2025, the most listened first, as a new

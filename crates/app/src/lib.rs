@@ -695,7 +695,9 @@ impl App {
                     out.push(r?);
                 }
                 let mut st = c.prepare(
-                    "SELECT id, name, thumbnailUrl, bookmarkedAt, lastUpdateTime FROM artist WHERE bookmarkedAt IS NOT NULL ORDER BY bookmarkedAt DESC",
+                    "SELECT a.id, a.name,
+                            coalesce(a.thumbnailUrl, (SELECT s.thumbnailUrl FROM song s JOIN song_artist_map sam ON sam.songId = s.id WHERE sam.artistId = a.id AND s.thumbnailUrl IS NOT NULL AND s.thumbnailUrl != '' LIMIT 1)),
+                            a.bookmarkedAt, a.lastUpdateTime FROM artist a WHERE a.bookmarkedAt IS NOT NULL ORDER BY a.bookmarkedAt DESC",
                 )?;
                 let rows = st.query_map([], |r| {
                     Ok(LibraryEntry {
@@ -842,7 +844,9 @@ impl App {
                         .ok(),
                     ListSpec::Artist { id } => c
                         .query_row(
-                            "SELECT name, thumbnailUrl FROM artist WHERE id = ?1",
+                            "SELECT a.name,
+                                    coalesce(a.thumbnailUrl, (SELECT s.thumbnailUrl FROM song s JOIN song_artist_map sam ON sam.songId = s.id WHERE sam.artistId = a.id AND s.thumbnailUrl IS NOT NULL AND s.thumbnailUrl != '' LIMIT 1))
+                             FROM artist a WHERE a.id = ?1",
                             [id],
                             |r| {
                                 Ok(ListHeader {
