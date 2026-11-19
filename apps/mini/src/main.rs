@@ -624,6 +624,7 @@ fn main() {
             nav::go(&ui, &app2, &songs2, nav::Page::search(&q, source));
         });
     }
+    let seek_hold = std::sync::Arc::new(std::sync::atomic::AtomicI64::new(0));
     {
         let a = app.clone();
         ui.on_toggle(move || a.toggle_play());
@@ -633,6 +634,7 @@ fn main() {
         ui.on_prev(move || a.previous_track());
         let a = app.clone();
         let ui_w = ui.as_weak();
+        let seek_hold2 = seek_hold.clone();
         ui.on_seek(move |f| {
             let Some(ui) = ui_w.upgrade() else { return };
             // Not started yet (restored after launch): the track's own length; it starts there when played.
@@ -646,6 +648,12 @@ fn main() {
                 // The bar stays where it was let go (also paused, when no timer moves it).
                 ui.set_position(fmt_time(s).into());
                 ui.set_progress(f);
+                // Suppress tick updates for 600ms to avoid rubber-banding.
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as i64;
+                seek_hold2.store(now_ms, std::sync::atomic::Ordering::Relaxed);
             }
         });
         let a = app.clone();
@@ -783,33 +791,58 @@ fn main() {
         });
         let (a, ui_w) = (app.clone(), ui.as_weak());
         let timer = progress.clone();
+        let seek_hold_timer = seek_hold.clone();
         ui.on_playing_changed(move || {
             let Some(ui) = ui_w.upgrade() else { return };
             if ui.get_playing() {
-                let (a, ui_w) = (a.clone(), ui_w.clone());
+                let (a, ui_w, seek_hold) = (a.clone(), ui_w.clone(), seek_hold_timer.clone());
                 timer.start(
                     slint::TimerMode::Repeated,
                     std::time::Duration::from_millis(500),
                     move || {
                         let Some(ui) = ui_w.upgrade() else { return };
-                        let c = a.clock();
-                        ui.set_position(fmt_time(c.position_s).into());
-                        if let Some(d) = c.duration_s.filter(|d| *d > 0.0) {
-                            ui.set_duration(fmt_time(d).into());
-                            ui.set_duration_s(d as f32);
-                            ui.set_progress((c.position_s / d).clamp(0.0, 1.0) as f32);
+                        let now_ms = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+                        let held_ms = seek_hold.load(std::sync::atomic::Ordering::Relaxed);
+                        if held_ms > 0 && now_ms - held_ms < 600 {
+                            // Skip updating the progress bar — still in seek hold period.
+                        } else {
+                            if held_ms > 0 {
+                                seek_hold.store(0, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            let c = a.clock();
+                            ui.set_position(fmt_time(c.position_s).into());
+                            if let Some(d) = c.duration_s.filter(|d| *d > 0.0) {
+                                ui.set_duration(fmt_time(d).into());
+                                ui.set_duration_s(d as f32);
+                                ui.set_progress((c.position_s / d).clamp(0.0, 1.0) as f32);
+                            }
                         }
                     },
                 );
             } else {
                 timer.stop();
                 // Paused (or a restored track not started yet): the bar and its hover time still know the length.
-                let c = a.clock();
-                ui.set_position(fmt_time(c.position_s).into());
-                if let Some(d) = c.duration_s.filter(|d| *d > 0.0) {
-                    ui.set_duration(fmt_time(d).into());
-                    ui.set_duration_s(d as f32);
-                    ui.set_progress((c.position_s / d).clamp(0.0, 1.0) as f32);
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as i64;
+                let held_ms = seek_hold_timer.load(std::sync::atomic::Ordering::Relaxed);
+                if held_ms > 0 && now_ms - held_ms < 600 {
+                    // Skip updating progress bar when paused if in seek hold period.
+                } else {
+                    if held_ms > 0 {
+                        seek_hold_timer.store(0, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    let c = a.clock();
+                    ui.set_position(fmt_time(c.position_s).into());
+                    if let Some(d) = c.duration_s.filter(|d| *d > 0.0) {
+                        ui.set_duration(fmt_time(d).into());
+                        ui.set_duration_s(d as f32);
+                        ui.set_progress((c.position_s / d).clamp(0.0, 1.0) as f32);
+                    }
                 }
             }
         });
