@@ -253,6 +253,21 @@ impl Player {
         }
     }
 
+    /// Immediately promotes the queued track to active (fast instant skip without re-buffering).
+    pub fn play_queued(&self) -> Option<TrackId> {
+        let mut st = self.state.lock().expect("state");
+        let queued = st.queued.take()?;
+        let id = queued.id;
+        st.current = Some(queued);
+        st.paused = false;
+        st.idle_since = None;
+        drop(st);
+        self.cmd(crate::mixer::MixCmd::PromoteQueued);
+        self.cmd(crate::mixer::MixCmd::Pause(false));
+        self.output.send(crate::output::OutCmd::Run);
+        Some(id)
+    }
+
     /// The equaliser (a profile with no enabled band = off) and the stereo balance −1..1, on everything played.
     pub fn set_effects(&self, eq: Option<&crate::dsp::EqProfile>, balance: f32) {
         let eq = eq

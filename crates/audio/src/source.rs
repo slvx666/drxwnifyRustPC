@@ -22,7 +22,7 @@ pub trait RangeOpener: Send + Sync + 'static {
 
 /// Restart the download when a read lands this far beyond what is downloaded.
 const RESTART_DISTANCE: u64 = 256 * 1024;
-const CHUNK: usize = 64 * 1024;
+const CHUNK: usize = 128 * 1024;
 
 #[derive(Default)]
 struct State {

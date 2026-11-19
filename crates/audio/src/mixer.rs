@@ -44,6 +44,8 @@ pub enum MixCmd {
     },
     /// Drop a voice (skip, seek replaces it with a new one).
     Remove(u64),
+    /// Promote the queued voice to active immediately (fast skip without re-buffering).
+    PromoteQueued,
     SetMaster(f32),
     SetGain {
         id: u64,
@@ -192,6 +194,24 @@ impl Mixer {
                         if v.role != Role::Queued {
                             self.emit(MixEvent::Ended(id));
                         }
+                    }
+                }
+                MixCmd::PromoteQueued => {
+                    let ended: Vec<u64> = self
+                        .voices
+                        .iter()
+                        .filter(|v| v.role != Role::Queued)
+                        .map(|v| v.id)
+                        .collect();
+                    self.voices.retain(|v| v.role == Role::Queued);
+                    for id in ended {
+                        self.emit(MixEvent::Ended(id));
+                    }
+                    if let Some(q) = self.voices.iter_mut().find(|x| x.role == Role::Queued) {
+                        q.role = Role::Active;
+                        let qid = q.id;
+                        self.emit(MixEvent::Started(qid));
+                        self.idle_sent = false;
                     }
                 }
                 MixCmd::SetMaster(m) => self.master = m.clamp(0.0, 1.0),

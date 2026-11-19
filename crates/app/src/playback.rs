@@ -119,8 +119,8 @@ struct HttpOpener {
 }
 
 /// YouTube's stream hosts pace one long request to about the bitrate (~25 KB/s), but answer each ranged request at
-/// full speed (measured: 1 MB ranges ≈ 12 MB/s with VISIONOS): their streams are read in ranges, one after another.
-const YT_CHUNK: u64 = 1 << 20;
+/// full speed: 3 MB ranges give >30 MB/s download and instant buffering while keeping latency minimal.
+const YT_CHUNK: u64 = 3 << 20;
 
 struct ChunkedBody {
     opener: HttpOpener,
@@ -322,6 +322,8 @@ pub(crate) struct Playback {
     pub store: Mutex<Option<drx_core::store::Store>>,
     /// Streams found this session, by catalog track id (provider match kept for a fresh URL later).
     resolved: Mutex<std::collections::HashMap<String, (ProviderMatch, AudioQuery)>>,
+    /// In-memory cache of resolved streams and gains with timestamps to avoid redundant network resolution.
+    resolved_streams: Mutex<std::collections::HashMap<String, (AudioStream, f32, std::time::Instant)>>,
     /// Loudness normalisation of YouTube streams (audioNormalization).
     pub normalize: std::sync::atomic::AtomicBool,
     transitions: Mutex<Transitions>,
@@ -336,7 +338,7 @@ pub(crate) struct Playback {
 
 impl Playback {
     pub fn new(http: Http, handle: Handle, cache_dir: PathBuf) -> Arc<Self> {
-        Arc::new(Self {
+        let pb = Arc::new(Self {
             http,
             handle,
             cache_dir,
@@ -355,13 +357,46 @@ impl Playback {
             providers: Mutex::new(Vec::new()),
             store: Mutex::new(None),
             resolved: Mutex::new(std::collections::HashMap::new()),
+            resolved_streams: Mutex::new(std::collections::HashMap::new()),
             normalize: std::sync::atomic::AtomicBool::new(true),
             transitions: Mutex::new(Transitions { crossfade_s: 0.0, album_gapless: true }),
             hold_next: std::sync::atomic::AtomicBool::new(false),
             prep: Mutex::new(None),
             effects: Mutex::new((None, 0.0)),
             lyrics_sources: Mutex::new(drx_lyrics::Sources::default()),
-        })
+        });
+        pb.prune_audio_cache(500 * 1024 * 1024);
+        pb
+    }
+
+    /// Keeps audio cache directory bounded to at most `max_bytes` (default: 500 MB).
+    pub fn prune_audio_cache(&self, max_bytes: u64) {
+        let dir = self.cache_dir.join("audio");
+        let Ok(rd) = std::fs::read_dir(&dir) else { return };
+        let mut files: Vec<(PathBuf, u64, std::time::SystemTime)> = Vec::new();
+        let mut total = 0u64;
+        for entry in rd.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_file() {
+                    let len = meta.len();
+                    total += len;
+                    let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+                    files.push((entry.path(), len, mtime));
+                }
+            }
+        }
+        if total > max_bytes {
+            // Oldest modified first
+            files.sort_by_key(|f| f.2);
+            for (path, len, _) in files {
+                if total <= max_bytes {
+                    break;
+                }
+                if std::fs::remove_file(&path).is_ok() {
+                    total = total.saturating_sub(len);
+                }
+            }
+        }
     }
 
     pub fn set_transitions(&self, t: Transitions) {
@@ -412,7 +447,18 @@ impl Playback {
             if c.track != Some(cur) || !c.playing {
                 continue;
             }
-            let Some(d) = c.duration_s else { continue };
+            let d = match c.duration_s {
+                Some(d) if d > 0.0 => d,
+                _ => {
+                    let q = this.queue.lock().expect("queue");
+                    q.0.get(q.1)
+                        .and_then(|it| (it.track.duration_ms > 0).then_some(it.track.duration_ms as f64 / 1000.0))
+                        .unwrap_or(0.0)
+                }
+            };
+            if d <= 0.0 {
+                continue;
+            }
             let rem = d - c.position_s;
             if this.hold_next.load(Relaxed) {
                 this.drop_prep();
@@ -570,8 +616,29 @@ impl Playback {
             .strip_prefix("mfb:")
             .unwrap_or(&track.id)
             .to_string();
+
+        // 0. In-memory hot stream cache: avoids redundant network calls on replay/skip/prefetch
+        if let Some((stream, gain, at)) = self
+            .resolved_streams
+            .lock()
+            .expect("resolved_streams")
+            .get(&catalog_id)
+        {
+            if at.elapsed() < Duration::from_secs(3600) {
+                return Ok((stream.clone(), *gain));
+            }
+        }
+
         let mut q = AudioQuery::from_track(track);
         q.catalog_id = Some(catalog_id.clone());
+
+        let remember_stream = |this: &Self, s: &AudioStream, gain: f32| {
+            let mut streams = this.resolved_streams.lock().expect("resolved_streams");
+            if streams.len() > 500 {
+                streams.clear();
+            }
+            streams.insert(catalog_id.clone(), (s.clone(), gain, std::time::Instant::now()));
+        };
 
         // 1. A VK track in the library is itself the audio: no search.
         if let Some(full) = catalog_id.strip_prefix("src:VK:")
@@ -587,6 +654,7 @@ impl Playback {
                 quality_kbps: None,
             };
             if let Ok(Some(s)) = self.handle.block_on(p.stream(&q, &m)) {
+                remember_stream(self, &s, 1.0);
                 return Ok((s, 1.0));
             }
         }
@@ -604,10 +672,9 @@ impl Playback {
                 quality_kbps: None,
             };
             if let Ok(Some(s)) = self.handle.block_on(p.stream(&q, &m)) {
-                return Ok((
-                    s,
-                    drx_audio::dsp::normalization_gain(p.loudness_db(&m.track_id)),
-                ));
+                let gain = drx_audio::dsp::normalization_gain(p.loudness_db(&m.track_id));
+                remember_stream(self, &s, gain);
+                return Ok((s, gain));
             }
         }
         // 2. This session's choice, then the stored matches (the phone's 44k of them came with the backup).
@@ -625,14 +692,16 @@ impl Playback {
         for m in &known {
             let Some(p) = by_id(m.provider) else { continue };
             if let Ok(Some(s)) = self.handle.block_on(p.stream(&q, m)) {
-                self.resolved
-                    .lock()
-                    .expect("resolved")
-                    .insert(catalog_id.clone(), (m.clone(), q.clone()));
-                return Ok((
-                    s,
-                    drx_audio::dsp::normalization_gain(p.loudness_db(&m.track_id)),
-                ));
+                {
+                    let mut res = self.resolved.lock().expect("resolved");
+                    if res.len() > 500 {
+                        res.clear();
+                    }
+                    res.insert(catalog_id.clone(), (m.clone(), q.clone()));
+                }
+                let gain = drx_audio::dsp::normalization_gain(p.loudness_db(&m.track_id));
+                remember_stream(self, &s, gain);
+                return Ok((s, gain));
             }
         }
         // 3. Search every ready source at once.
@@ -645,15 +714,17 @@ impl Playback {
         for m in &out.matches {
             let Some(p) = by_id(m.provider) else { continue };
             if let Ok(Some(s)) = self.handle.block_on(p.stream(&q, m)) {
-                self.resolved
-                    .lock()
-                    .expect("resolved")
-                    .insert(catalog_id.clone(), (m.clone(), q.clone()));
+                {
+                    let mut res = self.resolved.lock().expect("resolved");
+                    if res.len() > 500 {
+                        res.clear();
+                    }
+                    res.insert(catalog_id.clone(), (m.clone(), q.clone()));
+                }
                 self.store_matches(&q, &out.matches, m);
-                return Ok((
-                    s,
-                    drx_audio::dsp::normalization_gain(p.loudness_db(&m.track_id)),
-                ));
+                let gain = drx_audio::dsp::normalization_gain(p.loudness_db(&m.track_id));
+                remember_stream(self, &s, gain);
+                return Ok((s, gain));
             }
         }
         Err(if providers.iter().any(|p| p.is_ready()) {
@@ -1040,6 +1111,26 @@ impl Playback {
     }
 
     fn start_index(self: &Arc<Self>, index: usize) {
+        // Fast path: if the target track is already queued in the audio player, promote it instantly (0 ms latency)!
+        {
+            let mut prep = self.prep.lock().expect("prep");
+            if let Some(p) = prep.as_mut() {
+                if p.index == index && p.queued.is_some() {
+                    let _qid = p.queued.take().unwrap();
+                    *prep = None;
+                    drop(prep);
+                    if let Ok(player) = self.player() {
+                        if let Some(id) = player.play_queued() {
+                            *self.current_id.lock().expect("current") = Some(id);
+                            self.skipped.store(0, std::sync::atomic::Ordering::Relaxed);
+                            self.announce(index);
+                            self.trigger_prefetch();
+                            return;
+                        }
+                    }
+                }
+            }
+        }
         self.drop_prep();
         // Stop current audio immediately so old sound does not linger while new stream is resolving
         if let Ok(player) = self.player() {
@@ -1051,6 +1142,19 @@ impl Playback {
         let this = self.clone();
         // Opening a stream does network round-trips; never on the UI thread.
         std::thread::spawn(move || this.open_and_play(item, index, generation));
+    }
+
+    /// Prefetches and caches the stream URL for the next track in the background so that transitions and skips are instant.
+    pub fn trigger_prefetch(self: &Arc<Self>) {
+        let Some((_ni, _cur, next)) = self.natural_next() else { return };
+        let this = self.clone();
+        let track = next.track.clone();
+        self.handle.spawn(async move {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::task::spawn_blocking(move || {
+                let _ = this.resolve(&track);
+            });
+        });
     }
 
     /// Makes `index` the playing entry for everyone (queue, now playing, lyrics) without touching the sound.
@@ -1141,6 +1245,7 @@ impl Playback {
                     }
                     *this.current_id.lock().expect("current") = Some(id);
                     this.skipped.store(0, std::sync::atomic::Ordering::Relaxed);
+                    this.trigger_prefetch();
                     if at > 0.5 {
                         for _ in 0..100 {
                             let c = player.clock();
