@@ -236,47 +236,135 @@ impl App {
             let label = source_label(s);
             match s {
                 Source::Spotify => {
-                    if let Some(sp) = self.spotify()
-                        && let Ok(page) = sp.my_playlists(0, 100).await
-                    {
-                        out.extend(page.items.into_iter().map(|p| {
-                            LibraryEntry {
-                                kind: LibraryKind::Remote,
-                                id: ListSpec::SpotifyPlaylist { id: p.id }
-                                    .entry_id()
-                                    .unwrap_or_default(),
-                                title: p.name,
-                                subtitle: format!("{label} · Плейлист"),
-                                thumbnail: drx_catalog::model::best_image(&p.images, 120)
-                                    .map(|i| i.url.clone()),
-                                pinned: false,
-                                group: LibraryGroup::Playlists,
-                                added_ms: 0,
-                                updated_ms: 0,
+                    if let Some(sp) = self.spotify() {
+                        // Playlists (as before)
+                        if let Ok(page) = sp.my_playlists(0, 100).await {
+                            out.extend(page.items.into_iter().map(|p| {
+                                LibraryEntry {
+                                    kind: LibraryKind::Remote,
+                                    id: ListSpec::SpotifyPlaylist { id: p.id }
+                                        .entry_id()
+                                        .unwrap_or_default(),
+                                    title: p.name,
+                                    subtitle: format!("{label} · Плейлист"),
+                                    thumbnail: drx_catalog::model::best_image(&p.images, 120)
+                                        .map(|i| i.url.clone()),
+                                    pinned: false,
+                                    group: LibraryGroup::Playlists,
+                                    added_ms: 0,
+                                    updated_ms: 0,
+                                }
+                            }));
+                        }
+                        // Saved albums
+                        if let Ok(ids) = sp.library_ids("Albums").await {
+                            for id in ids {
+                                if let Ok(a) = sp.album(&id).await {
+                                    let artists_str = a.artists.iter().map(|ar| ar.name.as_str()).collect::<Vec<_>>().join(", ");
+                                    out.push(LibraryEntry {
+                                        kind: LibraryKind::Remote,
+                                        id: ListSpec::CatalogAlbum { id: id.clone() }
+                                            .entry_id()
+                                            .unwrap_or_else(|| id.clone()),
+                                        title: a.name,
+                                        subtitle: format!("{label} · Альбом · {artists_str}"),
+                                        thumbnail: drx_catalog::model::best_image(&a.images, 120)
+                                            .map(|i| i.url.clone()),
+                                        pinned: false,
+                                        group: LibraryGroup::Albums,
+                                        added_ms: 0,
+                                        updated_ms: 0,
+                                    });
+                                }
                             }
-                        }));
+                        }
+                        // Followed artists
+                        if let Ok(ids) = sp.library_ids("Artists").await {
+                            for id in ids {
+                                if let Ok(a) = sp.artist(&id).await {
+                                    out.push(LibraryEntry {
+                                        kind: LibraryKind::Remote,
+                                        id: ListSpec::CatalogArtist { id: id.clone() }
+                                            .entry_id()
+                                            .unwrap_or_else(|| id.clone()),
+                                        title: a.name,
+                                        subtitle: format!("{label} · Исполнитель"),
+                                        thumbnail: drx_catalog::model::best_image(&a.images, 120)
+                                            .map(|i| i.url.clone()),
+                                        pinned: false,
+                                        group: LibraryGroup::Artists,
+                                        added_ms: 0,
+                                        updated_ms: 0,
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
                 Source::Yandex => {
-                    if let Some(y) = self.yandex()
-                        && let Ok(list) = y.my_playlists().await
-                    {
-                        out.extend(list.into_iter().map(|p| {
-                            LibraryEntry {
-                                kind: LibraryKind::Remote,
-                                id: ListSpec::YandexPlaylist { id: p.id }
-                                    .entry_id()
-                                    .unwrap_or_default(),
-                                subtitle: format!("{label} · Плейлист · {}", p.total),
-                                title: p.name,
-                                thumbnail: drx_catalog::model::best_image(&p.images, 120)
-                                    .map(|i| i.url.clone()),
-                                pinned: false,
-                                group: LibraryGroup::Playlists,
-                                added_ms: 0,
-                                updated_ms: 0,
+                    if let Some(y) = self.yandex() {
+                        // Playlists (as before)
+                        if let Ok(list) = y.my_playlists().await {
+                            out.extend(list.into_iter().map(|p| {
+                                LibraryEntry {
+                                    kind: LibraryKind::Remote,
+                                    id: ListSpec::YandexPlaylist { id: p.id }
+                                        .entry_id()
+                                        .unwrap_or_default(),
+                                    subtitle: format!("{label} · Плейлист · {}", p.total),
+                                    title: p.name,
+                                    thumbnail: drx_catalog::model::best_image(&p.images, 120)
+                                        .map(|i| i.url.clone()),
+                                    pinned: false,
+                                    group: LibraryGroup::Playlists,
+                                    added_ms: 0,
+                                    updated_ms: 0,
+                                }
+                            }));
+                        }
+                        // Liked albums
+                        if let Ok(ids) = y.liked_ids("albums").await {
+                            for id in ids {
+                                if let Ok(a) = y.album(&id).await {
+                                    let artists_str = a.artists.iter().map(|ar| ar.name.as_str()).collect::<Vec<_>>().join(", ");
+                                    out.push(LibraryEntry {
+                                        kind: LibraryKind::Remote,
+                                        id: ListSpec::CatalogAlbum { id: id.clone() }
+                                            .entry_id()
+                                            .unwrap_or_else(|| id.clone()),
+                                        title: a.name,
+                                        subtitle: format!("{label} · Альбом · {artists_str}"),
+                                        thumbnail: drx_catalog::model::best_image(&a.images, 120)
+                                            .map(|i| i.url.clone()),
+                                        pinned: false,
+                                        group: LibraryGroup::Albums,
+                                        added_ms: 0,
+                                        updated_ms: 0,
+                                    });
+                                }
                             }
-                        }));
+                        }
+                        // Liked artists
+                        if let Ok(ids) = y.liked_ids("artists").await {
+                            for id in ids {
+                                if let Ok(a) = y.artist(&id).await {
+                                    out.push(LibraryEntry {
+                                        kind: LibraryKind::Remote,
+                                        id: ListSpec::CatalogArtist { id: id.clone() }
+                                            .entry_id()
+                                            .unwrap_or_else(|| id.clone()),
+                                        title: a.name,
+                                        subtitle: format!("{label} · Исполнитель"),
+                                        thumbnail: drx_catalog::model::best_image(&a.images, 120)
+                                            .map(|i| i.url.clone()),
+                                        pinned: false,
+                                        group: LibraryGroup::Artists,
+                                        added_ms: 0,
+                                        updated_ms: 0,
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
                 Source::Vk => {

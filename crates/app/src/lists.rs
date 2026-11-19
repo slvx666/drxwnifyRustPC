@@ -139,7 +139,7 @@ impl ListSpec {
         )
     }
 
-    /// Library panel id of a remote list: `sp:liked`, `sp:pl:<id>`, `ym:…`, `vk:…`.
+    /// Library panel id of a remote list: `sp:liked`, `sp:pl:<id>`, `ym:…`, `vk:…`, `al:…`, `ar:…`.
     pub fn entry_id(&self) -> Option<String> {
         Some(match self {
             ListSpec::SpotifyLiked => "sp:liked".into(),
@@ -148,11 +148,19 @@ impl ListSpec {
             ListSpec::YandexPlaylist { id } => format!("ym:pl:{id}"),
             ListSpec::VkMyMusic => "vk:liked".into(),
             ListSpec::VkPlaylist { id } => format!("vk:pl:{id}"),
+            ListSpec::CatalogAlbum { id } => format!("al:{id}"),
+            ListSpec::CatalogArtist { id } => format!("ar:{id}"),
             _ => return None,
         })
     }
 
     pub fn from_entry_id(s: &str) -> Option<ListSpec> {
+        if let Some(id) = s.strip_prefix("al:") {
+            return Some(ListSpec::CatalogAlbum { id: id.to_string() });
+        }
+        if let Some(id) = s.strip_prefix("ar:") {
+            return Some(ListSpec::CatalogArtist { id: id.to_string() });
+        }
         let (src, rest) = s.split_once(':')?;
         let pl = rest.strip_prefix("pl:").map(str::to_string);
         Some(match (src, rest, pl) {

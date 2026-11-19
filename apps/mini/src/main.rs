@@ -177,7 +177,10 @@ fn main() {
                 },
                 "remote" => match ListSpec::from_entry_id(item.id.as_str()) {
                     Some(spec) => spec,
-                    None => return,
+                    None => match item.id.as_str() {
+                        id if id.starts_with("ym_") => app2.runtime().block_on(app2.album_page(id)),
+                        _ => return,
+                    },
                 },
                 _ => return,
             };
