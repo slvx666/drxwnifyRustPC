@@ -70,9 +70,16 @@ fn build(
     device
         .build_output_stream::<f32, _, _>(
             config,
-            move |data: &mut [f32], _| match m.try_lock() {
-                Ok(mut mixer) => mixer.render(data),
-                Err(_) => data.fill(0.0),
+            move |data: &mut [f32], _| {
+                static PROMOTED: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !PROMOTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    crate::priority::promote_thread_to_realtime_audio();
+                }
+                match m.try_lock() {
+                    Ok(mut mixer) => mixer.render(data),
+                    Err(_) => data.fill(0.0),
+                }
             },
             move |e| {
                 tracing::warn!("audio output error: {e}");
@@ -91,6 +98,7 @@ fn run(
     tx: Sender<OutCmd>,
     ready: Sender<Result<(), String>>,
 ) {
+    crate::priority::promote_thread_to_realtime_audio();
     let (mut stream, mut device) = match build(&mixer, &tx) {
         Ok((s, id)) => {
             let _ = ready.send(Ok(()));

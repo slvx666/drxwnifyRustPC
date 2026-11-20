@@ -303,15 +303,24 @@ pub fn refresh_covers(ui: &MainWindow, app: &App) {
         return;
     }
     CARDS.with(|c| {
-        for (model, urls, round) in c.borrow().iter() {
-            for (i, url) in urls.iter().enumerate() {
-                if model.row_data(i).is_some_and(|c| !c.has_cover)
-                    && let Some(img) = card_cover(app, url, *round)
-                    && let Some(mut card) = model.row_data(i)
+        let mut cards = c.borrow_mut();
+        for (model, urls, round) in cards.iter_mut() {
+            for i in 0..urls.len() {
+                if let Some(card) = model.row_data(i)
+                    && !card.has_cover
                 {
-                    card.cover = img;
-                    card.has_cover = true;
-                    model.set_row_data(i, card);
+                    if urls[i].is_none() && *round {
+                        if let Some(thumb) = app.artist_thumbnail(&card.id) {
+                            urls[i] = Some(thumb);
+                        }
+                    }
+                    if let Some(img) = card_cover(app, &urls[i], *round)
+                        && let Some(mut card) = model.row_data(i)
+                    {
+                        card.cover = img;
+                        card.has_cover = true;
+                        model.set_row_data(i, card);
+                    }
                 }
             }
         }

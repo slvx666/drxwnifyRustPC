@@ -238,6 +238,26 @@ fn main() {
                 nav::step(&ui, &app2, &songs2, 1);
             }
         });
+        {
+            let ui_w = ui.as_weak();
+            i_slint_backend_winit::drx_hooks::set_mouse_back(move || {
+                let ui_w = ui_w.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_w.upgrade() {
+                        ui.invoke_back();
+                    }
+                });
+            });
+            let ui_w = ui.as_weak();
+            i_slint_backend_winit::drx_hooks::set_mouse_forward(move || {
+                let ui_w = ui_w.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_w.upgrade() {
+                        ui.invoke_forward();
+                    }
+                });
+            });
+        }
         let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
         ui.on_home(move || {
             if let Some(ui) = ui_w.upgrade() {

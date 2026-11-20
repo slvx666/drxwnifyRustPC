@@ -456,6 +456,8 @@ pub struct WinitWindowAdapter {
 
     /// Last seen cursor position.
     cursor_pos: Cell<LogicalPoint>,
+    /// Autoscroll anchor for browser-style middle-click scrolling.
+    autoscroll_anchor: Cell<Option<LogicalPoint>>,
     /// Whether a *mouse* button is currently pressed. Touch input is handled
     /// separately via `process_touch_input` and does not affect this flag.
     pressed: Cell<bool>,
@@ -513,6 +515,7 @@ impl WinitWindowAdapter {
             window_icon_cache_key: Default::default(),
             custom_cursor_source: Cell::new(None),
             cursor_pos: Default::default(),
+            autoscroll_anchor: Default::default(),
             pressed: Default::default(),
             current_resize_direction: Default::default(),
             touch_finger_ids: Default::default(),
@@ -1287,7 +1290,25 @@ impl WinitWindowAdapter {
         }
 
         match event {
-            WinitWindowEvent::RedrawRequested => self.draw()?,
+            WinitWindowEvent::RedrawRequested => {
+                if let Some(anchor) = self.autoscroll_anchor.get() {
+                    let cursor = self.cursor_pos.get();
+                    let dy = cursor.y - anchor.y;
+                    let dx = cursor.x - anchor.x;
+                    if dy.abs() > 10.0 || dx.abs() > 10.0 {
+                        let speed_y = if dy.abs() > 10.0 { (dy - 10.0 * dy.signum()) * 0.4 } else { 0.0 };
+                        let speed_x = if dx.abs() > 10.0 { (dx - 10.0 * dx.signum()) * 0.4 } else { 0.0 };
+                        self.dispatch_internal_event(BackendMouseEvent::Wheel {
+                            position: anchor,
+                            delta_x: -speed_x,
+                            delta_y: -speed_y,
+                            phase: corelib::input::TouchPhase::Moved,
+                        });
+                        self.request_redraw();
+                    }
+                }
+                self.draw()?
+            }
             WinitWindowEvent::Resized(size) => {
                 let resized = self.resize_event(size);
 
@@ -1499,6 +1520,37 @@ impl WinitWindowAdapter {
                     winit::event::MouseButton::Forward => PointerEventButton::Forward,
                     winit::event::MouseButton::Other(_) => PointerEventButton::Other,
                 };
+                // Drxwnify patch: mouse side buttons and browser-style autoscroll
+                if state == winit::event::ElementState::Pressed {
+                    match button {
+                        PointerEventButton::Back => {
+                            if let Some(hook) = crate::drx_hooks::MOUSE_BACK.get() {
+                                hook();
+                            }
+                        }
+                        PointerEventButton::Forward => {
+                            if let Some(hook) = crate::drx_hooks::MOUSE_FORWARD.get() {
+                                hook();
+                            }
+                        }
+                        PointerEventButton::Middle => {
+                            if self.autoscroll_anchor.get().is_some() {
+                                self.autoscroll_anchor.set(None);
+                                winit_window.set_cursor(winit::window::CursorIcon::Default);
+                            } else {
+                                self.autoscroll_anchor.set(Some(self.cursor_pos.get()));
+                                winit_window.set_cursor(winit::window::CursorIcon::AllScroll);
+                                self.request_redraw();
+                            }
+                        }
+                        _ => {
+                            if self.autoscroll_anchor.get().is_some() {
+                                self.autoscroll_anchor.set(None);
+                                winit_window.set_cursor(winit::window::CursorIcon::Default);
+                            }
+                        }
+                    }
+                }
                 let ev = match state {
                     winit::event::ElementState::Pressed => {
                         if button == PointerEventButton::Left

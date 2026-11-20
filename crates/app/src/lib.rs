@@ -377,6 +377,27 @@ impl App {
         self.inner.events.subscribe()
     }
 
+    /// Returns the cached thumbnail URL of an artist, if known.
+    pub fn artist_thumbnail(&self, id: &str) -> Option<String> {
+        let store = self.store();
+        store.call_blocking({
+            let id = id.to_string();
+            move |c| {
+                let thumb: Option<String> = c
+                    .query_row(
+                        "SELECT coalesce(
+                            ar.thumbnailUrl,
+                            (SELECT s.thumbnailUrl FROM song s JOIN song_artist_map sam ON sam.songId = s.id WHERE sam.artistId = ar.id AND s.thumbnailUrl IS NOT NULL AND s.thumbnailUrl != '' LIMIT 1)
+                        ) FROM artist ar WHERE ar.id = ?1",
+                        [&id],
+                        |r| r.get(0),
+                    )
+                    .unwrap_or(None);
+                Ok(thumb)
+            }
+        }).ok().flatten()
+    }
+
     /// Subscribes to table changes of the current store and forwards them to open lists and the state.
     fn watch_tables(&self) {
         let mut rx = self.store().subscribe();

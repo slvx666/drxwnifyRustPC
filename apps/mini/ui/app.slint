@@ -691,8 +691,8 @@ component TopBar inherits Rectangle {
             Middle { IconButton { icon: Icons.clock; clicked => { root.open-history(); } } }
             Middle { IconButton { icon: Icons.chart; clicked => { root.open-stats(); } } }
             Middle { IconButton { icon: Icons.users; clicked => { root.open-friends(); } } }
-            // Integrations (pc/ Shell): the accounts and Discord live at the top of the settings.
-            Middle { IconButton { icon: Icons.puzzle; clicked => { root.open-settings(); } } }
+            // Integrations: jumps directly to the Integrations tab (accounts, Discord, Last.fm, SponsorBlock).
+            Middle { IconButton { icon: Icons.puzzle; clicked => { SettingsUi.active-tab = 3; root.open-settings(); } } }
             if root.downloads-label != "": Text {
                 text: root.downloads-label;
                 font-family: Theme.body-font; font-size: 12px; color: Theme.accent;
@@ -700,7 +700,8 @@ component TopBar inherits Rectangle {
             }
             Middle { IconButton { icon: Icons.download; active: root.downloads-label != ""; active-color: Theme.accent; clicked => { root.open-downloads(); } } }
             Middle { IconButton { icon: Icons.upload; clicked => { root.import-backup(); } } }
-            Middle { IconButton { icon: Icons.settings; clicked => { root.open-settings(); } } }
+            // Settings: opens the general settings tab (Appearance, themes, sound).
+            Middle { IconButton { icon: Icons.settings; clicked => { SettingsUi.active-tab = 0; root.open-settings(); } } }
             Rectangle { width: 9px; }
             Middle { Rectangle { width: 1px; height: 20px; background: Theme.panel-border; } }
             Rectangle { width: 9px; }
@@ -4344,6 +4345,7 @@ export component MainWindow inherits Window {
     // No system title bar: the top bar is the title bar (drag, double press, window buttons); edges still resize.
     no-frame: true;
     resize-border-width: root.window-maximized ? 0 : 6px;
+    forward-focus: key-scope;
     in property <bool> window-maximized;
     // A maximised frameless window reaches past the screen edges by its (invisible) resize border: the content keeps
     // clear of that part (set from Rust, 0 otherwise).
@@ -4663,6 +4665,11 @@ export component MainWindow inherits Window {
         width: 0;
         height: 0;
         key-pressed(e) => {
+            // Space: play / pause toggle (when no text input has focus)
+            if (e.text == " " || e.text == Key.Space) && !e.modifiers.control && !e.modifiers.alt {
+                root.toggle();
+                return accept;
+            }
             // Ctrl+K: the search field (also on the Russian layout, where the key types «л»).
             if e.modifiers.control && (e.text == "k" || e.text == "K" || e.text == "л" || e.text == "Л") {
                 top-bar.focus-search();

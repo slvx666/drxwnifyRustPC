@@ -1398,8 +1398,22 @@ fn test_window_accessor_and_rwh() {
     slint::run_event_loop().unwrap();
 }
 
-/// Drxwnify patch: hooks for the app (developer timing).
+/// Drxwnify patch: hooks for the app (developer timing, navigation, mouse).
 pub mod drx_hooks {
     /// Called after every software-rendered frame with the time it took and the pixels presented.
     pub static FRAME: std::sync::OnceLock<fn(std::time::Duration, u64)> = std::sync::OnceLock::new();
+    /// Called when mouse Back button (XButton1) is clicked.
+    pub static MOUSE_BACK: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
+    /// Called when mouse Forward button (XButton2) is clicked.
+    pub static MOUSE_FORWARD: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
+
+    /// Sets the callback invoked when the mouse Back button is pressed.
+    pub fn set_mouse_back<F: Fn() + Send + Sync + 'static>(f: F) {
+        let _ = MOUSE_BACK.set(Box::new(f));
+    }
+
+    /// Sets the callback invoked when the mouse Forward button is pressed.
+    pub fn set_mouse_forward<F: Fn() + Send + Sync + 'static>(f: F) {
+        let _ = MOUSE_FORWARD.set(Box::new(f));
+    }
 }

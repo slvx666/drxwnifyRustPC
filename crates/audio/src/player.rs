@@ -13,8 +13,8 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// Ring buffer per voice: 2 seconds of stereo audio.
-const RING_SAMPLES: usize = RATE as usize * 2 * 2;
+/// Ring buffer per voice: 6 seconds of stereo audio (cushion against CPU starvation).
+const RING_SAMPLES: usize = RATE as usize * 2 * 6;
 /// Release the output device after this long with nothing playing.
 const IDLE_RELEASE: Duration = Duration::from_secs(5);
 
@@ -401,6 +401,7 @@ fn decode_loop(
     track: TrackId,
     ids: Arc<AtomicU64>,
 ) {
+    crate::priority::promote_thread_to_high_priority();
     let mut rs = (dec.sample_rate() != RATE).then(|| Resampler::new(dec.sample_rate(), RATE));
     let mut pending: Vec<f32> = Vec::new();
     let mut ended = false;
@@ -512,7 +513,7 @@ fn decode_loop(
                     chunk.fill_from_iter(pending.drain(..n));
                 }
             } else {
-                std::thread::sleep(Duration::from_millis(20));
+                std::thread::sleep(Duration::from_millis(5));
             }
             continue;
         }

@@ -275,16 +275,16 @@ impl App {
             })
             .await?;
 
-        // Background resolve high-res Spotify artist avatars for artists missing photos
+        // Background resolve artist avatars for artists missing photos
         let this = self.clone();
-        let missing: Vec<String> = stats
+        let missing: Vec<(String, String)> = stats
             .artists
             .iter()
-            .filter(|a| a.id.starts_with("SP_"))
-            .map(|a| a.id.clone())
+            .filter(|a| a.thumbnail.is_none())
+            .map(|a| (a.id.clone(), a.title.clone()))
             .collect();
         tokio::spawn(async move {
-            for id in missing {
+            for (id, name) in missing {
                 let has_artist_thumb: bool = this
                     .store()
                     .call({
@@ -299,19 +299,33 @@ impl App {
                     .await
                     .unwrap_or(true);
                 if !has_artist_thumb {
+                    let mut found_thumb: Option<String> = None;
                     if let Some(sp_id) = id.strip_prefix("SP_") {
                         if let Ok(page) = this.spotify_or_public().artist(sp_id).await {
-                            if let Some(img) = page.images.first() {
-                                let thumb = img.url.clone();
-                                let _ = this.store().call({
-                                    let id = id.clone();
-                                    move |c| {
-                                        c.execute("UPDATE artist SET thumbnailUrl = ?1 WHERE id = ?2", [&thumb, &id])?;
-                                        Ok(())
-                                    }
-                                }).await;
+                            found_thumb = page.images.first().map(|i| i.url.clone());
+                        }
+                    } else if id.starts_with("UC") {
+                        if let Ok(page) = this.yt().browse(&id, None).await {
+                            found_thumb = page.thumbnail;
+                        }
+                    }
+                    if found_thumb.is_none() && !name.is_empty() {
+                        if let Ok(results) = this.spotify_or_public().search_artists(&name, 1).await {
+                            if let Some(first) = results.first() {
+                                found_thumb = first.images.first().map(|i| i.url.clone());
                             }
                         }
+                    }
+                    if let Some(thumb) = found_thumb {
+                        let _ = this.store().call({
+                            let id = id.clone();
+                            let thumb = thumb.clone();
+                            move |c| {
+                                c.execute("UPDATE artist SET thumbnailUrl = ?1 WHERE id = ?2", [&thumb, &id])?;
+                                Ok(())
+                            }
+                        }).await;
+                        this.request_image(&thumb, 144);
                     }
                 }
             }
