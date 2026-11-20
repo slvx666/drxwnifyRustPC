@@ -22,6 +22,7 @@ struct Sections {
     models: Vec<Rc<VecModel<HomeCard>>>,
 }
 
+#[derive(Clone)]
 pub struct DiscographyAlbumData {
     pub id: String,
     pub title: String,
@@ -265,7 +266,7 @@ pub fn load_discography(ui: &MainWindow, app: &App) {
     });
 
     let (app2, ui_w) = (app.clone(), ui.as_weak());
-    tokio::spawn(async move {
+    app.runtime().spawn(async move {
         let mut loaded_albums: Vec<DiscographyAlbumData> = Vec::new();
 
         // 1. Check local library tracks for this artist
@@ -294,13 +295,26 @@ pub fn load_discography(ui: &MainWindow, app: &App) {
                     let count = a.tracks.len();
                     a.subtitle = format!("{} • {} треков", a.subtitle, count);
                 }
+
+                if !loaded_albums.is_empty() {
+                    let local_copy = loaded_albums.clone();
+                    let (ui_w2, app3) = (ui_w.clone(), app2.clone());
+                    let _ = slint::invoke_from_event_loop(move || {
+                        let Some(ui) = ui_w2.upgrade() else { return };
+                        DISCOGRAPHY.with(|d| {
+                            let mut d = d.borrow_mut();
+                            d.albums = local_copy;
+                        });
+                        render_discography(&ui, &app3);
+                    });
+                }
             }
         }
 
         // 2. Fetch catalog releases from Spotify/catalog
         if !releases.is_empty() {
             let mut catalog_albums = Vec::new();
-            for r in releases {
+            for r in releases.into_iter().take(20) {
                 if let Some(alb) = app2.catalog_album(&r.id).await {
                     let yr = alb.release_date.as_deref().and_then(|d| d.get(..4)).unwrap_or("");
                     let kind_label = match alb.album_type.as_deref().unwrap_or(&r.kind) {

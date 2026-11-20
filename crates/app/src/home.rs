@@ -414,8 +414,7 @@ impl App {
                      FROM song_artist_map sam
                      JOIN song s ON s.id = sam.songId
                      LEFT JOIN album al ON al.id = s.albumId
-                     WHERE sam.artistId = (SELECT id FROM artist WHERE name = ?1 LIMIT 1)
-                        OR s.artistsText LIKE ?2
+                     WHERE sam.artistId IN (SELECT id FROM artist WHERE name = ?1 OR name LIKE ?2)
                      ORDER BY yr DESC, coalesce(al.title, s.albumName), s.id"
                 );
                 let pat = format!("%{artist_title_q}%");

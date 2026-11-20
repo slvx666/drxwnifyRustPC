@@ -402,7 +402,7 @@ component IconButton inherits Rectangle {
     background: ta.has-hover && enabled ? Theme.fill-hover : (filled || active ? Theme.fill : transparent);
     opacity: enabled ? 1 : 0.4;
     Icon { icon: root.icon; size: root.icon-size; color: root.active ? root.active-color : (ta.has-hover && root.enabled ? Theme.text : root.tint); }
-    ta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    ta := TouchArea { enabled: root.enabled; mouse-cursor: root.enabled ? pointer : default; clicked => { root.clicked(); } }
 }
 
 // Puts a fixed-size child in the vertical middle of a layout cell.
@@ -482,7 +482,7 @@ component Chip inherits Rectangle {
             vertical-alignment: center;
         }
     }
-    ta := TouchArea { clicked => { root.clicked(); } }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
 component Cover inherits Rectangle {
@@ -611,7 +611,7 @@ component WindowButton inherits Rectangle {
         stroke-width: 1.1px;
         commands: "M 0 0 L 10 10 M 10 0 L 0 10";
     }
-    ta := TouchArea { clicked => { root.clicked(); } }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
 component TopBar inherits Rectangle {
@@ -970,7 +970,7 @@ component LibraryPanel inherits VerticalLayout {
                         Text { text: item.subtitle; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; overflow: elide; }
                     }
                 }
-                ta := TouchArea { clicked => { root.open(item); } }
+                ta := TouchArea { mouse-cursor: pointer; clicked => { root.open(item); } }
             }
         }
     }
@@ -2686,7 +2686,7 @@ component MainArea inherits VerticalLayout {
                 border-radius: min(Theme.chip-radius, 22px);
                 background: ta.has-hover ? Theme.accent2 : Theme.accent;
                 Text { text: "Импортировать резервную копию"; font-family: Theme.body-font; font-weight: 700; font-size: 15px; color: Theme.on-accent; }
-                ta := TouchArea { clicked => { root.import-backup(); } }
+                ta := TouchArea { mouse-cursor: pointer; clicked => { root.import-backup(); } }
             }
         }
     }
@@ -3233,7 +3233,7 @@ component PlayerBar inherits HorizontalLayout {
                     border-radius: min(Theme.chip-radius, 22px);
                     background: pta.has-hover ? Theme.accent2 : Theme.accent;
                     Icon { icon: root.playing ? Icons.pause : Icons.play; size: 22px; color: Theme.on-accent; }
-                    pta := TouchArea { clicked => { root.toggle(); } }
+                    pta := TouchArea { mouse-cursor: pointer; clicked => { root.toggle(); } }
                 }
             }
             Middle { IconButton { icon: Icons.next; clicked => { root.next(); } } }
@@ -3247,9 +3247,9 @@ component PlayerBar inherits HorizontalLayout {
         }
     }
     HorizontalLayout {
-        width: root.right-panel-open ? (Grid.side-width + 1px) : 300px;
-        padding-left: Grid.pad;
-        padding-right: Grid.pad;
+        width: max(360px, root.right-panel-open ? (Grid.side-width + 1px) : 360px);
+        padding-left: 8px;
+        padding-right: 20px;
         spacing: 4px;
         alignment: end;
         if root.sleep-on: Text {
@@ -3368,7 +3368,7 @@ component PlayerBar inherits HorizontalLayout {
         }
         Middle {
             Slider {
-                width: 96px;
+                width: 88px;
                 value: root.volume;
                 live: true;
                 picked(v) => { root.volume = v; root.volume-changed(v); }
