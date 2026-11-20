@@ -20,7 +20,9 @@ fn main() {
     if !quiet {
         let q = match &update {
             Some(old) => format!("Обновить {APP_NAME} с версии {old} до {version}?"),
-            None => format!("Установить {APP_NAME} {version} для этого пользователя Windows?\n\nПрограмма появится в меню «Пуск». Права администратора не нужны."),
+            None => format!(
+                "Установить {APP_NAME} {version} для этого пользователя Windows?\n\nПрограмма появится в меню «Пуск». Права администратора не нужны."
+            ),
         };
         if !ask(APP_NAME, &q) {
             return;

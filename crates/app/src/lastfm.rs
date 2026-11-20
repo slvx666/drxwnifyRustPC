@@ -22,11 +22,17 @@ pub const NOW_PLAYING_KEY: &str = "lastfmUseNowPlaying";
 pub const LOVE_KEY: &str = "lastfmUseSendLikes";
 
 fn key() -> Option<String> {
-    std::env::var("DRX_LASTFM_KEY").ok().or_else(|| option_env!("DRX_LASTFM_KEY").map(str::to_string)).filter(|k| !k.is_empty())
+    std::env::var("DRX_LASTFM_KEY")
+        .ok()
+        .or_else(|| option_env!("DRX_LASTFM_KEY").map(str::to_string))
+        .filter(|k| !k.is_empty())
 }
 
 fn secret() -> Option<String> {
-    std::env::var("DRX_LASTFM_SECRET").ok().or_else(|| option_env!("DRX_LASTFM_SECRET").map(str::to_string)).filter(|k| !k.is_empty())
+    std::env::var("DRX_LASTFM_SECRET")
+        .ok()
+        .or_else(|| option_env!("DRX_LASTFM_SECRET").map(str::to_string))
+        .filter(|k| !k.is_empty())
 }
 
 /// The app can sign in (its key and secret are known).
@@ -44,7 +50,10 @@ pub fn signature(params: &BTreeMap<String, String>, secret: &str) -> String {
         }
     }
     s.push_str(secret);
-    Md5::digest(s.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+    Md5::digest(s.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Who is signed in.
@@ -58,9 +67,16 @@ pub struct LastfmState {
 }
 
 impl App {
-    async fn lastfm_call(&self, method: &str, mut params: BTreeMap<String, String>, post: bool) -> crate::AppResult<Value> {
+    async fn lastfm_call(
+        &self,
+        method: &str,
+        mut params: BTreeMap<String, String>,
+        post: bool,
+    ) -> crate::AppResult<Value> {
         let (Some(k), Some(sec)) = (key(), secret()) else {
-            return Err(crate::AppError::Other("нет ключа Last.fm (local.env)".into()));
+            return Err(crate::AppError::Other(
+                "нет ключа Last.fm (local.env)".into(),
+            ));
         };
         params.insert("method".into(), method.into());
         params.insert("api_key".into(), k);
@@ -80,9 +96,16 @@ impl App {
         } else {
             http.request(drx_core::http::Method::GET, &format!("{API}?{body}"))
         };
-        let resp = http.send(req).await.map_err(|e| crate::AppError::Other(e.to_string()))?;
-        let text = resp.text().await.map_err(|e| crate::AppError::Other(e.to_string()))?;
-        let v: Value = serde_json::from_str(&text).map_err(|e| crate::AppError::Other(e.to_string()))?;
+        let resp = http
+            .send(req)
+            .await
+            .map_err(|e| crate::AppError::Other(e.to_string()))?;
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| crate::AppError::Other(e.to_string()))?;
+        let v: Value =
+            serde_json::from_str(&text).map_err(|e| crate::AppError::Other(e.to_string()))?;
         if let Some(e) = v.get("error") {
             let msg = v.get("message").and_then(Value::as_str).unwrap_or("ошибка");
             return Err(crate::AppError::Other(format!("Last.fm {e}: {msg}")));
@@ -93,7 +116,9 @@ impl App {
     pub fn lastfm_state(&self) -> LastfmState {
         LastfmState {
             available: available(),
-            user: self.pref_string(USER_KEY).filter(|u| !u.is_empty() && self.pref_string(SESSION_KEY).is_some_and(|s| !s.is_empty())),
+            user: self.pref_string(USER_KEY).filter(|u| {
+                !u.is_empty() && self.pref_string(SESSION_KEY).is_some_and(|s| !s.is_empty())
+            }),
             scrobble: self.pref_bool(SCROBBLE_KEY).unwrap_or(false),
             now_playing: self.pref_bool(NOW_PLAYING_KEY).unwrap_or(false),
             love: self.pref_bool(LOVE_KEY).unwrap_or(false),
@@ -102,9 +127,18 @@ impl App {
 
     /// Sign in, step one: a token and the Last.fm page where the listener approves it (the UI opens it).
     pub async fn lastfm_begin(&self) -> crate::AppResult<(String, String)> {
-        let v = self.lastfm_call("auth.getToken", BTreeMap::new(), false).await?;
-        let token = v.get("token").and_then(Value::as_str).ok_or_else(|| crate::AppError::Other("Last.fm не дал токен".into()))?.to_string();
-        let url = format!("https://www.last.fm/api/auth/?api_key={}&token={token}", key().unwrap_or_default());
+        let v = self
+            .lastfm_call("auth.getToken", BTreeMap::new(), false)
+            .await?;
+        let token = v
+            .get("token")
+            .and_then(Value::as_str)
+            .ok_or_else(|| crate::AppError::Other("Last.fm не дал токен".into()))?
+            .to_string();
+        let url = format!(
+            "https://www.last.fm/api/auth/?api_key={}&token={token}",
+            key().unwrap_or_default()
+        );
         Ok((token, url))
     }
 
@@ -116,11 +150,20 @@ impl App {
             let mut p = BTreeMap::new();
             p.insert("token".to_string(), token.clone());
             if let Ok(v) = self.lastfm_call("auth.getSession", p, false).await {
-                let s = v.pointer("/session/key").and_then(Value::as_str).unwrap_or_default().to_string();
-                let name = v.pointer("/session/name").and_then(Value::as_str).unwrap_or_default().to_string();
+                let s = v
+                    .pointer("/session/key")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let name = v
+                    .pointer("/session/name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
                 if !s.is_empty() {
                     let _ = self.set_pref(SESSION_KEY, drx_core::prefs::PrefValue::String(s));
-                    let _ = self.set_pref(USER_KEY, drx_core::prefs::PrefValue::String(name.clone()));
+                    let _ =
+                        self.set_pref(USER_KEY, drx_core::prefs::PrefValue::String(name.clone()));
                     // Signed in: scrobbling starts on, as on the phone after its login.
                     if self.pref_bool(SCROBBLE_KEY).is_none() {
                         let _ = self.set_pref(SCROBBLE_KEY, drx_core::prefs::PrefValue::Bool(true));
@@ -129,11 +172,16 @@ impl App {
                 }
             }
         }
-        Err(crate::AppError::Other("вход не подтверждён в браузере".into()))
+        Err(crate::AppError::Other(
+            "вход не подтверждён в браузере".into(),
+        ))
     }
 
     pub fn lastfm_sign_out(&self) {
-        let _ = self.set_pref(SESSION_KEY, drx_core::prefs::PrefValue::String(String::new()));
+        let _ = self.set_pref(
+            SESSION_KEY,
+            drx_core::prefs::PrefValue::String(String::new()),
+        );
         let _ = self.set_pref(USER_KEY, drx_core::prefs::PrefValue::String(String::new()));
     }
 
@@ -143,7 +191,13 @@ impl App {
 
     fn track_params(t: &Track) -> BTreeMap<String, String> {
         let mut p = BTreeMap::new();
-        p.insert("artist".into(), t.artists.first().map(|a| a.name.clone()).unwrap_or_default());
+        p.insert(
+            "artist".into(),
+            t.artists
+                .first()
+                .map(|a| a.name.clone())
+                .unwrap_or_default(),
+        );
         p.insert("track".into(), t.title.clone());
         if let Some(a) = t.album.as_ref().filter(|a| !a.name.is_empty()) {
             p.insert("album".into(), a.name.clone());
@@ -156,12 +210,20 @@ impl App {
 
     /// A like sent as «love» (or «unlove») when that switch is on.
     pub fn lastfm_love(&self, t: &Track, loved: bool) {
-        let Some(sk) = self.lastfm_session() else { return };
+        let Some(sk) = self.lastfm_session() else {
+            return;
+        };
         if !self.pref_bool(LOVE_KEY).unwrap_or(false) {
             return;
         }
         let mut p = BTreeMap::new();
-        p.insert("artist".to_string(), t.artists.first().map(|a| a.name.clone()).unwrap_or_default());
+        p.insert(
+            "artist".to_string(),
+            t.artists
+                .first()
+                .map(|a| a.name.clone())
+                .unwrap_or_default(),
+        );
         p.insert("track".to_string(), t.title.clone());
         p.insert("sk".to_string(), sk);
         let app = self.clone();
@@ -211,7 +273,9 @@ impl App {
                 if np.playing {
                     heard += dt.min(2.0);
                 }
-                let Some((t, started)) = &current else { continue };
+                let Some((t, started)) = &current else {
+                    continue;
+                };
                 if done || !app.pref_bool(SCROBBLE_KEY).unwrap_or(false) {
                     continue;
                 }
@@ -228,13 +292,27 @@ impl App {
                 p.insert("sk".into(), sk);
                 match app.lastfm_call("track.scrobble", p, true).await {
                     // Last.fm answers 200 with «ignored» for a scrobble it refused: say why.
-                    Ok(v) if v.pointer("/scrobbles/@attr/ignored").and_then(Value::as_i64).unwrap_or(0) > 0 => {
-                        let why = v.pointer("/scrobbles/scrobble/ignoredMessage/#text").and_then(Value::as_str).unwrap_or("отклонён").to_string();
-                        let _ = app.inner.events.send(crate::AppEvent::Notice(format!("Last.fm не принял скроббл: {why}")));
+                    Ok(v)
+                        if v.pointer("/scrobbles/@attr/ignored")
+                            .and_then(Value::as_i64)
+                            .unwrap_or(0)
+                            > 0 =>
+                    {
+                        let why = v
+                            .pointer("/scrobbles/scrobble/ignoredMessage/#text")
+                            .and_then(Value::as_str)
+                            .unwrap_or("отклонён")
+                            .to_string();
+                        let _ = app.inner.events.send(crate::AppEvent::Notice(format!(
+                            "Last.fm не принял скроббл: {why}"
+                        )));
                     }
                     Ok(_) => {}
                     Err(e) => {
-                        let _ = app.inner.events.send(crate::AppEvent::Notice(format!("Скроббл не ушёл: {e}")));
+                        let _ = app
+                            .inner
+                            .events
+                            .send(crate::AppEvent::Notice(format!("Скроббл не ушёл: {e}")));
                     }
                 }
             }
@@ -245,7 +323,9 @@ impl App {
 fn urlencode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
             _ => format!("%{b:02X}"),
         })
         .collect()
@@ -262,7 +342,10 @@ mod tests {
         p.insert("method".to_string(), "auth.getSession".to_string());
         p.insert("token".to_string(), "yyyyyy".to_string());
         p.insert("format".to_string(), "json".to_string());
-        let want: String = Md5::digest(b"api_keyxxxxxxxxmethodauth.getSessiontokenyyyyyyilovecher").iter().map(|b| format!("{b:02x}")).collect();
+        let want: String = Md5::digest(b"api_keyxxxxxxxxmethodauth.getSessiontokenyyyyyyilovecher")
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         assert_eq!(signature(&p, "ilovecher"), want);
     }
 }

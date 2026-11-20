@@ -13,7 +13,11 @@ const AFTER_KEY: &str = "pcSleepAfter";
 fn left(ms: i64) -> String {
     let s = (ms.max(0) + 999) / 1000;
     let (h, m, s) = (s / 3600, s / 60 % 60, s % 60);
-    if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m}:{s:02}") }
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
 }
 
 pub fn wire(ui: &MainWindow, app: &App) {
@@ -70,7 +74,15 @@ fn refresh(ui: &MainWindow, app: &App) {
     let s = app.sleep_timer().borrow().clone();
     ui.set_sleep_on(s.active());
     let label = match s.until {
-        Some(until) => left(until - std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)) + if s.after_song { " + трек" } else { "" },
+        Some(until) => {
+            left(
+                until
+                    - std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as i64)
+                        .unwrap_or(0),
+            ) + if s.after_song { " + трек" } else { "" }
+        }
         None if s.end_of_song => "конец трека".into(),
         None => String::new(),
     };
@@ -83,11 +95,15 @@ fn refresh(ui: &MainWindow, app: &App) {
             t.stop();
         } else if !t.running() {
             let (app, ui_w) = (app.clone(), ui.as_weak());
-            t.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(1), move || {
-                if let Some(ui) = ui_w.upgrade() {
-                    refresh(&ui, &app);
-                }
-            });
+            t.start(
+                slint::TimerMode::Repeated,
+                std::time::Duration::from_secs(1),
+                move || {
+                    if let Some(ui) = ui_w.upgrade() {
+                        refresh(&ui, &app);
+                    }
+                },
+            );
         }
     });
 }

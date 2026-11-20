@@ -85,7 +85,11 @@ pub struct Sources {
 
 impl Default for Sources {
     fn default() -> Self {
-        Sources { lrclib: true, better: true, kugou: true }
+        Sources {
+            lrclib: true,
+            better: true,
+            kugou: true,
+        }
     }
 }
 
@@ -95,9 +99,10 @@ pub fn clean_title(title: &str) -> String {
     let mut out = title.to_string();
     // Remove content in parentheses/brackets that matches known noise patterns.
     for (open, close) in [('(', ')'), ('[', ']')] {
-        loop {
-            let Some(start) = out.find(open) else { break };
-            let Some(end) = out[start..].find(close).map(|i| start + i) else { break };
+        while let Some(start) = out.find(open) {
+            let Some(end) = out[start..].find(close).map(|i| start + i) else {
+                break;
+            };
             let inner = out[start + 1..end].to_lowercase();
             let noise = inner.contains("remaster")
                 || inner.contains("feat.")
@@ -133,20 +138,36 @@ pub fn clean_title(title: &str) -> String {
 
 /// LrcLib first; while nothing synced is found, BetterLyrics, then KuGou (synced lyrics beat plain ones), as the
 /// phone's provider order.
-pub async fn find_any(http: &Http, title: &str, artist: &str, duration_s: Option<u64>, on: Sources) -> Option<Lyrics> {
+pub async fn find_any(
+    http: &Http,
+    title: &str,
+    artist: &str,
+    duration_s: Option<u64>,
+    on: Sources,
+) -> Option<Lyrics> {
     let clean = clean_title(title);
     let title = if clean.is_empty() { title } else { &clean };
-    let mut best = if on.lrclib { LrcLib::new(http.clone()).find(title, artist, duration_s).await } else { None };
+    let mut best = if on.lrclib {
+        LrcLib::new(http.clone())
+            .find(title, artist, duration_s)
+            .await
+    } else {
+        None
+    };
     if matches!(best, Some(Lyrics::Synced(_))) {
         return best;
     }
     if on.better
-        && let Some(l) = BetterLyrics::new(http.clone()).find(title, artist, duration_s).await
+        && let Some(l) = BetterLyrics::new(http.clone())
+            .find(title, artist, duration_s)
+            .await
     {
         return Some(l);
     }
     if on.kugou
-        && let Some(l) = KuGou::new(http.clone()).find(title, artist, duration_s).await
+        && let Some(l) = KuGou::new(http.clone())
+            .find(title, artist, duration_s)
+            .await
     {
         best = Some(l);
     }
@@ -274,7 +295,10 @@ mod tests {
 
     #[test]
     fn clean_title_removes_noise() {
-        assert_eq!(clean_title("Love Exchange Failure (Remastered 2024)"), "Love Exchange Failure");
+        assert_eq!(
+            clean_title("Love Exchange Failure (Remastered 2024)"),
+            "Love Exchange Failure"
+        );
         assert_eq!(clean_title("Song Title (feat. Someone)"), "Song Title");
         assert_eq!(clean_title("In the End [Deluxe Edition]"), "In the End");
         assert_eq!(clean_title("Numb - Remastered 2020"), "Numb");

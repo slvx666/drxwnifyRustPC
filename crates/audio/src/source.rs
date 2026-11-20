@@ -135,7 +135,10 @@ impl CachedSource {
     /// Bytes downloaded from the start, and the total when known.
     pub fn progress(&self) -> (u64, Option<u64>) {
         let st = self.shared.state.lock().expect("source lock");
-        (st.ranges.first().filter(|r| r.0 == 0).map_or(0, |r| r.1), st.total)
+        (
+            st.ranges.first().filter(|r| r.0 == 0).map_or(0, |r| r.1),
+            st.total,
+        )
     }
 
     pub fn cache_path(&self) -> &Path {

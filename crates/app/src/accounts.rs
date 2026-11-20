@@ -260,7 +260,12 @@ impl App {
                         if let Ok(ids) = sp.library_ids("Albums").await {
                             for id in ids {
                                 if let Ok(a) = sp.album(&id).await {
-                                    let artists_str = a.artists.iter().map(|ar| ar.name.as_str()).collect::<Vec<_>>().join(", ");
+                                    let artists_str = a
+                                        .artists
+                                        .iter()
+                                        .map(|ar| ar.name.as_str())
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
                                     out.push(LibraryEntry {
                                         kind: LibraryKind::Remote,
                                         id: ListSpec::CatalogAlbum { id: id.clone() }
@@ -326,7 +331,12 @@ impl App {
                         if let Ok(ids) = y.liked_ids("albums").await {
                             for id in ids {
                                 if let Ok(a) = y.album(&id).await {
-                                    let artists_str = a.artists.iter().map(|ar| ar.name.as_str()).collect::<Vec<_>>().join(", ");
+                                    let artists_str = a
+                                        .artists
+                                        .iter()
+                                        .map(|ar| ar.name.as_str())
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
                                     out.push(LibraryEntry {
                                         kind: LibraryKind::Remote,
                                         id: ListSpec::CatalogAlbum { id: id.clone() }

@@ -237,34 +237,67 @@ mod tests {
 
     #[test]
     fn ids_follow_android() {
-        assert_eq!(song_id_of("0tu9Ra97hNCaD20tw93xQu"), "mfb:0tu9Ra97hNCaD20tw93xQu");
+        assert_eq!(
+            song_id_of("0tu9Ra97hNCaD20tw93xQu"),
+            "mfb:0tu9Ra97hNCaD20tw93xQu"
+        );
         assert_eq!(song_id_of("ym_123"), "mfb:ym_123");
         assert_eq!(song_id_of("src:VK:1_2_k"), "mfb:src:VK:1_2_k");
         assert_eq!(song_id_of("mfb:ym_123"), "mfb:ym_123");
         assert_eq!(song_id_of("V2pw1F8G_xQ"), "V2pw1F8G_xQ");
-        assert_eq!(catalog_id_fast("spotify:0tu9Ra97hNCaD20tw93xQu").as_deref(), Some("0tu9Ra97hNCaD20tw93xQu"));
+        assert_eq!(
+            catalog_id_fast("spotify:0tu9Ra97hNCaD20tw93xQu").as_deref(),
+            Some("0tu9Ra97hNCaD20tw93xQu")
+        );
         assert_eq!(catalog_id_fast("V2pw1F8G_xQ"), None);
     }
 
     #[test]
     fn catalog_track_gets_row_and_artist_once() {
         let c = db();
-        let id = ensure_song(&c, &track("0tu9Ra97hNCaD20tw93xQu", "7aPT87bbFE2IO9d3qpzf9U")).unwrap();
+        let id = ensure_song(
+            &c,
+            &track("0tu9Ra97hNCaD20tw93xQu", "7aPT87bbFE2IO9d3qpzf9U"),
+        )
+        .unwrap();
         assert_eq!(id, "mfb:0tu9Ra97hNCaD20tw93xQu");
         let (dur, album, cover): (i64, String, String) = c
-            .query_row("SELECT duration, albumId, thumbnailUrl FROM song WHERE id = ?1", [&id], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })
+            .query_row(
+                "SELECT duration, albumId, thumbnailUrl FROM song WHERE id = ?1",
+                [&id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
             .unwrap();
-        assert_eq!((dur, album.as_str(), cover.as_str()), (250, "spotify:4HXEAKXVGlx5sTryGadzHO", "https://i.scdn.co/image/300"));
+        assert_eq!(
+            (dur, album.as_str(), cover.as_str()),
+            (
+                250,
+                "spotify:4HXEAKXVGlx5sTryGadzHO",
+                "https://i.scdn.co/image/300"
+            )
+        );
         let artist: String = c
-            .query_row("SELECT artistId FROM song_artist_map WHERE songId = ?1", [&id], |r| r.get(0))
+            .query_row(
+                "SELECT artistId FROM song_artist_map WHERE songId = ?1",
+                [&id],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(artist, "SP_7aPT87bbFE2IO9d3qpzf9U");
         // A second track by the same artist reuses the row; a second call changes nothing.
-        ensure_song(&c, &track("1tu9Ra97hNCaD20tw93xQu", "7aPT87bbFE2IO9d3qpzf9U")).unwrap();
-        ensure_song(&c, &track("0tu9Ra97hNCaD20tw93xQu", "7aPT87bbFE2IO9d3qpzf9U")).unwrap();
-        let n: i64 = c.query_row("SELECT count(*) FROM artist", [], |r| r.get(0)).unwrap();
+        ensure_song(
+            &c,
+            &track("1tu9Ra97hNCaD20tw93xQu", "7aPT87bbFE2IO9d3qpzf9U"),
+        )
+        .unwrap();
+        ensure_song(
+            &c,
+            &track("0tu9Ra97hNCaD20tw93xQu", "7aPT87bbFE2IO9d3qpzf9U"),
+        )
+        .unwrap();
+        let n: i64 = c
+            .query_row("SELECT count(*) FROM artist", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 1);
     }
 
@@ -278,7 +311,9 @@ mod tests {
         .unwrap();
         ensure_song(&c, &track("ym_5", "ym_7")).unwrap();
         let (id, sp): (String, String) = c
-            .query_row("SELECT id, spotifyId FROM artist", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row("SELECT id, spotifyId FROM artist", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .unwrap();
         assert_eq!((id.as_str(), sp.as_str()), ("UCx", "ym_7"));
     }

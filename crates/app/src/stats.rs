@@ -1,7 +1,7 @@
 //! Listening history and statistics from the `event` table (Android HistoryScreen, StatsScreen). Statistics count
 //! this app's listening only (2.3.0: «Статистика считает только прослушивания в приложении»).
 
-use crate::lists::{SongRow, SONG_COVER};
+use crate::lists::{SONG_COVER, SongRow};
 use crate::{App, AppResult};
 
 /// Statistics period (Android StatPeriod).
@@ -88,7 +88,10 @@ impl StatPeriod {
                 let y = wrapped_year();
                 (jan1(y) * 86_400_000, jan1(y + 1) * 86_400_000)
             }
-            p => (p.days().map(|d| now_ms() - d * 86_400_000).unwrap_or(0), i64::MAX),
+            p => (
+                p.days().map(|d| now_ms() - d * 86_400_000).unwrap_or(0),
+                i64::MAX,
+            ),
         }
     }
 
@@ -290,7 +293,11 @@ impl App {
                         let id = id.clone();
                         move |c| {
                             let t: Option<String> = c
-                                .query_row("SELECT thumbnailUrl FROM artist WHERE id = ?1", [&id], |r| r.get(0))
+                                .query_row(
+                                    "SELECT thumbnailUrl FROM artist WHERE id = ?1",
+                                    [&id],
+                                    |r| r.get(0),
+                                )
                                 .unwrap_or(None);
                             Ok(t.as_deref().is_some_and(|s| !s.trim().is_empty()))
                         }
@@ -313,23 +320,33 @@ impl App {
                         }
                     }
                     if found_thumb.is_none() && !name.is_empty() {
-                        if let Ok(results) = this.spotify_or_public().search_artists(&name, 1).await {
+                        if let Ok(results) = this.spotify_or_public().search_artists(&name, 1).await
+                        {
                             if let Some(first) = results.first() {
                                 found_thumb = first.images.first().map(|i| i.url.clone());
                             }
                         }
                     }
                     if let Some(thumb) = found_thumb {
-                        let _ = this.store().call({
-                            let id = id.clone();
-                            let thumb = thumb.clone();
-                            move |c| {
-                                c.execute("UPDATE artist SET thumbnailUrl = ?1 WHERE id = ?2", [&thumb, &id])?;
-                                Ok(())
-                            }
-                        }).await;
+                        let _ = this
+                            .store()
+                            .call({
+                                let id = id.clone();
+                                let thumb = thumb.clone();
+                                move |c| {
+                                    c.execute(
+                                        "UPDATE artist SET thumbnailUrl = ?1 WHERE id = ?2",
+                                        [&thumb, &id],
+                                    )?;
+                                    Ok(())
+                                }
+                            })
+                            .await;
                         this.request_image(&thumb, 144);
-                        let _ = this.inner.events.send(crate::AppEvent::ImageReady { url: thumb, size: 144 });
+                        let _ = this.inner.events.send(crate::AppEvent::ImageReady {
+                            url: thumb,
+                            size: 144,
+                        });
                     }
                 }
             }
@@ -355,10 +372,15 @@ impl App {
             })
             .await?;
         if rows.is_empty() {
-            return Err(crate::AppError::Other("за этот год прослушиваний нет".into()));
+            return Err(crate::AppError::Other(
+                "за этот год прослушиваний нет".into(),
+            ));
         }
         let id = self.create_playlist(&wrapped_playlist()).await?;
-        let tracks = rows.into_iter().map(|r| crate::playable_of(r).track).collect();
+        let tracks = rows
+            .into_iter()
+            .map(|r| crate::playable_of(r).track)
+            .collect();
         let n = self.add_to_playlist(&id, tracks).await?;
         Ok((id, n))
     }
@@ -400,7 +422,8 @@ impl App {
 
     /// Plays songs from a statistics or history list.
     pub fn play_rows(&self, rows: Vec<SongRow>, index: usize) {
-        let items: Vec<crate::playback::Playable> = rows.into_iter().map(crate::playable_of).collect();
+        let items: Vec<crate::playback::Playable> =
+            rows.into_iter().map(crate::playable_of).collect();
         self.remember(items.iter().map(|p| &p.track));
         self.inner.playback.play_list(items, index);
     }

@@ -263,7 +263,11 @@ impl Spotify {
     /// them out: the web player's own `addToLibrary` / `removeFromLibrary` (REST /me/tracks and /me/following refuse
     /// the web-player token on many accounts — Spotify.kt).
     pub async fn set_in_library(&self, uris: &[String], saved: bool) -> Result<()> {
-        let op = if saved { "addToLibrary" } else { "removeFromLibrary" };
+        let op = if saved {
+            "addToLibrary"
+        } else {
+            "removeFromLibrary"
+        };
         self.graphql(op, json!({ "libraryItemUris": uris })).await?;
         Ok(())
     }
@@ -305,7 +309,11 @@ impl Spotify {
 
     /// Every saved album or followed artist id (`filter`: "Albums" or "Artists"), up to 5000.
     pub async fn library_ids(&self, filter: &str) -> Result<std::collections::HashSet<String>> {
-        let kind = if filter == "Artists" { "artist" } else { "album" };
+        let kind = if filter == "Artists" {
+            "artist"
+        } else {
+            "album"
+        };
         let mut out = std::collections::HashSet::new();
         let mut offset = 0u32;
         while offset < 5000 {
@@ -316,7 +324,8 @@ impl Spotify {
                 "folderUri": null, "includeFoldersWhenFlattening": true
             });
             let v = self.graphql("libraryV3", vars).await?;
-            let (ids, total) = parse::library_ids(&v, kind).ok_or(SpotifyError::Shape("libraryV3"))?;
+            let (ids, total) =
+                parse::library_ids(&v, kind).ok_or(SpotifyError::Shape("libraryV3"))?;
             let n = ids.len();
             out.extend(ids);
             offset += 50;

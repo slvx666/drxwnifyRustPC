@@ -253,7 +253,10 @@ impl Decoder {
         let to = self
             .format
             .seek(SeekMode::Coarse, SeekTo::Time { time, track_id })
-            .or_else(|_| self.format.seek(SeekMode::Accurate, SeekTo::Time { time, track_id }))?;
+            .or_else(|_| {
+                self.format
+                    .seek(SeekMode::Accurate, SeekTo::Time { time, track_id })
+            })?;
         match &mut self.inner {
             Inner::Sym(d) => d.reset(),
             Inner::Opus {

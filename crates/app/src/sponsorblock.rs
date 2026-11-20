@@ -42,15 +42,41 @@ pub fn pick(answer: &Value, video: &str, categories: &[String]) -> Vec<Segment> 
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|e| e.get("videoID").and_then(Value::as_str).is_some_and(|v| v.eq_ignore_ascii_case(video)))
-        .flat_map(|e| e.get("segments").and_then(Value::as_array).cloned().unwrap_or_default())
-        .filter(|s| s.get("actionType").and_then(Value::as_str).unwrap_or("skip") == "skip")
-        .filter(|s| s.get("category").and_then(Value::as_str).is_some_and(|c| categories.iter().any(|x| x == c)))
+        .filter(|e| {
+            e.get("videoID")
+                .and_then(Value::as_str)
+                .is_some_and(|v| v.eq_ignore_ascii_case(video))
+        })
+        .flat_map(|e| {
+            e.get("segments")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        })
+        .filter(|s| {
+            s.get("actionType")
+                .and_then(Value::as_str)
+                .unwrap_or("skip")
+                == "skip"
+        })
+        .filter(|s| {
+            s.get("category")
+                .and_then(Value::as_str)
+                .is_some_and(|c| categories.iter().any(|x| x == c))
+        })
         .filter_map(|s| {
             let seg = s.get("segment")?.as_array()?;
             let (a, b) = (seg.first()?.as_f64()?, seg.get(1)?.as_f64()?);
-            let category = s.get("category").and_then(Value::as_str).unwrap_or_default().to_string();
-            (b > a).then_some(Segment { start: a, end: b, category })
+            let category = s
+                .get("category")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            (b > a).then_some(Segment {
+                start: a,
+                end: b,
+                category,
+            })
         })
         .collect();
     out.sort_by(|a, b| a.start.total_cmp(&b.start));
@@ -61,12 +87,24 @@ impl App {
     async fn sponsor_segments(&self, video: &str, categories: &[String]) -> Vec<Segment> {
         let hash = Sha256::digest(video.as_bytes());
         let prefix: String = hash.iter().take(2).map(|b| format!("{b:02x}")).collect();
-        let cats: String = categories.iter().map(|c| format!("&category={c}")).collect();
+        let cats: String = categories
+            .iter()
+            .map(|c| format!("&category={c}"))
+            .collect();
         let url = format!("{BASE}{prefix}?actionType=skip{cats}");
         let http = &self.inner.http;
-        let Ok(resp) = http.send(http.request(drx_core::http::Method::GET, &url)).await else { return Vec::new() };
-        let Ok(text) = resp.text().await else { return Vec::new() };
-        serde_json::from_str::<Value>(&text).map(|v| pick(&v, video, categories)).unwrap_or_default()
+        let Ok(resp) = http
+            .send(http.request(drx_core::http::Method::GET, &url))
+            .await
+        else {
+            return Vec::new();
+        };
+        let Ok(text) = resp.text().await else {
+            return Vec::new();
+        };
+        serde_json::from_str::<Value>(&text)
+            .map(|v| pick(&v, video, categories))
+            .unwrap_or_default()
     }
 
     /// Follows the playback: for each YouTube-played track (with the switch on), its segments are fetched and the
@@ -108,17 +146,29 @@ impl App {
                 if !segments.is_empty() {
                     let c = app.clock();
                     if c.playing
-                        && let Some(s) = segments.iter().find(|s| c.position_s >= s.start && c.position_s < s.end - 0.2)
+                        && let Some(s) = segments
+                            .iter()
+                            .find(|s| c.position_s >= s.start && c.position_s < s.end - 0.2)
                     {
                         app.seek(s.end);
                         // «Сообщать о пропуске» (sponsorBlockShowToast): «Пропущено: заставка».
                         if app.pref_bool(TOAST_KEY).unwrap_or(false) {
-                            let name = CATEGORIES.iter().find(|(k, _)| *k == s.category).map_or("вставка", |(_, n)| n);
-                            let _ = app.inner.events.send(crate::AppEvent::Notice(format!("Пропущено: {}", name.to_lowercase())));
+                            let name = CATEGORIES
+                                .iter()
+                                .find(|(k, _)| *k == s.category)
+                                .map_or("вставка", |(_, n)| n);
+                            let _ = app.inner.events.send(crate::AppEvent::Notice(format!(
+                                "Пропущено: {}",
+                                name.to_lowercase()
+                            )));
                         }
                     }
                 }
-                let wait = if segments.is_empty() { Duration::from_secs(3600) } else { Duration::from_millis(400) };
+                let wait = if segments.is_empty() {
+                    Duration::from_secs(3600)
+                } else {
+                    Duration::from_millis(400)
+                };
                 let _ = tokio::time::timeout(wait, rx.changed()).await;
             }
         });
@@ -140,7 +190,11 @@ mod tests {
         )
         .unwrap();
         let s = pick(&v, "abc", &["music_offtopic".into()]);
-        let m = |a: f64, b: f64| Segment { start: a, end: b, category: "music_offtopic".into() };
+        let m = |a: f64, b: f64| Segment {
+            start: a,
+            end: b,
+            category: "music_offtopic".into(),
+        };
         assert_eq!(s, vec![m(0.0, 12.5), m(200.5, 230.0)]);
     }
 }

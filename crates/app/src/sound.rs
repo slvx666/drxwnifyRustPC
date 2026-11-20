@@ -25,28 +25,74 @@ const EQ_ACTIVE: &str = "active_profile_id";
 pub const GRAPHIC_ID: &str = "meld_graphic";
 
 /// GraphicEq.FREQUENCIES / LABELS.
-pub const FREQUENCIES: [f64; 10] = [32.0, 64.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0];
-pub const LABELS: [&str; 10] = ["32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
+pub const FREQUENCIES: [f64; 10] = [
+    32.0, 64.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
+];
+pub const LABELS: [&str; 10] = [
+    "32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k",
+];
 pub const MAX_DB: f32 = 12.0;
 
 /// GraphicEq.Preset with the phone's Russian names.
 pub const PRESETS: [(&str, [f32; 10]); 16] = [
     ("Ровно", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     ("Бас", [7.0, 6.0, 4.0, 1.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-    ("Вокал", [-2.0, -2.0, -1.0, 0.0, 1.0, 2.5, 4.5, 3.0, 1.0, 0.0]),
-    ("Гитара", [-1.0, 0.0, 1.0, -2.0, 0.0, 1.5, 3.5, 4.0, 2.0, 0.0]),
-    ("Бас-гитара", [3.0, 5.0, 4.0, 2.0, 0.0, 1.5, 2.5, 0.0, -1.0, -2.0]),
-    ("Ударные", [4.0, 5.0, 2.0, -2.0, -2.0, 0.0, 2.0, 4.0, 3.0, 2.0]),
-    ("Фортепиано", [0.0, 1.0, 2.0, 2.0, 1.0, 0.0, 1.5, 2.5, 2.0, 1.0]),
-    ("Струнные", [-1.0, 0.0, 1.0, 2.0, 2.0, 1.0, 1.0, 2.5, 3.0, 3.0]),
-    ("Речь / подкасты", [-6.0, -4.0, -1.0, 1.0, 2.5, 3.5, 3.5, 2.0, 0.0, -2.0]),
-    ("Метал", [4.0, 4.0, 2.0, -1.0, -3.0, -2.0, 1.0, 3.5, 4.0, 3.0]),
-    ("Электроника", [6.0, 5.0, 2.0, 0.0, -1.0, 0.0, 1.0, 2.5, 4.0, 5.0]),
-    ("Воздух (верха)", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 2.0, 4.0, 6.0]),
-    ("Ночной (тихо)", [-4.0, -3.0, -1.0, 0.0, 1.0, 1.5, 1.0, -1.0, -3.0, -4.0]),
-    ("Динамик телефона", [-12.0, -10.0, -4.0, 1.0, 2.0, 3.0, 3.0, 2.0, 1.0, 0.0]),
-    ("Старое радио", [-12.0, -12.0, -8.0, -2.0, 3.0, 5.0, 3.0, -6.0, -12.0, -12.0]),
-    ("Под водой", [6.0, 6.0, 4.0, 2.0, -2.0, -6.0, -10.0, -12.0, -12.0, -12.0]),
+    (
+        "Вокал",
+        [-2.0, -2.0, -1.0, 0.0, 1.0, 2.5, 4.5, 3.0, 1.0, 0.0],
+    ),
+    (
+        "Гитара",
+        [-1.0, 0.0, 1.0, -2.0, 0.0, 1.5, 3.5, 4.0, 2.0, 0.0],
+    ),
+    (
+        "Бас-гитара",
+        [3.0, 5.0, 4.0, 2.0, 0.0, 1.5, 2.5, 0.0, -1.0, -2.0],
+    ),
+    (
+        "Ударные",
+        [4.0, 5.0, 2.0, -2.0, -2.0, 0.0, 2.0, 4.0, 3.0, 2.0],
+    ),
+    (
+        "Фортепиано",
+        [0.0, 1.0, 2.0, 2.0, 1.0, 0.0, 1.5, 2.5, 2.0, 1.0],
+    ),
+    (
+        "Струнные",
+        [-1.0, 0.0, 1.0, 2.0, 2.0, 1.0, 1.0, 2.5, 3.0, 3.0],
+    ),
+    (
+        "Речь / подкасты",
+        [-6.0, -4.0, -1.0, 1.0, 2.5, 3.5, 3.5, 2.0, 0.0, -2.0],
+    ),
+    (
+        "Метал",
+        [4.0, 4.0, 2.0, -1.0, -3.0, -2.0, 1.0, 3.5, 4.0, 3.0],
+    ),
+    (
+        "Электроника",
+        [6.0, 5.0, 2.0, 0.0, -1.0, 0.0, 1.0, 2.5, 4.0, 5.0],
+    ),
+    (
+        "Воздух (верха)",
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 2.0, 4.0, 6.0],
+    ),
+    (
+        "Ночной (тихо)",
+        [-4.0, -3.0, -1.0, 0.0, 1.0, 1.5, 1.0, -1.0, -3.0, -4.0],
+    ),
+    (
+        "Динамик телефона",
+        [-12.0, -10.0, -4.0, 1.0, 2.0, 3.0, 3.0, 2.0, 1.0, 0.0],
+    ),
+    (
+        "Старое радио",
+        [-12.0, -12.0, -8.0, -2.0, 3.0, 5.0, 3.0, -6.0, -12.0, -12.0],
+    ),
+    (
+        "Под водой",
+        [6.0, 6.0, 4.0, 2.0, -2.0, -6.0, -10.0, -12.0, -12.0, -12.0],
+    ),
 ];
 
 /// ParametricEQBand as the phone serialises it.
@@ -208,18 +254,29 @@ impl App {
 
     pub fn sound_settings(&self) -> SoundSettings {
         let (list, active) = self.eq_profiles();
-        let active_p = active.as_deref().and_then(|a| list.iter().find(|p| p.id == a));
-        let gains = list.iter().find(|p| p.id == GRAPHIC_ID).and_then(SavedProfile::graphic_gains).unwrap_or([0.0; 10]);
+        let active_p = active
+            .as_deref()
+            .and_then(|a| list.iter().find(|p| p.id == a));
+        let gains = list
+            .iter()
+            .find(|p| p.id == GRAPHIC_ID)
+            .and_then(SavedProfile::graphic_gains)
+            .unwrap_or([0.0; 10]);
         SoundSettings {
             normalize: self.pref_bool(NORMALIZE_KEY).unwrap_or(true),
             crossfade: self.pref_bool(CROSSFADE_KEY).unwrap_or(false),
-            crossfade_s: self.pref_f32(CROSSFADE_LEN_KEY).unwrap_or(5.0).clamp(1.0, 15.0),
+            crossfade_s: self
+                .pref_f32(CROSSFADE_LEN_KEY)
+                .unwrap_or(5.0)
+                .clamp(1.0, 15.0),
             crossfade_album: self.pref_bool(CROSSFADE_ALBUM_KEY).unwrap_or(true),
             balance: self.pref_f32(BALANCE_KEY).unwrap_or(0.0).clamp(-1.0, 1.0),
             skip_silence: self.pref_bool(SKIP_SILENCE_KEY).unwrap_or(false),
             eq_on: active_p.is_some(),
             gains,
-            other_profile: active_p.filter(|p| p.id != GRAPHIC_ID).map(|p| p.name.clone()),
+            other_profile: active_p
+                .filter(|p| p.id != GRAPHIC_ID)
+                .map(|p| p.name.clone()),
         }
     }
 
@@ -227,14 +284,17 @@ impl App {
     pub fn apply_sound(&self) {
         let s = self.sound_settings();
         let pb = &self.inner.playback;
-        pb.normalize.store(s.normalize, std::sync::atomic::Ordering::Relaxed);
+        pb.normalize
+            .store(s.normalize, std::sync::atomic::Ordering::Relaxed);
         drx_audio::player::set_skip_silence(s.skip_silence);
         pb.set_transitions(Transitions {
             crossfade_s: if s.crossfade { s.crossfade_s } else { 0.0 },
             album_gapless: s.crossfade_album,
         });
         let (list, active) = self.eq_profiles();
-        let eq = active.and_then(|a| list.into_iter().find(|p| p.id == a)).map(|p| p.to_engine());
+        let eq = active
+            .and_then(|a| list.into_iter().find(|p| p.id == a))
+            .map(|p| p.to_engine());
         pb.set_effects(eq, s.balance);
     }
 
@@ -268,7 +328,9 @@ impl App {
 
     /// The graphic equaliser with these gains, switched on (EQViewModel: save the profile and make it active).
     pub fn set_eq_gains(&self, gains: [f32; 10]) {
-        let gains = gains.map(|g| (g * 2.0).round() / 2.0).map(|g| g.clamp(-MAX_DB, MAX_DB));
+        let gains = gains
+            .map(|g| (g * 2.0).round() / 2.0)
+            .map(|g| g.clamp(-MAX_DB, MAX_DB));
         let (mut list, _) = self.eq_profiles();
         let p = graphic_profile(&gains, &preset_name(&gains));
         match list.iter_mut().find(|x| x.id == GRAPHIC_ID) {
@@ -282,13 +344,27 @@ impl App {
     /// Imports an AutoEq «ParametricEQ.txt» (the phone's AutoEq import): a new profile named after the file,
     /// switched on at once. Returns its name.
     pub fn import_autoeq(&self, path: &std::path::Path) -> crate::AppResult<String> {
-        let text = std::fs::read_to_string(path).map_err(|e| crate::AppError::Other(e.to_string()))?;
+        let text =
+            std::fs::read_to_string(path).map_err(|e| crate::AppError::Other(e.to_string()))?;
         let (preamp, bands) = parse_autoeq(&text);
         if bands.is_empty() {
-            return Err(crate::AppError::Other("в файле нет фильтров AutoEq (Filter N: ON PK Fc … Hz Gain … dB Q …)".into()));
+            return Err(crate::AppError::Other(
+                "в файле нет фильтров AutoEq (Filter N: ON PK Fc … Hz Gain … dB Q …)".into(),
+            ));
         }
-        let name = path.file_stem().map(|s| s.to_string_lossy().replace(" ParametricEQ", "").trim().to_string()).unwrap_or_else(|| "AutoEq".into());
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+        let name = path
+            .file_stem()
+            .map(|s| {
+                s.to_string_lossy()
+                    .replace(" ParametricEQ", "")
+                    .trim()
+                    .to_string()
+            })
+            .unwrap_or_else(|| "AutoEq".into());
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
         let p = SavedProfile {
             id: format!("autoeq_{now}"),
             name: name.clone(),
@@ -331,13 +407,20 @@ pub fn parse_autoeq(text: &str) -> (f64, Vec<SavedBand>) {
     for line in text.lines() {
         let l = line.trim();
         if let Some(v) = l.strip_prefix("Preamp:") {
-            preamp = v.trim().trim_end_matches("dB").trim().parse().unwrap_or(0.0);
+            preamp = v
+                .trim()
+                .trim_end_matches("dB")
+                .trim()
+                .parse()
+                .unwrap_or(0.0);
             continue;
         }
         if !l.starts_with("Filter") {
             continue;
         }
-        let Some((_, rest)) = l.split_once(':') else { continue };
+        let Some((_, rest)) = l.split_once(':') else {
+            continue;
+        };
         let words: Vec<&str> = rest.split_whitespace().collect();
         if words.first() != Some(&"ON") {
             continue;
@@ -350,7 +433,13 @@ pub fn parse_autoeq(text: &str) -> (f64, Vec<SavedBand>) {
             "HPQ" | "HP" => "HPQ",
             _ => continue,
         };
-        let after = |key: &str| words.iter().position(|w| *w == key).and_then(|i| words.get(i + 1)).and_then(|v| v.parse::<f64>().ok());
+        let after = |key: &str| {
+            words
+                .iter()
+                .position(|w| *w == key)
+                .and_then(|i| words.get(i + 1))
+                .and_then(|v| v.parse::<f64>().ok())
+        };
         let Some(fc) = after("Fc") else { continue };
         bands.push(SavedBand {
             frequency: fc,
@@ -369,14 +458,19 @@ mod tests {
 
     #[test]
     fn autoeq_file_reads() {
-        let (pre, b) = parse_autoeq("Preamp: -6.4 dB
+        let (pre, b) = parse_autoeq(
+            "Preamp: -6.4 dB
 Filter 1: ON LSC Fc 105 Hz Gain 5.5 dB Q 0.70
 Filter 2: OFF PK Fc 200 Hz Gain 1 dB Q 1
 Filter 3: ON PK Fc 3000 Hz Gain -2.1 dB Q 1.41
-");
+",
+        );
         assert_eq!(pre, -6.4);
         assert_eq!(b.len(), 2);
-        assert_eq!((b[0].filter_type.as_str(), b[0].frequency, b[0].gain, b[0].q), ("LSC", 105.0, 5.5, 0.70));
+        assert_eq!(
+            (b[0].filter_type.as_str(), b[0].frequency, b[0].gain, b[0].q),
+            ("LSC", 105.0, 5.5, 0.70)
+        );
         assert_eq!(b[1].gain, -2.1);
     }
 

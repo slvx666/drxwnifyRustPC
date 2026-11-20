@@ -156,7 +156,10 @@ impl App {
     async fn seed_artist(&self, t: &Track) -> Option<String> {
         let a = t.artists.first()?;
         let id = a.id.strip_prefix("SP_").unwrap_or(&a.id);
-        if is_spotify_id(id) || id.starts_with(drx_catalog::yandex::PREFIX) || id.starts_with("vkar_") {
+        if is_spotify_id(id)
+            || id.starts_with(drx_catalog::yandex::PREFIX)
+            || id.starts_with("vkar_")
+        {
             return Some(id.to_string());
         }
         // A library artist without a catalog id: its spotifyId, or the Spotify artist of the same name.
@@ -202,7 +205,10 @@ impl App {
                 )?;
                 let keys = st
                     .query_map([since], |r| {
-                        Ok(recent_key(r.get::<_, Option<String>>(0)?.as_deref(), &r.get::<_, String>(1)?))
+                        Ok(recent_key(
+                            r.get::<_, Option<String>>(0)?.as_deref(),
+                            &r.get::<_, String>(1)?,
+                        ))
                     })?
                     .flatten()
                     .collect();
@@ -269,11 +275,26 @@ impl App {
             {
                 let album_id = album.id.strip_prefix("spotify:").unwrap_or(&album.id);
                 let tracks = match Source::of_id(album_id) {
-                    Source::Yandex => self.yandex_any().album(album_id).await.map(|a| a.tracks).ok(),
-                    _ if is_spotify_id(album_id) => self.spotify_or_anonymous().album(album_id).await.map(|a| a.tracks).ok(),
+                    Source::Yandex => self
+                        .yandex_any()
+                        .album(album_id)
+                        .await
+                        .map(|a| a.tracks)
+                        .ok(),
+                    _ if is_spotify_id(album_id) => self
+                        .spotify_or_anonymous()
+                        .album(album_id)
+                        .await
+                        .map(|a| a.tracks)
+                        .ok(),
                     _ => None,
                 };
-                more.extend(tracks.unwrap_or_default().into_iter().filter(|t| seen.insert(t.id.clone())));
+                more.extend(
+                    tracks
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|t| seen.insert(t.id.clone())),
+                );
             }
             out.extend(shuffled(more));
             out.truncate(RADIO_LENGTH);
@@ -295,7 +316,12 @@ impl App {
         // A library row's catalog track gives a better seed (its artist ids are the catalog's).
         let mut start = seed.clone();
         let song = song_id_of(&seed.id);
-        if let Some(cid) = self.store().call(move |c| Ok(catalog_id_of(c, &song))).await.ok().flatten()
+        if let Some(cid) = self
+            .store()
+            .call(move |c| Ok(catalog_id_of(c, &song)))
+            .await
+            .ok()
+            .flatten()
             && let Some(t) = self.inner.known.lock().expect("known").get(&cid).cloned()
         {
             start = t;
@@ -304,7 +330,10 @@ impl App {
         let n = tracks.len();
         if n > 0 {
             self.remember(tracks.iter());
-            let items: Vec<Playable> = tracks.into_iter().map(|track| Playable { track, url: None }).collect();
+            let items: Vec<Playable> = tracks
+                .into_iter()
+                .map(|track| Playable { track, url: None })
+                .collect();
             self.inner.playback.replace_upcoming(&seed.id, items);
         }
         Ok(n)
@@ -317,7 +346,9 @@ impl App {
         if idle {
             self.play_tracks(vec![track], 0);
         } else {
-            self.inner.playback.enqueue(Playable { track, url: None }, next);
+            self.inner
+                .playback
+                .enqueue(Playable { track, url: None }, next);
         }
     }
 
@@ -339,12 +370,17 @@ impl App {
                     (q.len(), i)
                 };
                 let last = index.is_some_and(|i| i + 1 >= len);
-                if !last || repeat != crate::playback::Repeat::Off || done_for.as_deref() == Some(track.id.as_str()) {
+                if !last
+                    || repeat != crate::playback::Repeat::Off
+                    || done_for.as_deref() == Some(track.id.as_str())
+                {
                     continue;
                 }
                 if app.pref_bool("autoLoadMore") == Some(false)
                     || app.listening_along().is_some()
-                    || app.room().is_some_and(|r| r.borrow().role == drx_together::Role::Guest)
+                    || app
+                        .room()
+                        .is_some_and(|r| r.borrow().role == drx_together::Role::Guest)
                 {
                     continue;
                 }
@@ -353,7 +389,10 @@ impl App {
                     let fresh: Vec<Playable> = more
                         .into_iter()
                         .filter(|t| t.id != track.id)
-                        .map(|t| Playable { track: t, url: None })
+                        .map(|t| Playable {
+                            track: t,
+                            url: None,
+                        })
                         .collect();
                     app.remember(fresh.iter().map(|p| &p.track));
                     app.inner.playback.append(fresh);
@@ -392,7 +431,10 @@ mod tests {
 
     #[test]
     fn keys_like_android() {
-        assert_eq!(recent_key(Some("Band"), "Song (Live) [2020]"), "k:band|song");
+        assert_eq!(
+            recent_key(Some("Band"), "Song (Live) [2020]"),
+            "k:band|song"
+        );
         assert_eq!(recent_key(None, "Song"), "k:|song");
     }
 
@@ -407,7 +449,12 @@ mod tests {
         let seed_picks = vec![t("s1", "Seed"), t("s2", "Seed")];
         let out = arrange(&seed, related, seed_picks, &HashSet::new(), 50);
         let ids: Vec<&str> = out.iter().map(|t| t.id.as_str()).collect();
-        assert_eq!(ids, ["a1", "b1", "c1", "a2", "s1", "b2", "c2", "a3", "b3", "s2", "c3"]);
+        assert_eq!(
+            ids,
+            [
+                "a1", "b1", "c1", "a2", "s1", "b2", "c2", "a3", "b3", "s2", "c3"
+            ]
+        );
     }
 
     #[test]

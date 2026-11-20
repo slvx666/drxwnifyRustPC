@@ -56,7 +56,8 @@ unsafe impl std::alloc::GlobalAlloc for Counting {
         let q = unsafe { std::alloc::System.realloc(p, l, new) };
         if !q.is_null() {
             if new >= l.size() {
-                let now = HEAP.fetch_add((new - l.size()) as u64, Ordering::Relaxed) + (new - l.size()) as u64;
+                let now = HEAP.fetch_add((new - l.size()) as u64, Ordering::Relaxed)
+                    + (new - l.size()) as u64;
                 HEAP_PEAK.fetch_max(now, Ordering::Relaxed);
             } else {
                 HEAP.fetch_sub((l.size() - new) as u64, Ordering::Relaxed);
@@ -71,7 +72,10 @@ static ALLOC: Counting = Counting;
 
 /// Heap bytes in use now and at most.
 pub fn heap() -> (u64, u64) {
-    (HEAP.load(Ordering::Relaxed), HEAP_PEAK.load(Ordering::Relaxed))
+    (
+        HEAP.load(Ordering::Relaxed),
+        HEAP_PEAK.load(Ordering::Relaxed),
+    )
 }
 
 thread_local! {
@@ -94,17 +98,33 @@ pub fn set_profile(root: &std::path::Path) {
 
 fn slow_line(name: &str, took: Duration) {
     let steps = STEPS.with(|s| {
-        s.borrow().iter().map(|(n, t)| format!("{n} {:.0}", t.as_secs_f64() * 1000.0)).collect::<Vec<_>>().join(", ")
+        s.borrow()
+            .iter()
+            .map(|(n, t)| format!("{n} {:.0}", t.as_secs_f64() * 1000.0))
+            .collect::<Vec<_>>()
+            .join(", ")
     });
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let line = format!("{secs} slow page {name}: {:.0} ms [{steps}]", took.as_secs_f64() * 1000.0);
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let line = format!(
+        "{secs} slow page {name}: {:.0} ms [{steps}]",
+        took.as_secs_f64() * 1000.0
+    );
     log(&line);
-    let Some(path) = SLOW_LOG.lock().expect("perf").clone() else { return };
+    let Some(path) = SLOW_LOG.lock().expect("perf").clone() else {
+        return;
+    };
     // Keep the file small: start over past 64 KB.
     if std::fs::metadata(&path).is_ok_and(|m| m.len() > 64 * 1024) {
         let _ = std::fs::remove_file(&path);
     }
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
         let _ = writeln!(f, "{line}");
     }
 }
@@ -150,8 +170,16 @@ fn on_frame(draw: Duration, px: u64) {
 
 /// Starts timing when `DRX_PERF` is set.
 pub fn init() {
-    let Some(path) = std::env::var_os("DRX_PERF") else { return };
-    let Ok(f) = std::fs::OpenOptions::new().create(true).append(true).open(path) else { return };
+    let Some(path) = std::env::var_os("DRX_PERF") else {
+        return;
+    };
+    let Ok(f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    else {
+        return;
+    };
     *LOG.lock().expect("perf") = Some(f);
     let _ = i_slint_backend_winit::drx_hooks::FRAME.set(on_frame);
     log(&format!("--- start pid {}", std::process::id()));
@@ -186,7 +214,11 @@ pub fn page(name: &'static str) -> PageGuard {
     STEPS.with(|s| s.borrow_mut().clear());
     let dev = on();
     if dev {
-        *PENDING.lock().expect("perf") = Some(Pending { name: name.into(), start, handler: None });
+        *PENDING.lock().expect("perf") = Some(Pending {
+            name: name.into(),
+            start,
+            handler: None,
+        });
     }
     PageGuard { name, start, dev }
 }
@@ -199,7 +231,11 @@ impl Drop for PageGuard {
             slow_line(self.name, took);
         } else if self.dev && STEPS.with(|s| !s.borrow().is_empty()) {
             let steps = STEPS.with(|s| {
-                s.borrow().iter().map(|(n, t)| format!("{n} {:.1}", t.as_secs_f64() * 1000.0)).collect::<Vec<_>>().join(", ")
+                s.borrow()
+                    .iter()
+                    .map(|(n, t)| format!("{n} {:.1}", t.as_secs_f64() * 1000.0))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             });
             log(&format!("  steps {}: {steps}", self.name));
         }
@@ -213,35 +249,55 @@ impl Drop for PageGuard {
 
 /// `DRX_PERF_TOUR`: walks the pages by itself.
 pub fn start_tour(ui: &crate::MainWindow, app: &drx_app::App) {
-    let Some(rounds) = std::env::var("DRX_PERF_TOUR").ok().and_then(|v| v.parse::<u32>().ok()) else { return };
-    let step_ms = std::env::var("DRX_PERF_TOUR_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(1500u64);
+    let Some(rounds) = std::env::var("DRX_PERF_TOUR")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+    else {
+        return;
+    };
+    let step_ms = std::env::var("DRX_PERF_TOUR_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1500u64);
     let (ui_w, app) = (ui.as_weak(), app.clone());
     let n = std::cell::Cell::new(0u32);
     let t = Box::leak(Box::new(slint::Timer::default()));
     use slint::ComponentHandle;
-    t.start(slint::TimerMode::Repeated, Duration::from_millis(step_ms), move || {
-        let Some(ui) = ui_w.upgrade() else { return };
-        use crate::nav::Page;
-        use drx_app::ListSpec;
-        let pages = [
-            Page::home(),
-            Page::settings(),
-            Page::list(ListSpec::LikedSongs, "Любимые треки", "liked", None),
-            Page::history(),
-            Page::stats(),
-            Page::friends(),
-            Page::list(ListSpec::Top { period: app.top_period(), size: app.top_size() }, "Мой топ", "top", None),
-            Page::list(ListSpec::Downloads, "Загрузки", "", None),
-        ];
-        let i = n.get();
-        if i >= rounds * pages.len() as u32 {
-            if i == rounds * pages.len() as u32 {
-                log("--- tour done");
-                n.set(i + 1);
+    t.start(
+        slint::TimerMode::Repeated,
+        Duration::from_millis(step_ms),
+        move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            use crate::nav::Page;
+            use drx_app::ListSpec;
+            let pages = [
+                Page::home(),
+                Page::settings(),
+                Page::list(ListSpec::LikedSongs, "Любимые треки", "liked", None),
+                Page::history(),
+                Page::stats(),
+                Page::friends(),
+                Page::list(
+                    ListSpec::Top {
+                        period: app.top_period(),
+                        size: app.top_size(),
+                    },
+                    "Мой топ",
+                    "top",
+                    None,
+                ),
+                Page::list(ListSpec::Downloads, "Загрузки", "", None),
+            ];
+            let i = n.get();
+            if i >= rounds * pages.len() as u32 {
+                if i == rounds * pages.len() as u32 {
+                    log("--- tour done");
+                    n.set(i + 1);
+                }
+                return;
             }
-            return;
-        }
-        n.set(i + 1);
-        crate::nav::go_page(&ui, &app, pages[(i as usize) % pages.len()].clone());
-    });
+            n.set(i + 1);
+            crate::nav::go_page(&ui, &app, pages[(i as usize) % pages.len()].clone());
+        },
+    );
 }

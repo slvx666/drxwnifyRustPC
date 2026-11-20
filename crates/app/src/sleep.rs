@@ -62,7 +62,10 @@ impl App {
             t.abort();
         }
         self.inner.playback.set_fade(1.0);
-        self.inner.playback.hold_next.store(false, std::sync::atomic::Ordering::Relaxed);
+        self.inner
+            .playback
+            .hold_next
+            .store(false, std::sync::atomic::Ordering::Relaxed);
         self.inner.sleep.send_replace(SleepState::default());
     }
 
@@ -70,23 +73,39 @@ impl App {
         if self.now_playing().borrow().playing {
             self.toggle_play();
         }
-        self.inner.playback.hold_next.store(false, std::sync::atomic::Ordering::Relaxed);
+        self.inner
+            .playback
+            .hold_next
+            .store(false, std::sync::atomic::Ordering::Relaxed);
         self.inner.playback.set_fade(1.0);
         self.inner.sleep.send_replace(SleepState::default());
     }
 }
 
 async fn run(app: App) {
-    let mut song: Option<String> = app.now_playing().borrow().track.as_ref().map(|t| t.id.clone());
+    let mut song: Option<String> = app
+        .now_playing()
+        .borrow()
+        .track
+        .as_ref()
+        .map(|t| t.id.clone());
     loop {
         let s = app.inner.sleep.borrow().clone();
         if !s.active() {
             return;
         }
         // Waiting for the track's end: no gapless start or crossfade into the next one.
-        app.inner.playback.hold_next.store(s.end_of_song, std::sync::atomic::Ordering::Relaxed);
+        app.inner
+            .playback
+            .hold_next
+            .store(s.end_of_song, std::sync::atomic::Ordering::Relaxed);
         let now = crate::songs::now_ms();
-        let current = app.now_playing().borrow().track.as_ref().map(|t| t.id.clone());
+        let current = app
+            .now_playing()
+            .borrow()
+            .track
+            .as_ref()
+            .map(|t| t.id.clone());
         if let Some(until) = s.until {
             let remaining = until - now;
             if remaining <= 0 {

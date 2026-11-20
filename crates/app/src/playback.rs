@@ -159,7 +159,12 @@ impl HttpOpener {
     }
 
     fn clone_opener(&self) -> HttpOpener {
-        HttpOpener { http: self.http.clone(), handle: self.handle.clone(), url: self.url.clone(), user_agent: self.user_agent }
+        HttpOpener {
+            http: self.http.clone(),
+            handle: self.handle.clone(),
+            url: self.url.clone(),
+            user_agent: self.user_agent,
+        }
     }
 }
 
@@ -171,7 +176,10 @@ impl Read for ChunkedBody {
             }
             let to = (self.pos + YT_CHUNK).min(self.total) - 1;
             // A dropped range is asked again once (a flaky connection).
-            let (b, _) = self.opener.range(self.pos, to).or_else(|_| self.opener.range(self.pos, to))?;
+            let (b, _) = self
+                .opener
+                .range(self.pos, to)
+                .or_else(|_| self.opener.range(self.pos, to))?;
             if b.is_empty() {
                 return Ok(0);
             }
@@ -193,7 +201,13 @@ impl RangeOpener for HttpOpener {
             let total = total.unwrap_or(offset + first.len() as u64);
             return Ok((
                 Some(total),
-                Box::new(ChunkedBody { opener: self.clone_opener(), pos: offset + first.len() as u64, total, buf: first, at: 0 }),
+                Box::new(ChunkedBody {
+                    opener: self.clone_opener(),
+                    pos: offset + first.len() as u64,
+                    total,
+                    buf: first,
+                    at: 0,
+                }),
             ));
         }
         let mut req = self
@@ -261,7 +275,11 @@ impl Fetcher for HttpFetcher {
     }
 }
 
-type Source = (Box<dyn drx_audio::decode::ByteSource>, Option<&'static str>, f32);
+type Source = (
+    Box<dyn drx_audio::decode::ByteSource>,
+    Option<&'static str>,
+    f32,
+);
 
 /// The next track got ready before the current one ends (Android: ExoPlayer's gapless playlist and the crossfade
 /// trigger in MusicService.scheduleCrossfade).
@@ -323,7 +341,8 @@ pub(crate) struct Playback {
     /// Streams found this session, by catalog track id (provider match kept for a fresh URL later).
     resolved: Mutex<std::collections::HashMap<String, (ProviderMatch, AudioQuery)>>,
     /// In-memory cache of resolved streams and gains with timestamps to avoid redundant network resolution.
-    resolved_streams: Mutex<std::collections::HashMap<String, (AudioStream, f32, std::time::Instant)>>,
+    resolved_streams:
+        Mutex<std::collections::HashMap<String, (AudioStream, f32, std::time::Instant)>>,
     /// Loudness normalisation of YouTube streams (audioNormalization).
     pub normalize: std::sync::atomic::AtomicBool,
     transitions: Mutex<Transitions>,
@@ -359,7 +378,10 @@ impl Playback {
             resolved: Mutex::new(std::collections::HashMap::new()),
             resolved_streams: Mutex::new(std::collections::HashMap::new()),
             normalize: std::sync::atomic::AtomicBool::new(true),
-            transitions: Mutex::new(Transitions { crossfade_s: 0.0, album_gapless: true }),
+            transitions: Mutex::new(Transitions {
+                crossfade_s: 0.0,
+                album_gapless: true,
+            }),
             hold_next: std::sync::atomic::AtomicBool::new(false),
             prep: Mutex::new(None),
             effects: Mutex::new((None, 0.0)),
@@ -372,7 +394,9 @@ impl Playback {
     /// Keeps audio cache directory bounded to at most `max_bytes` (default: 500 MB).
     pub fn prune_audio_cache(&self, max_bytes: u64) {
         let dir = self.cache_dir.join("audio");
-        let Ok(rd) = std::fs::read_dir(&dir) else { return };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            return;
+        };
         let mut files: Vec<(PathBuf, u64, std::time::SystemTime)> = Vec::new();
         let mut total = 0u64;
         for entry in rd.flatten() {
@@ -442,7 +466,9 @@ impl Playback {
         loop {
             std::thread::sleep(Duration::from_millis(200));
             let Some(this) = me.upgrade() else { return };
-            let Some(cur) = *this.current_id.lock().expect("current") else { continue };
+            let Some(cur) = *this.current_id.lock().expect("current") else {
+                continue;
+            };
             let c = this.clock();
             if c.track != Some(cur) || !c.playing {
                 continue;
@@ -452,7 +478,10 @@ impl Playback {
                 _ => {
                     let q = this.queue.lock().expect("queue");
                     q.0.get(q.1)
-                        .and_then(|it| (it.track.duration_ms > 0).then_some(it.track.duration_ms as f64 / 1000.0))
+                        .and_then(|it| {
+                            (it.track.duration_ms > 0)
+                                .then_some(it.track.duration_ms as f64 / 1000.0)
+                        })
                         .unwrap_or(0.0)
                 }
             };
@@ -464,16 +493,27 @@ impl Playback {
                 this.drop_prep();
                 continue;
             }
-            let Some((ni, cur_item, next)) = this.natural_next().filter(|(_, c, n)| c.track.id != n.track.id) else {
+            let Some((ni, cur_item, next)) = this
+                .natural_next()
+                .filter(|(_, c, n)| c.track.id != n.track.id)
+            else {
                 this.drop_prep();
                 continue;
             };
             let t = *this.transitions.lock().expect("transitions");
-            let album = |p: &Playable| p.track.album.as_ref().map(|a| a.name.to_lowercase()).filter(|a| !a.is_empty());
+            let album = |p: &Playable| {
+                p.track
+                    .album
+                    .as_ref()
+                    .map(|a| a.name.to_lowercase())
+                    .filter(|a| !a.is_empty())
+            };
             let same_album = album(&cur_item).is_some() && album(&cur_item) == album(&next);
             let cf = t.crossfade_s as f64;
             let fade = cf > 0.0 && d > cf + 2.0 && !(t.album_gapless && same_album);
-            let fits = |p: &Prep| p.after == cur && p.index == ni && p.track_id == next.track.id && p.fade == fade;
+            let fits = |p: &Prep| {
+                p.after == cur && p.index == ni && p.track_id == next.track.id && p.fade == fade
+            };
             let have = this.prep.lock().expect("prep").as_ref().map(fits);
             match have {
                 Some(true) => {}
@@ -495,7 +535,9 @@ impl Playback {
                     });
                     let opened = this.source_for(&next);
                     let mut prep = this.prep.lock().expect("prep");
-                    let Some(p) = prep.as_mut().filter(|p| fits(p)) else { continue };
+                    let Some(p) = prep.as_mut().filter(|p| fits(p)) else {
+                        continue;
+                    };
                     match opened {
                         Ok(src) if fade => p.ready = Some(src),
                         Ok((src, ext, gain)) => match player.queue_next(src, ext, gain) {
@@ -509,7 +551,12 @@ impl Playback {
                 }
             }
             if fade && rem <= cf {
-                let ready = this.prep.lock().expect("prep").as_mut().and_then(|p| p.ready.take());
+                let ready = this
+                    .prep
+                    .lock()
+                    .expect("prep")
+                    .as_mut()
+                    .and_then(|p| p.ready.take());
                 if let Some((src, ext, gain)) = ready {
                     *this.prep.lock().expect("prep") = None;
                     match player.crossfade_to(src, ext, gain, cf as f32) {
@@ -640,7 +687,10 @@ impl Playback {
             if streams.len() > 500 {
                 streams.clear();
             }
-            streams.insert(catalog_id.clone(), (s.clone(), gain, std::time::Instant::now()));
+            streams.insert(
+                catalog_id.clone(),
+                (s.clone(), gain, std::time::Instant::now()),
+            );
         };
 
         // 1. A VK track in the library is itself the audio: no search.
@@ -787,11 +837,24 @@ impl Playback {
     }
 
     /// The audio of a track: its downloaded file when there is one, else the stream (cached as it plays).
+    #[allow(clippy::type_complexity)]
     fn source_for(
         &self,
         p: &Playable,
-    ) -> Result<(Box<dyn drx_audio::decode::ByteSource>, Option<&'static str>, f32), String> {
-        let local = self.downloaded.lock().expect("downloaded").get(&p.track.id).cloned();
+    ) -> Result<
+        (
+            Box<dyn drx_audio::decode::ByteSource>,
+            Option<&'static str>,
+            f32,
+        ),
+        String,
+    > {
+        let local = self
+            .downloaded
+            .lock()
+            .expect("downloaded")
+            .get(&p.track.id)
+            .cloned();
         if let Some((path, ext)) = local
             && let Ok(f) = std::fs::File::open(&path)
         {
@@ -799,7 +862,11 @@ impl Playback {
         }
         let file = self.cache_dir.join("audio").join(cache_name(&p.track.id));
         let (src, ext, gain) = self.stream_into(p, &file)?;
-        let gain = if self.normalize.load(std::sync::atomic::Ordering::Relaxed) { gain } else { 1.0 };
+        let gain = if self.normalize.load(std::sync::atomic::Ordering::Relaxed) {
+            gain
+        } else {
+            1.0
+        };
         Ok((Box::new(src), ext, gain))
     }
 
@@ -959,7 +1026,11 @@ impl Playback {
     pub fn replace_upcoming(&self, current_id: &str, items: Vec<Playable>) {
         {
             let mut q = self.queue.lock().expect("queue");
-            let at = q.0.iter().position(|p| p.track.id == current_id).filter(|i| *i <= q.1).unwrap_or(q.1);
+            let at =
+                q.0.iter()
+                    .position(|p| p.track.id == current_id)
+                    .filter(|i| *i <= q.1)
+                    .unwrap_or(q.1);
             let keep = (at.max(q.1) + 1).min(q.0.len());
             q.0.truncate(keep);
             q.0.extend(items);
@@ -998,7 +1069,12 @@ impl Playback {
             return None;
         }
         let id = self.now.borrow().track.as_ref().map(|t| t.id.clone())?;
-        self.start_at.lock().expect("start at").as_ref().filter(|(t, _)| *t == id).map(|(_, s)| *s)
+        self.start_at
+            .lock()
+            .expect("start at")
+            .as_ref()
+            .filter(|(t, _)| *t == id)
+            .map(|(_, s)| *s)
     }
 
     /// The whole queue and the playing index (the queue panel).
@@ -1143,7 +1219,9 @@ impl Playback {
         }
         // Increment the generation: any older thread that finishes after us is stale.
         let generation = self.epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        let Some(item) = self.announce(index) else { return };
+        let Some(item) = self.announce(index) else {
+            return;
+        };
         let this = self.clone();
         // Opening a stream does network round-trips; never on the UI thread.
         std::thread::spawn(move || this.open_and_play(item, index, generation));
@@ -1151,7 +1229,9 @@ impl Playback {
 
     /// Prefetches and caches the stream URL for the next track in the background so that transitions and skips are instant.
     pub fn trigger_prefetch(self: &Arc<Self>) {
-        let Some((_ni, _cur, next)) = self.natural_next() else { return };
+        let Some((_ni, _cur, next)) = self.natural_next() else {
+            return;
+        };
         let this = self.clone();
         let track = next.track.clone();
         self.handle.spawn(async move {
@@ -1276,7 +1356,9 @@ impl Playback {
                         let q = this.queue.lock().expect("queue");
                         q.1 == index && index + 1 < q.0.len()
                     };
-                    let skip = this.skip_on_error.load(Relaxed) && more && this.skipped.fetch_add(1, Relaxed) < 5;
+                    let skip = this.skip_on_error.load(Relaxed)
+                        && more
+                        && this.skipped.fetch_add(1, Relaxed) < 5;
                     this.now.send_modify(|n| {
                         n.playing = skip;
                         n.error = Some(e);

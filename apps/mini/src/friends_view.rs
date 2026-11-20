@@ -2,7 +2,9 @@
 //! cards (live first), and a friend's page with the chat, history, likes and playlists to play. Follows the relays
 //! while the app runs; the page redraws at most every half second, the chat when a message comes or changes.
 
-use crate::{ChatItem, FriendCardItem, FriendRequestItem, MainWindow, ReactionChip, SongItem, StickerPic};
+use crate::{
+    ChatItem, FriendCardItem, FriendRequestItem, MainWindow, ReactionChip, SongItem, StickerPic,
+};
 use drx_app::App;
 use drx_social::friends::{DEVELOPER_PUBKEY, FriendData, FriendsState, TrackRef};
 use slint::{ComponentHandle, ModelRc, VecModel};
@@ -64,7 +66,11 @@ fn clock(ms: i64) -> String {
     }
     let (y, m, d) = civil(day);
     let (ty, _, _) = civil(today);
-    if y == ty { format!("{d:02}.{m:02} {hm}") } else { format!("{d:02}.{m:02}.{y} {hm}") }
+    if y == ty {
+        format!("{d:02}.{m:02} {hm}")
+    } else {
+        format!("{d:02}.{m:02}.{y} {hm}")
+    }
 }
 
 /// The local day number of a moment (days since 1970-01-01).
@@ -80,12 +86,28 @@ fn hm(ms: i64) -> String {
 
 /// The date badge above a day's first message: «16 ноября», with the year when it is not this one.
 fn day_badge(day: i64) -> String {
-    const MONTHS: [&str; 12] =
-        ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+    const MONTHS: [&str; 12] = [
+        "января",
+        "февраля",
+        "марта",
+        "апреля",
+        "мая",
+        "июня",
+        "июля",
+        "августа",
+        "сентября",
+        "октября",
+        "ноября",
+        "декабря",
+    ];
     let (y, m, d) = civil(day);
     let (ty, _, _) = civil(local_day(now_ms()));
     let month = MONTHS[(m - 1).clamp(0, 11) as usize];
-    if y == ty { format!("{d} {month}") } else { format!("{d} {month} {y}") }
+    if y == ty {
+        format!("{d} {month}")
+    } else {
+        format!("{d} {month} {y}")
+    }
 }
 
 /// Telegram's grouping (history_view_element.cpp, kAttachMessageToPreviousSecondsDelta): a message from the same
@@ -119,7 +141,9 @@ thread_local! {
 
 /// «Отправить другу»: the dialog with the friends to pick from.
 pub fn ask_send(ui: &MainWindow, app: &App, track_id: String) {
-    let Some(t) = app.runtime().block_on(app.known_track(&track_id)) else { return };
+    let Some(t) = app.runtime().block_on(app.known_track(&track_id)) else {
+        return;
+    };
     ui.set_dialog_title("Отправить другу".into());
     ui.set_dialog_subtitle(format!("{} — {}", t.artist_names(), t.title).into());
     ui.set_dialog_items(ModelRc::new(VecModel::from(send_items(app))));
@@ -136,7 +160,11 @@ pub fn refresh_send_dialog(ui: &MainWindow, app: &App) {
 
 /// The friends to send to, the ones written to most recently first.
 fn send_items(app: &App) -> Vec<crate::PlaylistPick> {
-    let last: std::collections::HashMap<String, i64> = app.chat_previews().into_iter().map(|p| (p.peer, p.ts)).collect();
+    let last: std::collections::HashMap<String, i64> = app
+        .chat_previews()
+        .into_iter()
+        .map(|p| (p.peer, p.ts))
+        .collect();
     let mut items: Vec<(i64, crate::PlaylistPick)> = app
         .friends_state()
         .map(|rx| {
@@ -145,7 +173,11 @@ fn send_items(app: &App) -> Vec<crate::PlaylistPick> {
                 .iter()
                 .map(|f| {
                     let d = st.data.get(&f.pubkey);
-                    let name = plain(&d.and_then(|d| d.name.clone()).filter(|n| !n.trim().is_empty()).unwrap_or_else(|| f.name.clone()));
+                    let name = plain(
+                        &d.and_then(|d| d.name.clone())
+                            .filter(|n| !n.trim().is_empty())
+                            .unwrap_or_else(|| f.name.clone()),
+                    );
                     let av = avatar(app, &f.pubkey, d.and_then(|d| d.avatar.as_deref()), 40.0);
                     let pick = crate::PlaylistPick {
                         id: f.pubkey.clone().into(),
@@ -160,7 +192,7 @@ fn send_items(app: &App) -> Vec<crate::PlaylistPick> {
                 .collect()
         })
         .unwrap_or_default();
-    items.sort_by(|a, b| b.0.cmp(&a.0));
+    items.sort_by_key(|a| std::cmp::Reverse(a.0));
     items.into_iter().map(|(_, p)| p).collect()
 }
 
@@ -223,7 +255,9 @@ pub fn send_pending_music(ui: &MainWindow, app: &App, peer: &str) {
         }
         return;
     }
-    let Some(t) = SEND.with(|s| s.borrow_mut().take()) else { return };
+    let Some(t) = SEND.with(|s| s.borrow_mut().take()) else {
+        return;
+    };
     ui.set_dialog_kind("".into());
     match app.send_music(peer, &t) {
         Ok(()) => ui.set_toast("Отправлено".into()),
@@ -244,7 +278,12 @@ pub fn shown_avatar() -> Option<(String, String)> {
 /// A friend's picture: the base64 JPEG written once to the cache and loaded like a cover.
 fn avatar(app: &App, pubkey: &str, b64: Option<&str>, size: f32) -> Option<slint::Image> {
     let url = avatar_url(app, pubkey, b64)?;
-    crate::cover_r(app, &url, (size * 2.0) as u32, crate::theme_r(size, (size * 2.0) as u32, size))
+    crate::cover_r(
+        app,
+        &url,
+        (size * 2.0) as u32,
+        crate::theme_r(size, (size * 2.0) as u32, size),
+    )
 }
 
 /// The cached file of a friend's picture as an image address (`file:` + path).
@@ -252,13 +291,23 @@ fn avatar_url(app: &App, pubkey: &str, b64: Option<&str>) -> Option<String> {
     use base64::Engine;
     let b64 = b64?;
     let dir = app.profile().cache_dir().join("avatars");
-    let path = dir.join(format!("{}-{}.jpg", &pubkey[..pubkey.len().min(16)], b64.len()));
+    let path = dir.join(format!(
+        "{}-{}.jpg",
+        &pubkey[..pubkey.len().min(16)],
+        b64.len()
+    ));
     if !path.exists() {
-        let bytes = base64::engine::general_purpose::STANDARD.decode(b64.trim()).ok()?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64.trim())
+            .ok()?;
         let _ = std::fs::create_dir_all(&dir);
         std::fs::write(&path, bytes).ok()?;
     }
-    Some(format!("{}{}", drx_core::images::LOCAL_PREFIX, path.display()))
+    Some(format!(
+        "{}{}",
+        drx_core::images::LOCAL_PREFIX,
+        path.display()
+    ))
 }
 
 /// A name as the app's fonts can draw it: mathematical bold, italic, script… letters (U+1D400–U+1D7FF, which
@@ -268,14 +317,22 @@ pub(crate) fn plain(name: &str) -> String {
     name.chars()
         .flat_map(|c| {
             let fancy = ('\u{1D400}'..='\u{1D7FF}').contains(&c);
-            let v: Vec<char> = if fancy { c.to_string().nfkc().collect() } else { vec![c] };
+            let v: Vec<char> = if fancy {
+                c.to_string().nfkc().collect()
+            } else {
+                vec![c]
+            };
             v
         })
         .collect()
 }
 
 fn initial(name: &str) -> String {
-    name.trim().chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_else(|| "?".into())
+    name.trim()
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().collect())
+        .unwrap_or_else(|| "?".into())
 }
 
 pub fn wire(ui: &MainWindow, app: &App) {
@@ -285,13 +342,27 @@ pub fn wire(ui: &MainWindow, app: &App) {
         let Some(f) = app2.friends() else { return };
         let me = f.me();
         let st = f.state().borrow().clone();
-        let name = st.data.get(&me).and_then(|d| d.name.clone()).unwrap_or_default();
+        let name = st
+            .data
+            .get(&me)
+            .and_then(|d| d.name.clone())
+            .unwrap_or_default();
         let (text, done) = if what == "code" {
-            (drx_social::nostr::bech32_encode("npub", &hex_bytes(&me)), "Код скопирован")
+            (
+                drx_social::nostr::bech32_encode("npub", &hex_bytes(&me)),
+                "Код скопирован",
+            )
         } else {
             (f.invite_link(&name), "Ссылка-приглашение скопирована")
         };
-        ui.set_toast(if drx_platform::copy_text(&text) { done } else { "Не удалось скопировать" }.into());
+        ui.set_toast(
+            if drx_platform::copy_text(&text) {
+                done
+            } else {
+                "Не удалось скопировать"
+            }
+            .into(),
+        );
     });
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     ui.on_friend_open(move |p| {
@@ -311,7 +382,9 @@ pub fn wire(ui: &MainWindow, app: &App) {
     let app2 = app.clone();
     ui.on_friend_play_now(move |p| {
         // What the friend plays (or played last), from the row's right side.
-        let now = app2.friends_state().and_then(|rx| rx.borrow().data.get(p.as_str()).and_then(|d| d.now.clone()));
+        let now = app2
+            .friends_state()
+            .and_then(|rx| rx.borrow().data.get(p.as_str()).and_then(|d| d.now.clone()));
         if let Some(n) = now {
             let t = drx_app::social::track_of(&n.track);
             app2.remember_tracks(std::slice::from_ref(&t));
@@ -343,15 +416,25 @@ pub fn wire(ui: &MainWindow, app: &App) {
         drx_social::chat::mini_stickers()
             .iter()
             .enumerate()
-            .map(|(i, (_, r))| StickerPic { pic: i as i32, ratio: *r })
+            .map(|(i, (_, r))| StickerPic {
+                pic: i as i32,
+                ratio: *r,
+            })
             .collect::<Vec<_>>(),
     )));
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());
         ui.on_friend_chat_sticker(move |i| {
             let Some(ui) = ui_w.upgrade() else { return };
-            let Some(peer) = OPEN.with(|o| o.borrow().clone()) else { return };
-            let Some((id, _)) = drx_social::chat::mini_stickers().into_iter().nth(i as usize) else { return };
+            let Some(peer) = OPEN.with(|o| o.borrow().clone()) else {
+                return;
+            };
+            let Some((id, _)) = drx_social::chat::mini_stickers()
+                .into_iter()
+                .nth(i as usize)
+            else {
+                return;
+            };
             if let Err(e) = app2.send_chat(&peer, &drx_social::chat::sticker_token(&id)) {
                 ui.set_toast(format!("Не отправлено: {e}").into());
             }
@@ -367,7 +450,9 @@ pub fn wire(ui: &MainWindow, app: &App) {
     }
     ui.on_friend_chat_send(move |text| {
         let Some(ui) = ui_w.upgrade() else { return };
-        let Some(peer) = OPEN.with(|o| o.borrow().clone()) else { return };
+        let Some(peer) = OPEN.with(|o| o.borrow().clone()) else {
+            return;
+        };
         if text.trim().is_empty() {
             return;
         }
@@ -387,14 +472,24 @@ pub fn wire(ui: &MainWindow, app: &App) {
                 ui.set_friend_chat_replying("".into());
             }
             Err(e) => ui.set_toast(
-                format!("{}: {e}", if editing.is_some() { "Не изменено" } else { "Не отправлено" }).into(),
+                format!(
+                    "{}: {e}",
+                    if editing.is_some() {
+                        "Не изменено"
+                    } else {
+                        "Не отправлено"
+                    }
+                )
+                .into(),
             ),
         }
     });
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     ui.on_friend_chat_action(move |i, action| {
         let Some(ui) = ui_w.upgrade() else { return };
-        let Some(peer) = OPEN.with(|o| o.borrow().clone()) else { return };
+        let Some(peer) = OPEN.with(|o| o.borrow().clone()) else {
+            return;
+        };
         if action == "cancel-edit" {
             EDITING.with(|e| *e.borrow_mut() = None);
             ui.set_friend_chat_editing(false);
@@ -418,14 +513,22 @@ pub fn wire(ui: &MainWindow, app: &App) {
         }
         // ↑ in an empty field (Telegram): change my last message.
         let i = if action == "edit-last" {
-            match CHAT_ROWS.with(|r| r.borrow().iter().rposition(|(_, mine, text)| *mine && !text.trim().is_empty())) {
+            match CHAT_ROWS.with(|r| {
+                r.borrow()
+                    .iter()
+                    .rposition(|(_, mine, text)| *mine && !text.trim().is_empty())
+            }) {
                 Some(at) => at as i32,
                 None => return,
             }
         } else {
             i
         };
-        let action = if action == "edit-last" { slint::SharedString::from("edit") } else { action };
+        let action = if action == "edit-last" {
+            slint::SharedString::from("edit")
+        } else {
+            action
+        };
         // Telegram's selection: pick messages, then forward, copy or delete them together.
         match action.as_str() {
             "select-cancel" => {
@@ -435,7 +538,12 @@ pub fn wire(ui: &MainWindow, app: &App) {
             }
             "select-forward" => {
                 let rows = CHAT_ROWS.with(|r| r.borrow().clone());
-                let ids: Vec<String> = SELECTED.with(|s| rows.iter().filter(|r| s.borrow().contains(r.0.as_str())).map(|r| r.0.to_string()).collect());
+                let ids: Vec<String> = SELECTED.with(|s| {
+                    rows.iter()
+                        .filter(|r| s.borrow().contains(r.0.as_str()))
+                        .map(|r| r.0.to_string())
+                        .collect()
+                });
                 ask_forward(&ui, &app2, &peer, ids);
                 return;
             }
@@ -452,14 +560,22 @@ pub fn wire(ui: &MainWindow, app: &App) {
                     ui.set_toast("В выбранных сообщениях нет текста".into());
                 } else {
                     let ok = drx_platform::copy_text(&text.join("\n"));
-                    ui.set_toast(if ok { "Текст скопирован" } else { "Буфер обмена занят — попробуйте ещё раз" }.into());
+                    ui.set_toast(
+                        if ok {
+                            "Текст скопирован"
+                        } else {
+                            "Буфер обмена занят — попробуйте ещё раз"
+                        }
+                        .into(),
+                    );
                     SELECTED.with(|s| s.borrow_mut().clear());
                     render_chat(&ui, &app2, &peer);
                 }
                 return;
             }
             "select-delete" => {
-                let ids: Vec<String> = SELECTED.with(|s| std::mem::take(&mut *s.borrow_mut()).into_iter().collect());
+                let ids: Vec<String> =
+                    SELECTED.with(|s| std::mem::take(&mut *s.borrow_mut()).into_iter().collect());
                 for id in &ids {
                     if let Err(e) = app2.delete_chat(&peer, id, false) {
                         ui.set_toast(format!("Не получилось: {e}").into());
@@ -471,7 +587,10 @@ pub fn wire(ui: &MainWindow, app: &App) {
             }
             _ => {}
         }
-        let Some((id, _mine, text)) = CHAT_ROWS.with(|r| r.borrow().get(i as usize).cloned()) else { return };
+        let Some((id, _mine, text)) = CHAT_ROWS.with(|r| r.borrow().get(i as usize).cloned())
+        else {
+            return;
+        };
         if action == "select" {
             SELECTED.with(|s| {
                 let mut s = s.borrow_mut();
@@ -494,7 +613,14 @@ pub fn wire(ui: &MainWindow, app: &App) {
                     ui.set_toast("В сообщении нет текста".into());
                 } else {
                     let ok = drx_platform::copy_text(&shown);
-                    ui.set_toast(if ok { "Текст скопирован" } else { "Буфер обмена занят — попробуйте ещё раз" }.into());
+                    ui.set_toast(
+                        if ok {
+                            "Текст скопирован"
+                        } else {
+                            "Буфер обмена занят — попробуйте ещё раз"
+                        }
+                        .into(),
+                    );
                 }
                 Ok(())
             }
@@ -502,7 +628,11 @@ pub fn wire(ui: &MainWindow, app: &App) {
                 EDITING.with(|e| *e.borrow_mut() = None);
                 ui.set_friend_chat_editing(false);
                 let shown = drx_social::chat::plain_stickers(&text);
-                ui.set_friend_chat_replying(if shown.trim().is_empty() { "сообщение".into() } else { shown.into() });
+                ui.set_friend_chat_replying(if shown.trim().is_empty() {
+                    "сообщение".into()
+                } else {
+                    shown.into()
+                });
                 REPLYING.with(|r| *r.borrow_mut() = Some(id));
                 Ok(())
             }
@@ -528,7 +658,9 @@ pub fn wire(ui: &MainWindow, app: &App) {
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     ui.on_friend_toggle_along(move || {
         let Some(ui) = ui_w.upgrade() else { return };
-        let Some(peer) = OPEN.with(|o| o.borrow().clone()) else { return };
+        let Some(peer) = OPEN.with(|o| o.borrow().clone()) else {
+            return;
+        };
         if app2.listening_along().as_deref() == Some(peer.as_str()) {
             app2.stop_listen_along();
             ui.set_toast("Больше не слушаю вместе".into());
@@ -541,7 +673,13 @@ pub fn wire(ui: &MainWindow, app: &App) {
     ui.on_friend_remove(move || {
         let Some(ui) = ui_w.upgrade() else { return };
         ui.set_dialog_title("Удалить из друзей?".into());
-        ui.set_dialog_subtitle(format!("{} больше не увидит, что ты слушаешь; переписка останется", ui.get_friend_name()).into());
+        ui.set_dialog_subtitle(
+            format!(
+                "{} больше не увидит, что ты слушаешь; переписка останется",
+                ui.get_friend_name()
+            )
+            .into(),
+        );
         ui.set_dialog_kind("unfriend".into());
     });
     let ui_w = ui.as_weak();
@@ -555,17 +693,22 @@ pub fn wire(ui: &MainWindow, app: &App) {
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     ui.on_friend_chat_play(move |i| {
         let Some(ui) = ui_w.upgrade() else { return };
-        let Some(m) = CHAT_MUSIC.with(|c| c.borrow().get(i as usize).cloned().flatten()) else { return };
+        let Some(m) = CHAT_MUSIC.with(|c| c.borrow().get(i as usize).cloned().flatten()) else {
+            return;
+        };
         match m.kind.as_str() {
             "album" => ui.invoke_open_album(m.id.into()),
             "artist" => ui.invoke_open_artist(m.id.into()),
-            "playlist" if drx_app::playlists::is_editable_id(&m.id) => crate::nav::go_playlist(&ui, &app2, &m.id, &m.title),
+            "playlist" if drx_app::playlists::is_editable_id(&m.id) => {
+                crate::nav::go_playlist(&ui, &app2, &m.id, &m.title)
+            }
             "playlist" => ui.set_toast("Этот плейлист открывается на телефоне".into()),
             _ => {
                 let r = TrackRef {
                     title: m.title,
                     artist: m.by,
-                    catalog_id: Some(m.id.clone()).filter(|id| !id.contains(':') || id.starts_with("mfb:")),
+                    catalog_id: Some(m.id.clone())
+                        .filter(|id| !id.contains(':') || id.starts_with("mfb:")),
                     media_id: Some(m.id),
                     cover: m.cover,
                     duration_ms: m.duration_ms,
@@ -580,7 +723,13 @@ pub fn wire(ui: &MainWindow, app: &App) {
         let Some(ui) = ui_w.upgrade() else { return };
         let name = app2
             .friends_state()
-            .and_then(|rx| rx.borrow().requests.iter().find(|r| r.pubkey == p.as_str()).map(|r| r.name.clone()))
+            .and_then(|rx| {
+                rx.borrow()
+                    .requests
+                    .iter()
+                    .find(|r| r.pubkey == p.as_str())
+                    .map(|r| r.name.clone())
+            })
             .unwrap_or_default();
         add(&ui, &app2, p.to_string(), name);
     });
@@ -599,7 +748,11 @@ pub fn wire(ui: &MainWindow, app: &App) {
             return;
         }
         // An invite link may carry the name: …/add/<npub>?n=<name>.
-        let name = t.split("?n=").nth(1).map(|n| n.replace("%20", " ")).unwrap_or_default();
+        let name = t
+            .split("?n=")
+            .nth(1)
+            .map(|n| n.replace("%20", " "))
+            .unwrap_or_default();
         let key = t.rsplit('/').next().unwrap_or(&t);
         let key = key.split('?').next().unwrap_or(key);
         if drx_social::nostr::pubkey_from_text(key).is_none() {
@@ -617,7 +770,9 @@ pub fn wire(ui: &MainWindow, app: &App) {
     let ui_w = ui.as_weak();
     ui.on_friends_clear_found(move || {
         if let Some(ui) = ui_w.upgrade() {
-            ui.set_friends_found(ModelRc::new(VecModel::from(Vec::<FriendRequestItem>::new())));
+            ui.set_friends_found(ModelRc::new(
+                VecModel::from(Vec::<FriendRequestItem>::new()),
+            ));
             ui.set_friends_found_status("".into());
         }
     });
@@ -626,7 +781,9 @@ pub fn wire(ui: &MainWindow, app: &App) {
 /// «Удалить» in the dialog: the open friend goes off the list (their data on the relays is cleared too).
 pub fn remove_open(ui: &MainWindow, app: &App) {
     ui.set_dialog_kind("".into());
-    let Some(peer) = OPEN.with(|o| o.borrow().clone()) else { return };
+    let Some(peer) = OPEN.with(|o| o.borrow().clone()) else {
+        return;
+    };
     let name = ui.get_friend_name().to_string();
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     app.runtime().spawn(async move {
@@ -669,7 +826,9 @@ fn search_people(ui: &MainWindow, app: &App, query: String) {
         ui.set_toast("Введите хотя бы две буквы ника".into());
         return;
     }
-    ui.set_friends_found(ModelRc::new(VecModel::from(Vec::<FriendRequestItem>::new())));
+    ui.set_friends_found(ModelRc::new(
+        VecModel::from(Vec::<FriendRequestItem>::new()),
+    ));
     ui.set_friends_found_status(format!("Ищу «{query}»…").into());
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     app.runtime().spawn(async move {
@@ -678,7 +837,13 @@ fn search_people(ui: &MainWindow, app: &App, query: String) {
             let Some(ui) = ui_w.upgrade() else { return };
             let known: Vec<String> = app2
                 .friends_state()
-                .map(|rx| rx.borrow().friends.iter().map(|f| f.pubkey.clone()).collect())
+                .map(|rx| {
+                    rx.borrow()
+                        .friends
+                        .iter()
+                        .map(|f| f.pubkey.clone())
+                        .collect()
+                })
                 .unwrap_or_default();
             let items: Vec<FriendRequestItem> = found
                 .iter()
@@ -692,14 +857,23 @@ fn search_people(ui: &MainWindow, app: &App, query: String) {
                         when: if known.contains(&f.pubkey) {
                             "уже в друзьях".into()
                         } else {
-                            format!("{}…{}", &npub[..12.min(npub.len())], &npub[npub.len().saturating_sub(6)..]).into()
+                            format!(
+                                "{}…{}",
+                                &npub[..12.min(npub.len())],
+                                &npub[npub.len().saturating_sub(6)..]
+                            )
+                            .into()
                         },
                     }
                 })
                 .collect();
             ui.set_friends_found_status(
-                if items.is_empty() { format!("По «{query}» никого: профиль скрыт или ник другой") } else { format!("Нашлось по «{query}» · {}", items.len()) }
-                    .into(),
+                if items.is_empty() {
+                    format!("По «{query}» никого: профиль скрыт или ник другой")
+                } else {
+                    format!("Нашлось по «{query}» · {}", items.len())
+                }
+                .into(),
             );
             ui.set_friends_found(ModelRc::new(VecModel::from(items)));
         });
@@ -707,7 +881,9 @@ fn search_people(ui: &MainWindow, app: &App, query: String) {
 }
 
 fn hex_bytes(h: &str) -> Vec<u8> {
-    (0..h.len() / 2).filter_map(|i| u8::from_str_radix(&h[i * 2..i * 2 + 2], 16).ok()).collect()
+    (0..h.len() / 2)
+        .filter_map(|i| u8::from_str_radix(&h[i * 2..i * 2 + 2], 16).ok())
+        .collect()
 }
 
 /// The page opened: follow the relays (once) and draw.
@@ -754,7 +930,9 @@ pub fn show(ui: &MainWindow, app: &App) {
             }
         });
     }
-    let Some(mut rx) = app.friends_state() else { return };
+    let Some(mut rx) = app.friends_state() else {
+        return;
+    };
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     app.runtime().spawn(async move {
         while rx.changed().await.is_ok() {
@@ -794,7 +972,14 @@ fn render(ui: &MainWindow, app: &App) {
     ui.set_friends_me_initial(initial(&my_name).into());
     ui.set_friends_me_name(my_name.into());
     let npub = drx_social::nostr::bech32_encode("npub", &hex_bytes(&me));
-    ui.set_friends_me_code(format!("{}…{}", &npub[..16.min(npub.len())], &npub[npub.len().saturating_sub(6)..]).into());
+    ui.set_friends_me_code(
+        format!(
+            "{}…{}",
+            &npub[..16.min(npub.len())],
+            &npub[npub.len().saturating_sub(6)..]
+        )
+        .into(),
+    );
     match avatar(app, &me, mine.and_then(|d| d.avatar.as_deref()), 72.0) {
         Some(i) => {
             ui.set_friends_me_avatar(i);
@@ -816,8 +1001,11 @@ fn render(ui: &MainWindow, app: &App) {
 
     let mut friends = st.friends.clone();
     let t = now_ms();
-    let previews: std::collections::HashMap<String, drx_app::chats::ChatPreview> =
-        app.chat_previews().into_iter().map(|p| (p.peer.clone(), p)).collect();
+    let previews: std::collections::HashMap<String, drx_app::chats::ChatPreview> = app
+        .chat_previews()
+        .into_iter()
+        .map(|p| (p.peer.clone(), p))
+        .collect();
     // Unread chats first, then who plays now, then the most recent listeners.
     friends.sort_by_key(|fr| {
         let n = st.data.get(&fr.pubkey).and_then(|d| d.now.as_ref());
@@ -841,9 +1029,14 @@ fn render(ui: &MainWindow, app: &App) {
             let (status, live) = status(d);
             let av = avatar(app, &fr.pubkey, d.and_then(|d| d.avatar.as_deref()), 44.0);
             let now = d.and_then(|d| d.now.as_ref());
-            let cover = now
-                .and_then(|n| n.track.cover.as_deref())
-                .and_then(|u| crate::cover_r(app, u, crate::ROW_COVER, crate::theme_r(crate::ROW_COVER_R, crate::ROW_COVER, 46.0)));
+            let cover = now.and_then(|n| n.track.cover.as_deref()).and_then(|u| {
+                crate::cover_r(
+                    app,
+                    u,
+                    crate::ROW_COVER,
+                    crate::theme_r(crate::ROW_COVER_R, crate::ROW_COVER, 46.0),
+                )
+            });
             FriendCardItem {
                 pubkey: fr.pubkey.clone().into(),
                 initial: initial(&name).into(),
@@ -854,16 +1047,28 @@ fn render(ui: &MainWindow, app: &App) {
                 avatar: av.unwrap_or_default(),
                 developer: fr.pubkey == DEVELOPER_PUBKEY,
                 has_track: now.is_some(),
-                track_title: now.map(|n| n.track.title.clone()).unwrap_or_default().into(),
-                track_artist: now.map(|n| n.track.artist.clone()).unwrap_or_default().into(),
+                track_title: now
+                    .map(|n| n.track.title.clone())
+                    .unwrap_or_default()
+                    .into(),
+                track_artist: now
+                    .map(|n| n.track.artist.clone())
+                    .unwrap_or_default()
+                    .into(),
                 has_cover: cover.is_some(),
                 cover: cover.unwrap_or_default(),
                 preview: if app.chat_typing(&fr.pubkey) {
                     "печатает…".into()
                 } else {
-                    previews.get(&fr.pubkey).map(preview_line).unwrap_or_default().into()
+                    previews
+                        .get(&fr.pubkey)
+                        .map(preview_line)
+                        .unwrap_or_default()
+                        .into()
                 },
-                unread: previews.get(&fr.pubkey).map_or(0, |p| p.unread.min(999) as i32),
+                unread: previews
+                    .get(&fr.pubkey)
+                    .map_or(0, |p| p.unread.min(999) as i32),
             }
         })
         .collect();
@@ -876,13 +1081,21 @@ fn render(ui: &MainWindow, app: &App) {
     let name = d
         .and_then(|d| d.name.clone())
         .filter(|n| !n.trim().is_empty())
-        .or_else(|| st.friends.iter().find(|x| x.pubkey == p).map(|x| x.name.clone()))
+        .or_else(|| {
+            st.friends
+                .iter()
+                .find(|x| x.pubkey == p)
+                .map(|x| x.name.clone())
+        })
         .filter(|n| !n.trim().is_empty())
         .map(|n| plain(&n))
         .unwrap_or_else(|| "Друг".into());
     let along = app.listening_along().as_deref() == Some(p.as_str());
     ui.set_friend_along(along);
-    ui.set_friend_can_along(d.and_then(|d| d.now.as_ref()).is_some_and(|n| n.is_live(t) && n.listen_along));
+    ui.set_friend_can_along(
+        d.and_then(|d| d.now.as_ref())
+            .is_some_and(|n| n.is_live(t) && n.listen_along),
+    );
     let typing = app.chat_typing(&p);
     ui.set_friend_typing(typing);
     ui.set_friend_status(
@@ -906,7 +1119,12 @@ fn render(ui: &MainWindow, app: &App) {
     SHOWN_AVATAR.with(|s| *s.borrow_mut() = shown);
     ui.set_friend_initial(initial(&name).into());
     ui.set_friend_name(name.into());
-    ui.set_friend_likes(d.and_then(|d| d.likes.as_ref()).map(|l| l.total.to_string()).unwrap_or_default().into());
+    ui.set_friend_likes(
+        d.and_then(|d| d.likes.as_ref())
+            .map(|l| l.total.to_string())
+            .unwrap_or_default()
+            .into(),
+    );
     crate::portrait_view::tags(ui, d);
     let tab = TAB.with(|x| x.borrow().clone());
     ui.set_friend_tab(tab.clone().into());
@@ -921,7 +1139,9 @@ fn render(ui: &MainWindow, app: &App) {
     }
     let (refs, empty): (Vec<TrackRef>, &str) = match tab.as_str() {
         "likes" => (
-            d.and_then(|d| d.likes.as_ref()).map(|l| l.tracks.clone()).unwrap_or_default(),
+            d.and_then(|d| d.likes.as_ref())
+                .map(|l| l.tracks.clone())
+                .unwrap_or_default(),
             "Любимые появятся, когда друг ими поделится.",
         ),
         "playlists" => (
@@ -930,25 +1150,40 @@ fn render(ui: &MainWindow, app: &App) {
                 .unwrap_or_default(),
             "Плейлистов не видно.",
         ),
-        _ => (d.and_then(|d| d.history.clone()).unwrap_or_default(), "Друг ещё ничего не показал — или скрыл историю."),
+        _ => (
+            d.and_then(|d| d.history.clone()).unwrap_or_default(),
+            "Друг ещё ничего не показал — или скрыл историю.",
+        ),
     };
     ui.set_friend_empty(empty.into());
-    let tracks: Vec<drx_catalog::model::Track> = refs.iter().map(drx_app::social::track_of).collect();
+    let tracks: Vec<drx_catalog::model::Track> =
+        refs.iter().map(drx_app::social::track_of).collect();
     app.remember_tracks(&tracks);
     let items: Vec<SongItem> = tracks
         .iter()
         .zip(&refs)
         .enumerate()
         .map(|(i, (tr, r))| {
-            let cover = r
-                .cover
-                .as_deref()
-                .and_then(|u| crate::cover_r(app, u, crate::ROW_COVER, crate::theme_r(crate::ROW_COVER_R, crate::ROW_COVER, 44.0)));
+            let cover = r.cover.as_deref().and_then(|u| {
+                crate::cover_r(
+                    app,
+                    u,
+                    crate::ROW_COVER,
+                    crate::theme_r(crate::ROW_COVER_R, crate::ROW_COVER, 44.0),
+                )
+            });
             SongItem {
                 id: tr.id.clone().into(),
                 title: tr.title.clone().into(),
                 artists: r.artist.clone().into(),
-                duration: if r.duration_ms > 0 { crate::fmt_time(r.duration_ms as f64 / 1000.0) } else if r.at > 0 { ago(r.at) } else { String::new() }.into(),
+                duration: if r.duration_ms > 0 {
+                    crate::fmt_time(r.duration_ms as f64 / 1000.0)
+                } else if r.at > 0 {
+                    ago(r.at)
+                } else {
+                    String::new()
+                }
+                .into(),
                 liked: false,
                 index: i as i32 + 1,
                 has_cover: cover.is_some(),
@@ -975,20 +1210,37 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
     let unread_id = UNREAD_AT.with(|u| u.borrow().as_ref().and_then(|(_, id)| id.clone()));
     app.chat_opened(peer);
     let rows = app.chat_messages(peer, 300);
-    let index_of: std::collections::HashMap<&str, usize> = rows.iter().enumerate().map(|(i, r)| (r.id.as_str(), i)).collect();
+    let index_of: std::collections::HashMap<&str, usize> = rows
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (r.id.as_str(), i))
+        .collect();
     // Answers quote what they answer: who wrote it and its text (a message beyond the loaded ones: «сообщение»).
-    let by_id: std::collections::HashMap<&str, &drx_app::chats::ChatRow> = rows.iter().map(|r| (r.id.as_str(), r)).collect();
+    let by_id: std::collections::HashMap<&str, &drx_app::chats::ChatRow> =
+        rows.iter().map(|r| (r.id.as_str(), r)).collect();
     let quote = |re: &Option<String>| -> (String, String) {
-        let Some(re) = re else { return (String::new(), String::new()) };
+        let Some(re) = re else {
+            return (String::new(), String::new());
+        };
         match by_id.get(re.as_str()) {
             Some(q) => {
                 let text = drx_social::chat::plain_stickers(&q.text);
                 let text = if text.trim().is_empty() {
-                    q.music.as_ref().map(|m| format!("♪ {} — {}", m.by, m.title)).unwrap_or_else(|| "стикер".into())
+                    q.music
+                        .as_ref()
+                        .map(|m| format!("♪ {} — {}", m.by, m.title))
+                        .unwrap_or_else(|| "стикер".into())
                 } else {
                     text
                 };
-                (if q.mine { "Вы".into() } else { "Собеседник".into() }, text)
+                (
+                    if q.mine {
+                        "Вы".into()
+                    } else {
+                        "Собеседник".into()
+                    },
+                    text,
+                )
             }
             None => ("Ответ".into(), "сообщение".into()),
         }
@@ -997,7 +1249,12 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
         .friends_state()
         .and_then(|rx| {
             let st = rx.borrow();
-            st.data.get(peer).and_then(|d| d.name.clone()).or_else(|| st.friends.iter().find(|f| f.pubkey == peer).map(|f| f.name.clone()))
+            st.data.get(peer).and_then(|d| d.name.clone()).or_else(|| {
+                st.friends
+                    .iter()
+                    .find(|f| f.pubkey == peer)
+                    .map(|f| f.name.clone())
+            })
         })
         .map(|n| plain(&n))
         .unwrap_or_else(|| "Собеседник".into());
@@ -1010,29 +1267,52 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
             let new_day = prev.is_none_or(|p| local_day(p.ts) != local_day(m.ts));
             let unread_bar = unread_id.as_deref() == Some(m.id.as_str());
             let music = m.music.as_ref();
-            let cover = music
-                .and_then(|c| c.cover.as_deref())
-                .and_then(|u| crate::cover_r(app, u, crate::ROW_COVER, crate::theme_r(8.0, crate::ROW_COVER, 44.0)));
+            let cover = music.and_then(|c| c.cover.as_deref()).and_then(|u| {
+                crate::cover_r(
+                    app,
+                    u,
+                    crate::ROW_COVER,
+                    crate::theme_r(8.0, crate::ROW_COVER, 44.0),
+                )
+            });
             // Stickers alone, all with a picture here: drawn big (an animated one keeps the message as text).
             let pics: Vec<StickerPic> = drx_social::chat::sticker_only(&m.text)
                 .and_then(|ids| {
                     ids.iter()
-                        .map(|id| drx_social::chat::mini_sticker(id).map(|(i, r)| StickerPic { pic: i as i32, ratio: r }))
+                        .map(|id| {
+                            drx_social::chat::mini_sticker(id).map(|(i, r)| StickerPic {
+                                pic: i as i32,
+                                ratio: r,
+                            })
+                        })
                         .collect::<Option<Vec<_>>>()
                 })
                 .unwrap_or_default();
             ChatItem {
                 id: m.id.clone().into(),
                 mine: m.mine,
-                text: if pics.is_empty() { drx_social::chat::plain_stickers(&m.text).into() } else { "".into() },
+                text: if pics.is_empty() {
+                    drx_social::chat::plain_stickers(&m.text).into()
+                } else {
+                    "".into()
+                },
                 sticker_ratio: pics.iter().map(|p| p.ratio).sum(),
                 stickers: ModelRc::new(VecModel::from(pics)),
                 time: hm(m.ts).into(),
-                day: if new_day { day_badge(local_day(m.ts)).into() } else { "".into() },
+                day: if new_day {
+                    day_badge(local_day(m.ts)).into()
+                } else {
+                    "".into()
+                },
                 first: unread_bar || prev.is_none_or(|p| !attaches(p, m)),
-                last: next.is_none_or(|n| !attaches(m, n) || unread_id.as_deref() == Some(n.id.as_str())),
+                last: next
+                    .is_none_or(|n| !attaches(m, n) || unread_id.as_deref() == Some(n.id.as_str())),
                 unread_bar,
-                reply_index: m.reply_to.as_deref().and_then(|r| index_of.get(r)).map_or(-1, |i| *i as i32),
+                reply_index: m
+                    .reply_to
+                    .as_deref()
+                    .and_then(|r| index_of.get(r))
+                    .map_or(-1, |i| *i as i32),
                 selected: SELECTED.with(|s| s.borrow().contains(&m.id)),
                 links: ModelRc::new(VecModel::from(links_of(&m.text))),
                 edited: m.edited,
@@ -1047,20 +1327,30 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
                 reactions: ModelRc::new(VecModel::from(chips(&m.reactions))),
                 reply_who: {
                     let (who, _) = quote(&m.reply_to);
-                    if who == "Собеседник" { friend_name.clone().into() } else { who.into() }
+                    if who == "Собеседник" {
+                        friend_name.clone().into()
+                    } else {
+                        who.into()
+                    }
                 },
                 reply_text: quote(&m.reply_to).1.into(),
             }
         })
         .collect();
-    CHAT_ROWS.with(|c| *c.borrow_mut() = rows.iter().map(|m| (m.id.clone(), m.mine, m.text.clone())).collect());
+    CHAT_ROWS.with(|c| {
+        *c.borrow_mut() = rows
+            .iter()
+            .map(|m| (m.id.clone(), m.mine, m.text.clone()))
+            .collect()
+    });
     CHAT_MUSIC.with(|c| *c.borrow_mut() = rows.into_iter().map(|m| m.music).collect());
     // The first look at a chat with unread messages starts at the unread line (Telegram).
     if fresh && let Some(at) = items.iter().position(|m| m.unread_bar) {
         ui.set_friend_chat_jump(at as i32);
     }
     // Picked messages that are gone (deleted meanwhile) leave the selection.
-    let present: std::collections::HashSet<String> = CHAT_ROWS.with(|r| r.borrow().iter().map(|r| r.0.to_string()).collect());
+    let present: std::collections::HashSet<String> =
+        CHAT_ROWS.with(|r| r.borrow().iter().map(|r| r.0.to_string()).collect());
     SELECTED.with(|s| s.borrow_mut().retain(|id| present.contains(id)));
     ui.set_friend_chat_selected(SELECTED.with(|s| s.borrow().len()) as i32);
     ui.set_friend_chat(ModelRc::new(VecModel::from(items)));
@@ -1069,7 +1359,12 @@ fn render_chat(ui: &MainWindow, app: &App, peer: &str) {
 /// While someone is typing, one more redraw once their «печатает…» has run out.
 fn redraw_when_typing_ends(ui: &MainWindow, app: &App) {
     thread_local! { static WAITING: RefCell<bool> = const { RefCell::new(false) }; }
-    let typing = app.friends_state().is_some_and(|rx| rx.borrow().friends.iter().any(|f| app.chat_typing(&f.pubkey)));
+    let typing = app.friends_state().is_some_and(|rx| {
+        rx.borrow()
+            .friends
+            .iter()
+            .any(|f| app.chat_typing(&f.pubkey))
+    });
     if !typing || WAITING.with(|w| std::mem::replace(&mut *w.borrow_mut(), true)) {
         return;
     }
@@ -1086,14 +1381,22 @@ fn redraw_when_typing_ends(ui: &MainWindow, app: &App) {
 
 /// «Вы: текст · 14:51» — the friends list's line for a chat, as ChatHub.preview (one line: newlines become spaces).
 fn preview_line(p: &drx_app::chats::ChatPreview) -> String {
-    let text: String = drx_social::chat::plain_stickers(&p.text).split_whitespace().collect::<Vec<_>>().join(" ");
+    let text: String = drx_social::chat::plain_stickers(&p.text)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     let body = match (&p.music, text.is_empty()) {
         (Some(m), false) => format!("♪ {m} · {text}"),
         (Some(m), true) => format!("♪ {m}"),
         (None, false) => text,
         (None, true) => "стикер".into(),
     };
-    format!("{}{} · {}", if p.mine { "Вы: " } else { "" }, body, clock(p.ts))
+    format!(
+        "{}{} · {}",
+        if p.mine { "Вы: " } else { "" },
+        body,
+        clock(p.ts)
+    )
 }
 
 /// Reactions grouped by key, in the order first put: «❤️ 2», mine marked.
@@ -1106,10 +1409,20 @@ fn chips(reactions: &[(String, bool)]) -> Vec<ReactionChip> {
                 c.mine |= *mine;
             }
             None => out.push(ReactionChip {
-                label: key.strip_prefix("e:").map(str::to_string).unwrap_or_else(|| "стикер".into()).into(),
+                label: key
+                    .strip_prefix("e:")
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "стикер".into())
+                    .into(),
                 pic: drx_social::chat::emoji_index(key).map_or(-1, |i| i as i32),
-                sticker: key.strip_prefix("s:").and_then(drx_social::chat::mini_sticker).map_or(-1, |s| s.0 as i32),
-                ratio: key.strip_prefix("s:").and_then(drx_social::chat::mini_sticker).map_or(1.0, |s| s.1),
+                sticker: key
+                    .strip_prefix("s:")
+                    .and_then(drx_social::chat::mini_sticker)
+                    .map_or(-1, |s| s.0 as i32),
+                ratio: key
+                    .strip_prefix("s:")
+                    .and_then(drx_social::chat::mini_sticker)
+                    .map_or(1.0, |s| s.1),
                 key: key.clone().into(),
                 count: 1,
                 mine: *mine,
@@ -1126,7 +1439,10 @@ mod tests {
         assert_eq!(super::civil(0), (1970, 1, 1));
         assert_eq!(super::civil(20_407), (2025, 11, 15));
         assert_eq!(super::civil(19_782), (2024, 2, 29));
-        assert_eq!(super::plain("\u{1D403}\u{1D41E}\u{1D426}\u{1D428} ok"), "Demo ok");
+        assert_eq!(
+            super::plain("\u{1D403}\u{1D41E}\u{1D426}\u{1D428} ok"),
+            "Demo ok"
+        );
         assert_eq!(super::plain("шура"), "шура");
     }
 }

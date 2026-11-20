@@ -14,11 +14,26 @@ pub struct AppIcon {
 
 /// Full's icons; the first one is the default.
 pub const FULL: &[AppIcon] = &[
-    AppIcon { id: "halo", name: "Нимб" },
-    AppIcon { id: "clean", name: "Чистый" },
-    AppIcon { id: "grunge", name: "Гранж" },
-    AppIcon { id: "street", name: "Улица" },
-    AppIcon { id: "paper", name: "Афиши" },
+    AppIcon {
+        id: "halo",
+        name: "Нимб",
+    },
+    AppIcon {
+        id: "clean",
+        name: "Чистый",
+    },
+    AppIcon {
+        id: "grunge",
+        name: "Гранж",
+    },
+    AppIcon {
+        id: "street",
+        name: "Улица",
+    },
+    AppIcon {
+        id: "paper",
+        name: "Афиши",
+    },
 ];
 
 /// Mini's icons; the first one is the default.
@@ -26,11 +41,7 @@ pub const MINI: &[AppIcon] = &[AppIcon { id: "d", name: "D" }];
 
 /// The icons an edition may use.
 pub fn for_edition(full: bool) -> &'static [AppIcon] {
-    if full {
-        FULL
-    } else {
-        MINI
-    }
+    if full { FULL } else { MINI }
 }
 
 /// The icon to show: the saved one when this edition has it, else the edition's default.

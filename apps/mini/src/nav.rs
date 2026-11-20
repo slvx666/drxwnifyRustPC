@@ -24,7 +24,9 @@ pub fn share_target(page: &Page) -> Option<(&'static str, String)> {
     match &page.spec {
         ListSpec::Album { id } | ListSpec::CatalogAlbum { id } => Some(("album", id.clone())),
         ListSpec::Artist { id } | ListSpec::CatalogArtist { id } => Some(("artist", id.clone())),
-        ListSpec::SpotifyPlaylist { id } | ListSpec::YandexPlaylist { id } => Some(("playlist", id.clone())),
+        ListSpec::SpotifyPlaylist { id } | ListSpec::YandexPlaylist { id } => {
+            Some(("playlist", id.clone()))
+        }
         _ => None,
     }
 }
@@ -108,7 +110,10 @@ impl Page {
     }
 
     pub fn yt(id: &str, params: Option<&str>, title: &str) -> Self {
-        Self::special(PageKind::Yt(id.to_string(), params.map(str::to_string)), title)
+        Self::special(
+            PageKind::Yt(id.to_string(), params.map(str::to_string)),
+            title,
+        )
     }
 }
 
@@ -207,12 +212,20 @@ pub fn songs() -> Option<Rc<LazySongs>> {
 /// The list model got its count and first rows (opened or changed): the heading, length and «Слушать» follow,
 /// the length and heading again from the background.
 pub fn list_loaded(h: drx_app::ListHandle) {
-    let Some((ui, app)) = UI.with(|u| u.borrow().as_ref().and_then(|(w, a)| Some((w.upgrade()?, a.clone())))) else { return };
+    let Some((ui, app)) = UI.with(|u| {
+        u.borrow()
+            .as_ref()
+            .and_then(|(w, a)| Some((w.upgrade()?, a.clone())))
+    }) else {
+        return;
+    };
     if current_handle() != Some(h) {
         return;
     }
     refresh_artist_tracks(&ui);
-    let Some(page) = current().filter(|p| p.kind == PageKind::List) else { return };
+    let Some(page) = current().filter(|p| p.kind == PageKind::List) else {
+        return;
+    };
     let n = current_len();
     if page.spec.is_remote() {
         return;
@@ -225,7 +238,8 @@ pub fn list_loaded(h: drx_app::ListHandle) {
     app.runtime().spawn(async move {
         let secs = app2.list_seconds(h).await.unwrap_or(0);
         let local = app2.local_header(&spec).await;
-        let (app3, ui_w2, spec2, local2) = (app2.clone(), ui_w.clone(), spec.clone(), local.clone());
+        let (app3, ui_w2, spec2, local2) =
+            (app2.clone(), ui_w.clone(), spec.clone(), local.clone());
         let _ = slint::invoke_from_event_loop(move || {
             let Some(ui) = ui_w2.upgrade() else { return };
             if self::generation() != generation || current_handle() != Some(h) {
@@ -235,7 +249,8 @@ pub fn list_loaded(h: drx_app::ListHandle) {
             match local2 {
                 Some(mut head) => {
                     // A renamed playlist keeps the name the page shows now.
-                    if matches!(spec2, ListSpec::Playlist { .. }) && !ui.get_view_title().is_empty() {
+                    if matches!(spec2, ListSpec::Playlist { .. }) && !ui.get_view_title().is_empty()
+                    {
                         head.title = ui.get_view_title().to_string();
                     }
                     if head.image.is_none() && !first {
@@ -249,7 +264,9 @@ pub fn list_loaded(h: drx_app::ListHandle) {
         // A library artist who is also in a catalog: its photo and releases join the page (once).
         if first && let ListSpec::Artist { id } = &spec {
             let (name, local_image) = local.map(|h| (h.title, h.image)).unwrap_or_default();
-            let Some(mut head) = app2.library_artist_header(id, &name).await else { return };
+            let Some(mut head) = app2.library_artist_header(id, &name).await else {
+                return;
+            };
             head.title = name;
             if head.image.is_none() {
                 head.image = local_image;
@@ -338,7 +355,9 @@ pub fn go_page(ui: &MainWindow, app: &App, page: Page) {
 
 /// The page on screen shows `spec`: it is drawn again (its rows changed, e.g. a download finished).
 pub fn reload_if(ui: &MainWindow, app: &App, spec: &ListSpec) {
-    let Some(page) = current().filter(|p| p.kind == PageKind::List && &p.spec == spec) else { return };
+    let Some(page) = current().filter(|p| p.kind == PageKind::List && &p.spec == spec) else {
+        return;
+    };
     if let Some(songs) = songs_rc() {
         show(ui, app, &songs, page);
     }
@@ -347,11 +366,17 @@ pub fn reload_if(ui: &MainWindow, app: &App, spec: &ListSpec) {
 /// «Мой топ» on screen gets another period: the page is drawn again in place (no new history step).
 pub fn set_top_period(ui: &MainWindow, app: &App, period: drx_app::TopPeriod) {
     app.set_top_period(period);
-    let spec = ListSpec::Top { period, size: app.top_size() };
+    let spec = ListSpec::Top {
+        period,
+        size: app.top_size(),
+    };
     let page = HISTORY.with(|h| {
         let mut h = h.borrow_mut();
         let at = h.at;
-        let p = h.pages.get_mut(at).filter(|p| matches!(p.spec, ListSpec::Top { .. }))?;
+        let p = h
+            .pages
+            .get_mut(at)
+            .filter(|p| matches!(p.spec, ListSpec::Top { .. }))?;
         p.spec = spec;
         Some(p.clone())
     });
@@ -362,7 +387,11 @@ pub fn set_top_period(ui: &MainWindow, app: &App, period: drx_app::TopPeriod) {
 
 /// Opens the downloads page.
 pub fn go_downloads(ui: &MainWindow, app: &App) {
-    go_page(ui, app, Page::list(ListSpec::Downloads, "Загрузки", "", None));
+    go_page(
+        ui,
+        app,
+        Page::list(ListSpec::Downloads, "Загрузки", "", None),
+    );
 }
 
 /// Opens the home page.
@@ -645,9 +674,17 @@ fn show(ui: &MainWindow, app: &App, songs: &Rc<LazySongs>, page: Page) {
         let g = slint::ComponentHandle::global::<crate::PageChips>(ui);
         match &page.spec {
             ListSpec::Top { period, .. } => {
-                let labels: Vec<slint::SharedString> = drx_app::TopPeriod::ALL.iter().map(|p| p.label().into()).collect();
+                let labels: Vec<slint::SharedString> = drx_app::TopPeriod::ALL
+                    .iter()
+                    .map(|p| p.label().into())
+                    .collect();
                 g.set_labels(slint::ModelRc::new(slint::VecModel::from(labels)));
-                g.set_selected(drx_app::TopPeriod::ALL.iter().position(|p| p == period).unwrap_or(0) as i32);
+                g.set_selected(
+                    drx_app::TopPeriod::ALL
+                        .iter()
+                        .position(|p| p == period)
+                        .unwrap_or(0) as i32,
+                );
             }
             _ => g.set_labels(slint::ModelRc::default()),
         }

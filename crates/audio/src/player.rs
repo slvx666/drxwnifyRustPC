@@ -37,7 +37,10 @@ pub fn set_tempo_pitch(tempo: f32, semitones: i32) {
 }
 
 pub fn tempo_pitch() -> (f32, i32) {
-    (f32::from_bits(TEMPO_BITS.load(Ordering::Relaxed)), PITCH.load(Ordering::Relaxed))
+    (
+        f32::from_bits(TEMPO_BITS.load(Ordering::Relaxed)),
+        PITCH.load(Ordering::Relaxed),
+    )
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -274,7 +277,8 @@ impl Player {
             .filter(|p| p.preamp_db != 0.0 || p.bands.iter().any(|b| b.enabled && b.gain_db != 0.0))
             .map(|p| crate::dsp::Equalizer::new(p, RATE));
         let balance = balance.clamp(-1.0, 1.0);
-        let fx = (eq.is_some() || balance != 0.0).then(|| Box::new(crate::dsp::PostFx { eq, balance }));
+        let fx =
+            (eq.is_some() || balance != 0.0).then(|| Box::new(crate::dsp::PostFx { eq, balance }));
         self.cmd(MixCmd::SetPostFx(fx));
     }
 
@@ -366,7 +370,9 @@ impl Player {
             Some(t) => PlaybackClock {
                 track: Some(t.id),
                 position_s: t.offset_s
-                    + (t.shared.played.load(Ordering::Relaxed) as i64 + t.shared.adjust.load(Ordering::Relaxed)).max(0) as f64
+                    + (t.shared.played.load(Ordering::Relaxed) as i64
+                        + t.shared.adjust.load(Ordering::Relaxed))
+                    .max(0) as f64
                         / RATE as f64,
                 duration_s: t.duration_s,
                 playing: !st.paused,

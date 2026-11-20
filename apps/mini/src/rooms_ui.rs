@@ -35,10 +35,20 @@ pub fn wire(ui: &MainWindow, app: &App) {
                 }
                 "leave" => app2.room_leave(),
                 "link" => {
-                    let code = app2.room().map(|r| r.borrow().code.clone()).unwrap_or_default();
+                    let code = app2
+                        .room()
+                        .map(|r| r.borrow().code.clone())
+                        .unwrap_or_default();
                     if !code.is_empty() {
                         let ok = drx_platform::copy_text(&format!("{LINK_PREFIX}{code}"));
-                        ui.set_toast(if ok { "Ссылка на комнату скопирована" } else { "Буфер обмена занят — попробуйте ещё раз" }.into());
+                        ui.set_toast(
+                            if ok {
+                                "Ссылка на комнату скопирована"
+                            } else {
+                                "Буфер обмена занят — попробуйте ещё раз"
+                            }
+                            .into(),
+                        );
                     }
                 }
                 "resync" => app2.room_resync(),
@@ -91,7 +101,13 @@ fn render(ui: &MainWindow, room: Option<Room>) {
         ui.set_room_guest(false);
         return;
     };
-    let name_of = |id: &str| r.users.iter().find(|u| u.user_id == id).map(|u| u.username.clone()).unwrap_or_default();
+    let name_of = |id: &str| {
+        r.users
+            .iter()
+            .find(|u| u.user_id == id)
+            .map(|u| u.username.clone())
+            .unwrap_or_default()
+    };
     let data = RoomData {
         active: true,
         code: r.code.clone().into(),
@@ -107,7 +123,11 @@ fn render(ui: &MainWindow, room: Option<Room>) {
                 .iter()
                 .map(|u| RoomPerson {
                     id: u.user_id.clone().into(),
-                    name: if u.username.is_empty() { "Без имени".into() } else { u.username.clone().into() },
+                    name: if u.username.is_empty() {
+                        "Без имени".into()
+                    } else {
+                        u.username.clone().into()
+                    },
                     host: u.user_id == r.host_id,
                     me: u.user_id == r.my_id,
                     online: u.is_connected || u.user_id == r.my_id,
@@ -117,7 +137,11 @@ fn render(ui: &MainWindow, room: Option<Room>) {
         requests: model(
             r.requests
                 .iter()
-                .map(|(id, name)| RoomAsk { id: id.clone().into(), name: name.clone().into(), title: "".into() })
+                .map(|(id, name)| RoomAsk {
+                    id: id.clone().into(),
+                    name: name.clone().into(),
+                    title: "".into(),
+                })
                 .collect(),
         ),
         suggestions: model(

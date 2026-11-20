@@ -24,7 +24,11 @@ pub fn wire(ui: &MainWindow, app: &App) {
             loop {
                 let p = rx.borrow_and_update().clone();
                 let busy = p.queued > 0;
-                let label = if busy { format!("{} · {}%", p.queued, (p.fraction * 100.0).round() as i32) } else { String::new() };
+                let label = if busy {
+                    format!("{} · {}%", p.queued, (p.fraction * 100.0).round() as i32)
+                } else {
+                    String::new()
+                };
                 let finished = was_busy && !busy;
                 was_busy = busy;
                 let _ = ui_w.upgrade_in_event_loop(move |ui| {
@@ -52,7 +56,9 @@ pub fn wire(ui: &MainWindow, app: &App) {
         let mut rx = app2.downloads_version();
         while rx.changed().await.is_ok() {
             let app3 = app2.clone();
-            let _ = ui_w.upgrade_in_event_loop(move |ui| crate::nav::reload_if(&ui, &app3, &ListSpec::Downloads));
+            let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                crate::nav::reload_if(&ui, &app3, &ListSpec::Downloads)
+            });
         }
     });
 }
@@ -64,7 +70,9 @@ pub fn act(ui: &MainWindow, app: &App, action: &str, id: &str) {
         ui.set_toast("Удалено из загрузок".into());
         return;
     }
-    let Some(t) = app.runtime().block_on(app.known_track(id)) else { return };
+    let Some(t) = app.runtime().block_on(app.known_track(id)) else {
+        return;
+    };
     let title = t.title.clone();
     if app.download_tracks(vec![t]) > 0 {
         ui.set_toast(format!("Скачиваю: {title}").into());

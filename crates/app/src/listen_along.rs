@@ -14,22 +14,35 @@ const LOAD_WAIT: Duration = Duration::from_secs(20);
 
 fn key_of(n: &NowPlaying) -> String {
     let t = &n.track;
-    t.catalog_id.clone().or_else(|| t.media_id.clone()).unwrap_or_else(|| format!("{}|{}", t.artist, t.title))
+    t.catalog_id
+        .clone()
+        .or_else(|| t.media_id.clone())
+        .unwrap_or_else(|| format!("{}|{}", t.artist, t.title))
 }
 
 impl App {
     /// Whose playback this app follows now.
     pub fn listening_along(&self) -> Option<String> {
-        self.inner.listen_along.lock().expect("listen along").as_ref().map(|(p, _)| p.clone())
+        self.inner
+            .listen_along
+            .lock()
+            .expect("listen along")
+            .as_ref()
+            .map(|(p, _)| p.clone())
     }
 
     /// Starts following `pubkey`. Err when they play nothing or keep listening along closed.
     pub fn start_listen_along(&self, pubkey: &str) -> crate::AppResult<()> {
-        let mut rx = self.friends_state().ok_or_else(|| crate::AppError::Other("нет профиля друзей".into()))?;
+        let mut rx = self
+            .friends_state()
+            .ok_or_else(|| crate::AppError::Other("нет профиля друзей".into()))?;
         let first = rx.borrow().data.get(pubkey).and_then(|d| d.now.clone());
-        let first = first.ok_or_else(|| crate::AppError::Other("друг сейчас ничего не слушает".into()))?;
+        let first =
+            first.ok_or_else(|| crate::AppError::Other("друг сейчас ничего не слушает".into()))?;
         if !first.listen_along {
-            return Err(crate::AppError::Other("друг закрыл «слушать вместе»".into()));
+            return Err(crate::AppError::Other(
+                "друг закрыл «слушать вместе»".into(),
+            ));
         }
         self.stop_listen_along();
         let (app, peer) = (self.clone(), pubkey.to_string());
@@ -84,7 +97,12 @@ async fn follow(app: &App, now: &NowPlaying, force: bool, current: &mut Option<S
         // Wait for the track to start, then jump to where the friend is now.
         let started = tokio::time::timeout(LOAD_WAIT, async {
             loop {
-                let same = app.now_playing().borrow().track.as_ref().is_some_and(|t| t.id == id);
+                let same = app
+                    .now_playing()
+                    .borrow()
+                    .track
+                    .as_ref()
+                    .is_some_and(|t| t.id == id);
                 let c = app.clock();
                 if same && c.track.is_some() && c.playing {
                     return;

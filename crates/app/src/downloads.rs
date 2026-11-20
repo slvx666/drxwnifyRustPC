@@ -58,7 +58,7 @@ impl App {
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
             .unwrap_or_default();
-        v.sort_by(|a, b| b.at.cmp(&a.at));
+        v.sort_by_key(|b| std::cmp::Reverse(b.at));
         v
     }
 
@@ -84,7 +84,11 @@ impl App {
     /// Reads the index at launch (files deleted by hand drop out).
     pub fn load_downloads(&self) {
         let dir = self.downloads_dir();
-        let list: Vec<DownloadEntry> = self.downloads().into_iter().filter(|e| dir.join(&e.file).exists()).collect();
+        let list: Vec<DownloadEntry> = self
+            .downloads()
+            .into_iter()
+            .filter(|e| dir.join(&e.file).exists())
+            .collect();
         // Halves of downloads cut off by a quit or a failure.
         if let Ok(rd) = std::fs::read_dir(&dir) {
             for e in rd.flatten() {
@@ -97,7 +101,12 @@ impl App {
     }
 
     pub fn is_downloaded(&self, id: &str) -> bool {
-        self.inner.playback.downloaded.lock().expect("downloaded").contains_key(id)
+        self.inner
+            .playback
+            .downloaded
+            .lock()
+            .expect("downloaded")
+            .contains_key(id)
     }
 
     /// Changes of the downloads (a counter): the downloads page redraws.
@@ -130,7 +139,11 @@ impl App {
             let mut q = self.inner.download_queue.lock().expect("download queue");
             let fresh: Vec<Track> = tracks
                 .into_iter()
-                .filter(|t| !t.id.starts_with("local:") && !self.is_downloaded(&t.id) && !q.iter().any(|x| x.id == t.id))
+                .filter(|t| {
+                    !t.id.starts_with("local:")
+                        && !self.is_downloaded(&t.id)
+                        && !q.iter().any(|x| x.id == t.id)
+                })
                 .collect();
             q.extend(fresh.iter().cloned());
             fresh
@@ -139,12 +152,22 @@ impl App {
             return 0;
         }
         self.remember(fresh.iter());
-        let n = self.inner.download_queue.lock().expect("download queue").len();
+        let n = self
+            .inner
+            .download_queue
+            .lock()
+            .expect("download queue")
+            .len();
         self.inner.download_progress.send_modify(|p| p.queued = n);
-        let start = !self.inner.download_running.swap(true, std::sync::atomic::Ordering::SeqCst);
+        let start = !self
+            .inner
+            .download_running
+            .swap(true, std::sync::atomic::Ordering::SeqCst);
         if start {
             let app = self.clone();
-            let _ = std::thread::Builder::new().name("downloads".into()).spawn(move || app.download_worker());
+            let _ = std::thread::Builder::new()
+                .name("downloads".into())
+                .spawn(move || app.download_worker());
         }
         fresh.len()
     }
@@ -157,19 +180,29 @@ impl App {
 
     /// «Копировать в мои плейлисты» (the phone's import of a playlist): every track of a list into a new playlist of
     /// mine named `name`. Returns its id and how many tracks went in.
-    pub async fn copy_list_to_playlist(&self, handle: crate::ListHandle, name: &str) -> crate::AppResult<(String, usize)> {
+    pub async fn copy_list_to_playlist(
+        &self,
+        handle: crate::ListHandle,
+        name: &str,
+    ) -> crate::AppResult<(String, usize)> {
         let items = self.list_items(handle).await?;
         if items.is_empty() {
             return Err(crate::AppError::Other("в списке нет треков".into()));
         }
         let id = self.create_playlist(name.trim()).await?;
-        let n = self.add_to_playlist(&id, items.into_iter().map(|p| p.track).collect()).await?;
+        let n = self
+            .add_to_playlist(&id, items.into_iter().map(|p| p.track).collect())
+            .await?;
         Ok((id, n))
     }
 
     /// Stops after the current track and forgets the rest of the queue.
     pub fn cancel_downloads(&self) {
-        self.inner.download_queue.lock().expect("download queue").clear();
+        self.inner
+            .download_queue
+            .lock()
+            .expect("download queue")
+            .clear();
     }
 
     fn download_worker(&self) {
@@ -208,17 +241,29 @@ impl App {
                 tracing::warn!("download {}: {e}", track.id);
             }
         }
-        self.inner.download_running.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.inner
+            .download_running
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         self.inner.download_progress.send_modify(|p| {
             p.current = None;
             p.fraction = 0.0;
         });
         // Something asked for in the last instant starts a new worker.
-        if !self.inner.download_queue.lock().expect("download queue").is_empty()
-            && !self.inner.download_running.swap(true, std::sync::atomic::Ordering::SeqCst)
+        if !self
+            .inner
+            .download_queue
+            .lock()
+            .expect("download queue")
+            .is_empty()
+            && !self
+                .inner
+                .download_running
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
         {
             let app = self.clone();
-            let _ = std::thread::Builder::new().name("downloads".into()).spawn(move || app.download_worker());
+            let _ = std::thread::Builder::new()
+                .name("downloads".into())
+                .spawn(move || app.download_worker());
         }
     }
 
@@ -227,8 +272,15 @@ impl App {
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let name = cache_name(&track.id);
         let part = dir.join(format!("{name}.part"));
-        let p = Playable { track: track.clone(), url: None };
-        let (src, ext, _) = self.inner.playback.stream_into(&p, &part).inspect_err(|_| remove_soon(&part))?;
+        let p = Playable {
+            track: track.clone(),
+            url: None,
+        };
+        let (src, ext, _) = self
+            .inner
+            .playback
+            .stream_into(&p, &part)
+            .inspect_err(|_| remove_soon(&part))?;
         let started = std::time::Instant::now();
         loop {
             if src.is_complete() {
@@ -246,7 +298,9 @@ impl App {
             }
             let (have, total) = src.progress();
             if let Some(t) = total.filter(|t| *t > 0) {
-                self.inner.download_progress.send_modify(|p| p.fraction = (have as f32 / t as f32).clamp(0.0, 1.0));
+                self.inner
+                    .download_progress
+                    .send_modify(|p| p.fraction = (have as f32 / t as f32).clamp(0.0, 1.0));
             }
             std::thread::sleep(Duration::from_millis(300));
         }
@@ -262,7 +316,9 @@ impl App {
             moved = std::fs::rename(&part, dir.join(&file));
         }
         moved.map_err(|e| e.to_string())?;
-        let bytes = std::fs::metadata(dir.join(&file)).map(|m| m.len()).unwrap_or(0);
+        let bytes = std::fs::metadata(dir.join(&file))
+            .map(|m| m.len())
+            .unwrap_or(0);
         let mut list = self.downloads();
         list.retain(|e| e.track.id != track.id);
         list.push(DownloadEntry {

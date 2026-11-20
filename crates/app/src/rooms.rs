@@ -33,11 +33,19 @@ fn now_ms() -> i64 {
 pub fn track_info(t: &Track) -> TrackInfo {
     let r = ref_of(t);
     TrackInfo {
-        id: r.media_id.clone().or(r.catalog_id.clone()).unwrap_or_else(|| t.id.clone()),
+        id: r
+            .media_id
+            .clone()
+            .or(r.catalog_id.clone())
+            .unwrap_or_else(|| t.id.clone()),
         title: t.title.clone(),
         artist: t.artist_names(),
         album: t.album.as_ref().map(|a| a.name.clone()).unwrap_or_default(),
-        duration: if t.duration_ms > 0 { t.duration_ms as i64 } else { 180_000 },
+        duration: if t.duration_ms > 0 {
+            t.duration_ms as i64
+        } else {
+            180_000
+        },
         thumbnail: r.cover.unwrap_or_default(),
         suggested_by: String::new(),
     }
@@ -71,14 +79,23 @@ struct Desired {
 
 impl Desired {
     fn position_now(&self) -> i64 {
-        if self.playing { self.position + (now_ms() - self.at).max(0) } else { self.position }
+        if self.playing {
+            self.position + (now_ms() - self.at).max(0)
+        } else {
+            self.position
+        }
     }
 }
 
 impl App {
     /// The room, while in one (or joining).
     pub fn room(&self) -> Option<watch::Receiver<Room>> {
-        self.inner.room.lock().expect("room").as_ref().map(|s| s.client.room())
+        self.inner
+            .room
+            .lock()
+            .expect("room")
+            .as_ref()
+            .map(|s| s.client.room())
     }
 
     /// Changes of being in a room or not (a counter): the UI starts or stops watching the room on it.
@@ -87,7 +104,12 @@ impl App {
     }
 
     fn room_client(&self) -> Option<Client> {
-        self.inner.room.lock().expect("room").as_ref().map(|s| s.client.clone())
+        self.inner
+            .room
+            .lock()
+            .expect("room")
+            .as_ref()
+            .map(|s| s.client.clone())
     }
 
     /// Creates a room (`code` None) or asks to join one, as `username`.
@@ -104,15 +126,26 @@ impl App {
             st.data.get(&me).and_then(|d| d.name.clone())
         };
         let name = match username.trim() {
-            "" => own().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "Drxwnify PC".into()),
+            "" => own()
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| "Drxwnify PC".into()),
             n => n.to_string(),
         };
         let name = name.as_str();
         let client = Client::start(drx_together::DEFAULT_SERVER, name, code, tx);
         let desired = watch::channel(Desired::default()).0;
         let tasks = vec![
-            self.runtime.spawn(events_task(self.clone(), client.clone(), rx, desired.clone())),
-            self.runtime.spawn(follow_task(self.clone(), client.clone(), desired.subscribe())),
+            self.runtime.spawn(events_task(
+                self.clone(),
+                client.clone(),
+                rx,
+                desired.clone(),
+            )),
+            self.runtime.spawn(follow_task(
+                self.clone(),
+                client.clone(),
+                desired.subscribe(),
+            )),
             self.runtime.spawn(host_task(self.clone(), client.clone())),
         ];
         *self.inner.room.lock().expect("room") = Some(RoomSession { client, tasks });
@@ -133,7 +166,11 @@ impl App {
 
     pub fn room_approve(&self, user_id: &str, yes: bool) {
         if let Some(c) = self.room_client() {
-            if yes { c.approve(user_id) } else { c.reject(user_id) }
+            if yes {
+                c.approve(user_id)
+            } else {
+                c.reject(user_id)
+            }
         }
     }
     pub fn room_kick(&self, user_id: &str) {
@@ -160,7 +197,11 @@ impl App {
     }
     pub fn room_answer_suggestion(&self, id: &str, yes: bool) {
         if let Some(c) = self.room_client() {
-            if yes { c.approve_suggestion(id) } else { c.reject_suggestion(id) }
+            if yes {
+                c.approve_suggestion(id)
+            } else {
+                c.reject_suggestion(id)
+            }
         }
     }
 
@@ -176,13 +217,22 @@ impl App {
 }
 
 /// The server's words: a guest's wanted state, the host's approved suggestions, the end of the room.
-async fn events_task(app: App, client: Client, mut rx: mpsc::UnboundedReceiver<Event>, desired: watch::Sender<Desired>) {
+async fn events_task(
+    app: App,
+    client: Client,
+    mut rx: mpsc::UnboundedReceiver<Event>,
+    desired: watch::Sender<Desired>,
+) {
     let room = client.room();
     while let Some(e) = rx.recv().await {
         let guest = room.borrow().role == Role::Guest;
         match e {
             Event::Joined(state) => {
-                let elapsed = if state.is_playing && state.last_update > 0 { (now_ms() - state.last_update).max(0) } else { 0 };
+                let elapsed = if state.is_playing && state.last_update > 0 {
+                    (now_ms() - state.last_update).max(0)
+                } else {
+                    0
+                };
                 desired.send_replace(Desired {
                     track: state.current_track,
                     playing: state.is_playing,
@@ -191,7 +241,11 @@ async fn events_task(app: App, client: Client, mut rx: mpsc::UnboundedReceiver<E
                 });
             }
             Event::SyncState(s) if guest => {
-                let elapsed = if s.is_playing && s.last_update > 0 { (now_ms() - s.last_update).max(0) } else { 0 };
+                let elapsed = if s.is_playing && s.last_update > 0 {
+                    (now_ms() - s.last_update).max(0)
+                } else {
+                    0
+                };
                 desired.send_replace(Desired {
                     track: s.current_track.or_else(|| desired.borrow().track.clone()),
                     playing: s.is_playing,
@@ -201,7 +255,11 @@ async fn events_task(app: App, client: Client, mut rx: mpsc::UnboundedReceiver<E
             }
             Event::Sync(a) if guest => {
                 let now = now_ms();
-                let lag = if a.server_time > 0 { (now - a.server_time).clamp(0, 5_000) } else { 0 };
+                let lag = if a.server_time > 0 {
+                    (now - a.server_time).clamp(0, 5_000)
+                } else {
+                    0
+                };
                 desired.send_modify(|d| match a.action.as_str() {
                     "change_track" => {
                         d.track = a.track_info.clone();
@@ -249,7 +307,9 @@ async fn follow_task(app: App, client: Client, mut desired: watch::Receiver<Desi
         if client.room().borrow().role != Role::Guest {
             continue;
         }
-        let Some(info) = d.track.clone() else { continue };
+        let Some(info) = d.track.clone() else {
+            continue;
+        };
         let playing = || app.now_playing().borrow().playing;
         if loaded.as_deref() != Some(info.id.as_str()) {
             loaded = Some(info.id.clone());
@@ -259,7 +319,12 @@ async fn follow_task(app: App, client: Client, mut desired: watch::Receiver<Desi
             app.play_tracks(vec![track], 0);
             let started = tokio::time::timeout(LOAD_WAIT, async {
                 loop {
-                    let same = app.now_playing().borrow().track.as_ref().is_some_and(|t| t.id == id);
+                    let same = app
+                        .now_playing()
+                        .borrow()
+                        .track
+                        .as_ref()
+                        .is_some_and(|t| t.id == id);
                     let c = app.clock();
                     if same && c.track.is_some() && c.playing {
                         return;
@@ -285,7 +350,11 @@ async fn follow_task(app: App, client: Client, mut desired: watch::Receiver<Desi
         }
         let mine = (app.clock().position_s * 1000.0) as i64;
         let theirs = d.position_now();
-        let tolerance = if d.playing && playing() { PLAYING_TOLERANCE_MS } else { PAUSED_TOLERANCE_MS };
+        let tolerance = if d.playing && playing() {
+            PLAYING_TOLERANCE_MS
+        } else {
+            PAUSED_TOLERANCE_MS
+        };
         if (mine - theirs).abs() > tolerance {
             app.seek(theirs as f64 / 1000.0);
         }
@@ -334,7 +403,12 @@ async fn host_task(app: App, client: Client) {
             tokio::time::sleep(Duration::from_millis(150)).await;
             if playing {
                 let pos = (app.clock().position_s * 1000.0) as i64;
-                client.playback(&PlaybackAction { action: "play".into(), track_id: info.id.clone(), position: pos, ..Default::default() });
+                client.playback(&PlaybackAction {
+                    action: "play".into(),
+                    track_id: info.id.clone(),
+                    position: pos,
+                    ..Default::default()
+                });
             }
             last_playing = playing;
             last_pos = Some((pos, now));
@@ -343,14 +417,24 @@ async fn host_task(app: App, client: Client) {
         if playing != last_playing {
             last_playing = playing;
             let action = if playing { "play" } else { "pause" };
-            client.playback(&PlaybackAction { action: action.into(), track_id: info.id.clone(), position: pos, ..Default::default() });
+            client.playback(&PlaybackAction {
+                action: action.into(),
+                track_id: info.id.clone(),
+                position: pos,
+                ..Default::default()
+            });
             last_pos = Some((pos, now));
             continue;
         }
         if let Some((p0, t0)) = last_pos {
             let expected = if playing { p0 + (now - t0) } else { p0 };
             if (pos - expected).abs() > 2_000 {
-                client.playback(&PlaybackAction { action: "seek".into(), track_id: info.id.clone(), position: pos, ..Default::default() });
+                client.playback(&PlaybackAction {
+                    action: "seek".into(),
+                    track_id: info.id.clone(),
+                    position: pos,
+                    ..Default::default()
+                });
             }
         }
         last_pos = Some((pos, now));

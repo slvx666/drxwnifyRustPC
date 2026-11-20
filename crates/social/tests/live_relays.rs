@@ -13,7 +13,9 @@ fn reads_android_events() {
     };
     let profile = drx_core::paths::Profile::at(dir);
     let vault = drx_core::secrets::Vault::load(&profile).expect("vault");
-    let sk = vault.shared("friends", "sk").expect("friends key in the vault");
+    let sk = vault
+        .shared("friends", "sk")
+        .expect("friends key in the vault");
     let keys = Keys::from_hex(sk).expect("key");
     let me = keys.public_hex();
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -23,7 +25,11 @@ fn reads_android_events() {
         vec![json!({"kinds":[KIND_APP_DATA],"authors":[me],"#d":["drxw:profile"]})],
         Duration::from_secs(12),
     ));
-    eprintln!("own profile events: {} (all valid: {})", own.len(), own.iter().all(|e| e.is_valid()));
+    eprintln!(
+        "own profile events: {} (all valid: {})",
+        own.len(),
+        own.iter().all(|e| e.is_valid())
+    );
     let personal = rt.block_on(pool.query(
         vec![json!({"kinds":[KIND_APP_DATA],"#p":[me],"limit":20})],
         Duration::from_secs(12),
@@ -33,8 +39,14 @@ fn reads_android_events() {
         .filter(|e| !e.content.is_empty())
         .filter(|e| keys.decrypt(&e.pubkey, &e.content).is_ok())
         .count();
-    eprintln!("fields addressed to me: {}, decrypted: {decrypted}", personal.len());
-    assert!(!own.is_empty(), "the phone's profile should be on the relays");
+    eprintln!(
+        "fields addressed to me: {}, decrypted: {decrypted}",
+        personal.len()
+    );
+    assert!(
+        !own.is_empty(),
+        "the phone's profile should be on the relays"
+    );
 }
 
 #[test]
@@ -59,7 +71,9 @@ fn follows_friends() {
     friends.start_live();
     rt.block_on(tokio::time::sleep(Duration::from_secs(15)));
     let st = friends.state().borrow().clone();
-    let count = |f: &dyn Fn(&drx_social::friends::FriendData) -> bool| st.data.values().filter(|d| f(d)).count();
+    let count = |f: &dyn Fn(&drx_social::friends::FriendData) -> bool| {
+        st.data.values().filter(|d| f(d)).count()
+    };
     eprintln!(
         "friends {} | with data {} | name {} | avatar {} | now {} | history {} | likes {} | requests {}",
         st.friends.len(),
@@ -83,7 +97,11 @@ fn reads_chats_both_ways() {
     let vault = drx_core::secrets::Vault::load(&profile).expect("vault");
     let keys = Keys::from_hex(vault.shared("friends", "sk").unwrap()).unwrap();
     let me = keys.public_hex();
-    let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64 - 30 * 86_400;
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        - 30 * 86_400;
     let rt = tokio::runtime::Runtime::new().unwrap();
     let pool = Pool::new(rt.handle());
     pool.set_signer(Some(keys.clone()));
@@ -94,8 +112,25 @@ fn reads_chats_both_ways() {
         ],
         Duration::from_secs(15),
     ));
-    let words: Vec<_> = events.iter().filter_map(|e| drx_social::chat::decode(&keys, e)).collect();
-    let msgs = |mine: bool| words.iter().filter(|w| w.mine == mine && matches!(w.payload, drx_social::chat::Payload::Message { .. })).count();
+    let words: Vec<_> = events
+        .iter()
+        .filter_map(|e| drx_social::chat::decode(&keys, e))
+        .collect();
+    let msgs = |mine: bool| {
+        words
+            .iter()
+            .filter(|w| {
+                w.mine == mine && matches!(w.payload, drx_social::chat::Payload::Message { .. })
+            })
+            .count()
+    };
     let peers: std::collections::HashSet<_> = words.iter().map(|w| w.peer.clone()).collect();
-    eprintln!("dm events {} | decoded {} | messages in {} out {} | chats {}", events.len(), words.len(), msgs(false), msgs(true), peers.len());
+    eprintln!(
+        "dm events {} | decoded {} | messages in {} out {} | chats {}",
+        events.len(),
+        words.len(),
+        msgs(false),
+        msgs(true),
+        peers.len()
+    );
 }

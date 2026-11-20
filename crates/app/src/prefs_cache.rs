@@ -50,7 +50,10 @@ fn size_of(v: &PrefValue) -> usize {
 }
 
 fn read_light(path: &std::path::Path) -> Prefs {
-    let mut p = std::fs::read(path).ok().and_then(|b| Prefs::decode(&b).ok()).unwrap_or_default();
+    let mut p = std::fs::read(path)
+        .ok()
+        .and_then(|b| Prefs::decode(&b).ok())
+        .unwrap_or_default();
     p.values.retain(|_, v| size_of(v) <= BIG_VALUE);
     p
 }
@@ -59,30 +62,43 @@ impl PrefsCache {
     pub(crate) fn new(path: PathBuf) -> Self {
         let shared = Arc::new(Shared {
             path,
-            state: Mutex::new(State { stamp: None, loaded: false, prefs: Arc::default() }),
+            state: Mutex::new(State {
+                stamp: None,
+                loaded: false,
+                prefs: Arc::default(),
+            }),
             pending: AtomicUsize::new(0),
         });
         let (tx, rx) = mpsc::channel::<(String, PrefValue)>();
         let s = shared.clone();
-        let _ = std::thread::Builder::new().name("drx-prefs".into()).stack_size(256 * 1024).spawn(move || {
-            while let Ok((key, value)) = rx.recv() {
-                let mut prefs = std::fs::read(&s.path).ok().and_then(|b| Prefs::decode(&b).ok()).unwrap_or_default();
-                prefs.set(key, value);
-                // Everything else already queued goes into the same write.
-                while let Ok((k, v)) = rx.try_recv() {
-                    prefs.set(k, v);
+        let _ = std::thread::Builder::new()
+            .name("drx-prefs".into())
+            .stack_size(256 * 1024)
+            .spawn(move || {
+                while let Ok((key, value)) = rx.recv() {
+                    let mut prefs = std::fs::read(&s.path)
+                        .ok()
+                        .and_then(|b| Prefs::decode(&b).ok())
+                        .unwrap_or_default();
+                    prefs.set(key, value);
+                    // Everything else already queued goes into the same write.
+                    while let Ok((k, v)) = rx.try_recv() {
+                        prefs.set(k, v);
+                        s.pending.fetch_sub(1, Ordering::AcqRel);
+                    }
+                    if let Err(e) = drx_core::paths::write_atomic(&s.path, &prefs.encode()) {
+                        eprintln!("settings not saved: {e}");
+                    }
+                    // The file now holds what memory holds: remember its stamp so it is not read back.
+                    let mut st = s.state.lock().expect("prefs");
+                    st.stamp = stamp_of(&s.path);
                     s.pending.fetch_sub(1, Ordering::AcqRel);
                 }
-                if let Err(e) = drx_core::paths::write_atomic(&s.path, &prefs.encode()) {
-                    eprintln!("settings not saved: {e}");
-                }
-                // The file now holds what memory holds: remember its stamp so it is not read back.
-                let mut st = s.state.lock().expect("prefs");
-                st.stamp = stamp_of(&s.path);
-                s.pending.fetch_sub(1, Ordering::AcqRel);
-            }
-        });
-        PrefsCache { shared, tx: Mutex::new(tx) }
+            });
+        PrefsCache {
+            shared,
+            tx: Mutex::new(tx),
+        }
     }
 
     /// The settings now (cheap: one file stat unless the file changed).
@@ -117,7 +133,13 @@ impl PrefsCache {
             }
             s.pending.fetch_add(1, Ordering::AcqRel);
         }
-        if self.tx.lock().expect("prefs tx").send((key.to_string(), value)).is_err() {
+        if self
+            .tx
+            .lock()
+            .expect("prefs tx")
+            .send((key.to_string(), value))
+            .is_err()
+        {
             s.pending.fetch_sub(1, Ordering::AcqRel);
         }
     }
@@ -147,16 +169,26 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("settings.preferences_pb");
         let mut p = Prefs::default();
-        p.set("big", PrefValue::StringSet((0..5000).map(|i| format!("content://song/{i}")).collect()));
+        p.set(
+            "big",
+            PrefValue::StringSet((0..5000).map(|i| format!("content://song/{i}")).collect()),
+        );
         p.set("a", PrefValue::Bool(true));
         drx_core::paths::write_atomic(&path, &p.encode()).unwrap();
 
         let c = PrefsCache::new(path.clone());
         assert_eq!(c.get().get_bool("a"), Some(true));
-        assert!(c.get().get("big").is_none(), "big values stay out of memory");
+        assert!(
+            c.get().get("big").is_none(),
+            "big values stay out of memory"
+        );
         c.set("a", PrefValue::Bool(false));
         c.set("b", PrefValue::String("x".into()));
-        assert_eq!(c.get().get_bool("a"), Some(false), "a change is seen at once");
+        assert_eq!(
+            c.get().get_bool("a"),
+            Some(false),
+            "a change is seen at once"
+        );
         c.flush(Duration::from_secs(5));
         let on_disk = Prefs::decode(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(on_disk.get_bool("a"), Some(false));

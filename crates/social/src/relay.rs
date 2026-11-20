@@ -111,7 +111,11 @@ impl Pool {
     /// Publishes to every relay; resolves with how many accepted it within `wait` (0 = none or no answer).
     pub async fn publish(&self, event: &Event, wait: Duration) -> usize {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        self.shared.acks.lock().expect("acks").insert(event.id.clone(), tx);
+        self.shared
+            .acks
+            .lock()
+            .expect("acks")
+            .insert(event.id.clone(), tx);
         self.broadcast(json!(["EVENT", event]).to_string());
         let mut ok = 0;
         let deadline = tokio::time::Instant::now() + wait;
@@ -216,7 +220,8 @@ struct Bucket {
 impl Bucket {
     fn wait(&mut self) -> Duration {
         let now = Instant::now();
-        self.tokens = (self.tokens + now.duration_since(self.at).as_secs_f64() * PER_SECOND).min(BURST);
+        self.tokens =
+            (self.tokens + now.duration_since(self.at).as_secs_f64() * PER_SECOND).min(BURST);
         self.at = now;
         if self.tokens >= 1.0 {
             self.tokens -= 1.0;
@@ -227,7 +232,8 @@ impl Bucket {
     }
 }
 
-type Socket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+type Socket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 async fn relay_task(url: String, mut rx: mpsc::UnboundedReceiver<String>, shared: Weak<Shared>) {
     let mut failures: u32 = 0;
@@ -246,7 +252,12 @@ async fn relay_task(url: String, mut rx: mpsc::UnboundedReceiver<String>, shared
         if queue.is_empty() {
             continue;
         }
-        let socket = match tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(url.as_str())).await {
+        let socket = match tokio::time::timeout(
+            CONNECT_TIMEOUT,
+            tokio_tungstenite::connect_async(url.as_str()),
+        )
+        .await
+        {
             Ok(Ok((s, _))) => s,
             _ => {
                 failures += 1;
@@ -317,7 +328,10 @@ async fn run_socket(
     shared: &Weak<Shared>,
 ) -> Result<(), ()> {
     let (mut write, mut read) = socket.split();
-    let mut bucket = Bucket { tokens: BURST, at: Instant::now() };
+    let mut bucket = Bucket {
+        tokens: BURST,
+        at: Instant::now(),
+    };
     let mut last_activity = Instant::now();
     let mut waiting_auth: Vec<String> = Vec::new();
     let mut auth_id: Option<String> = None;
@@ -334,7 +348,11 @@ async fn run_socket(
             queue.pop_front();
             last_activity = Instant::now();
         }
-        let pace = if queue.is_empty() { Duration::from_secs(5) } else { Duration::from_millis(130) };
+        let pace = if queue.is_empty() {
+            Duration::from_secs(5)
+        } else {
+            Duration::from_millis(130)
+        };
         tokio::select! {
             m = rx.recv() => match m {
                 Some(m) => queue.push_back(m),
@@ -366,11 +384,17 @@ fn handle_message(
     waiting_auth: &mut Vec<String>,
     auth_id: &mut Option<String>,
 ) {
-    let Ok(Value::Array(a)) = serde_json::from_str::<Value>(text) else { return };
+    let Ok(Value::Array(a)) = serde_json::from_str::<Value>(text) else {
+        return;
+    };
     match a.first().and_then(Value::as_str) {
         Some("EVENT") => {
-            let (Some(sub), Some(ev)) = (a.get(1).and_then(Value::as_str), a.get(2)) else { return };
-            let Ok(ev) = serde_json::from_value::<Event>(ev.clone()) else { return };
+            let (Some(sub), Some(ev)) = (a.get(1).and_then(Value::as_str), a.get(2)) else {
+                return;
+            };
+            let Ok(ev) = serde_json::from_value::<Event>(ev.clone()) else {
+                return;
+            };
             {
                 let mut seen = sh.seen.lock().expect("seen");
                 if seen.0.contains(&ev.id) {
@@ -392,7 +416,11 @@ fn handle_message(
             }
         }
         Some("EOSE") => {
-            if let Some(s) = a.get(1).and_then(Value::as_str).and_then(|id| sh.subs.lock().expect("subs").get(id).map(|s| s.tx.clone())) {
+            if let Some(s) = a
+                .get(1)
+                .and_then(Value::as_str)
+                .and_then(|id| sh.subs.lock().expect("subs").get(id).map(|s| s.tx.clone()))
+            {
                 let _ = s.send(SubEvent::Done);
             }
         }
@@ -419,8 +447,12 @@ fn handle_message(
             }
         }
         Some("AUTH") => {
-            let Some(challenge) = a.get(1).and_then(Value::as_str) else { return };
-            let Some(keys) = sh.signer.lock().expect("signer").clone() else { return };
+            let Some(challenge) = a.get(1).and_then(Value::as_str) else {
+                return;
+            };
+            let Some(keys) = sh.signer.lock().expect("signer").clone() else {
+                return;
+            };
             let ev = keys.sign(
                 22242,
                 vec![
@@ -451,5 +483,8 @@ fn handle_message(
 
 /// Waits for a value from a oneshot with a deadline (helper for callers).
 pub async fn within<T>(rx: oneshot::Receiver<T>, wait: Duration) -> Option<T> {
-    tokio::time::timeout(wait, rx).await.ok().and_then(Result::ok)
+    tokio::time::timeout(wait, rx)
+        .await
+        .ok()
+        .and_then(Result::ok)
 }

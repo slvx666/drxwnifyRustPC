@@ -27,55 +27,259 @@ fn lastfm_key() -> Option<String> {
 }
 
 const NOT_GENRES: &[&str] = &[
-    "seen live", "favorite", "favourite", "vocalist", "female", "male", "love", "awesome", "beautiful",
-    "best", "my ", "albums i own", "spotify", "under 2000", "check out", "amazing", "cool", "good",
-    "sexy", "cover", "soundtrack of my", "listen", "artist", "band", "singer", "songwriter", "russian",
-    "american", "british", "german", "japanese", "french", "swedish", "finnish", "norwegian", "polish",
-    "ukrainian", "canadian", "australian", "uk", "usa", "russia", "moscow", "london", "tiktok", "meme",
+    "seen live",
+    "favorite",
+    "favourite",
+    "vocalist",
+    "female",
+    "male",
+    "love",
+    "awesome",
+    "beautiful",
+    "best",
+    "my ",
+    "albums i own",
+    "spotify",
+    "under 2000",
+    "check out",
+    "amazing",
+    "cool",
+    "good",
+    "sexy",
+    "cover",
+    "soundtrack of my",
+    "listen",
+    "artist",
+    "band",
+    "singer",
+    "songwriter",
+    "russian",
+    "american",
+    "british",
+    "german",
+    "japanese",
+    "french",
+    "swedish",
+    "finnish",
+    "norwegian",
+    "polish",
+    "ukrainian",
+    "canadian",
+    "australian",
+    "uk",
+    "usa",
+    "russia",
+    "moscow",
+    "london",
+    "tiktok",
+    "meme",
 ];
 
 const GENRE_WORDS: &[&str] = &[
-    "rock", "metal", "pop", "core", "wave", "gaze", "hop", "rap", "jazz", "techno", "house", "trance",
-    "step", "bass", "punk", "folk", "soul", "funk", "blues", "ambient", "electro", "drum", "dnb",
-    "industrial", "noise", "grunge", "emo", "indie", "alternative", "psych", "prog", "post-", "black",
-    "death", "doom", "sludge", "stoner", "thrash", "grind", "garage", "disco", "synth", "idm", "glitch",
-    "lo-fi", "lofi", "chill", "trip", "breakbeat", "breaks", "jungle", "footwork", "juke", "dub",
-    "reggae", "ska", "r&b", "rnb", "classical", "orchestral", "soundtrack", "chanson", "k-pop",
-    "j-pop", "phonk", "drill", "trap", "grime", "hyperpop", "plunderphonics", "vapor", "witch house",
-    "minimal", "experimental", "avant", "country", "bluegrass", "latin", "salsa", "cumbia",
-    "reggaeton", "afro", "bossa", "slowcore", "math", "screamo", "gothic", "goth", "ebm", "hardstyle",
-    "gabber", "hardcore", "shoegaze", "dream", "darkwave", "coldwave", "electronic", "dance", "edm",
-    "downtempo", "trip-hop", "acoustic", "singer-songwriter", "new age", "world", "gospel", "opera",
-    "neoclassical", "art pop", "bedroom", "cloud rap", "emo rap", "jersey club", "bossa nova",
-    "nu jazz", "fusion", "swing", "big band", "chiptune", "8-bit", "vgm", "anime", "city pop",
-    "krautrock", "zeuhl", "ethereal", "dark ambient", "drone", "musique concrete", "breakcore",
-    "speedcore", "digital hardcore", "witch", "horrorcore", "crunk", "g-funk", "boom bap",
+    "rock",
+    "metal",
+    "pop",
+    "core",
+    "wave",
+    "gaze",
+    "hop",
+    "rap",
+    "jazz",
+    "techno",
+    "house",
+    "trance",
+    "step",
+    "bass",
+    "punk",
+    "folk",
+    "soul",
+    "funk",
+    "blues",
+    "ambient",
+    "electro",
+    "drum",
+    "dnb",
+    "industrial",
+    "noise",
+    "grunge",
+    "emo",
+    "indie",
+    "alternative",
+    "psych",
+    "prog",
+    "post-",
+    "black",
+    "death",
+    "doom",
+    "sludge",
+    "stoner",
+    "thrash",
+    "grind",
+    "garage",
+    "disco",
+    "synth",
+    "idm",
+    "glitch",
+    "lo-fi",
+    "lofi",
+    "chill",
+    "trip",
+    "breakbeat",
+    "breaks",
+    "jungle",
+    "footwork",
+    "juke",
+    "dub",
+    "reggae",
+    "ska",
+    "r&b",
+    "rnb",
+    "classical",
+    "orchestral",
+    "soundtrack",
+    "chanson",
+    "k-pop",
+    "j-pop",
+    "phonk",
+    "drill",
+    "trap",
+    "grime",
+    "hyperpop",
+    "plunderphonics",
+    "vapor",
+    "witch house",
+    "minimal",
+    "experimental",
+    "avant",
+    "country",
+    "bluegrass",
+    "latin",
+    "salsa",
+    "cumbia",
+    "reggaeton",
+    "afro",
+    "bossa",
+    "slowcore",
+    "math",
+    "screamo",
+    "gothic",
+    "goth",
+    "ebm",
+    "hardstyle",
+    "gabber",
+    "hardcore",
+    "shoegaze",
+    "dream",
+    "darkwave",
+    "coldwave",
+    "electronic",
+    "dance",
+    "edm",
+    "downtempo",
+    "trip-hop",
+    "acoustic",
+    "singer-songwriter",
+    "new age",
+    "world",
+    "gospel",
+    "opera",
+    "neoclassical",
+    "art pop",
+    "bedroom",
+    "cloud rap",
+    "emo rap",
+    "jersey club",
+    "bossa nova",
+    "nu jazz",
+    "fusion",
+    "swing",
+    "big band",
+    "chiptune",
+    "8-bit",
+    "vgm",
+    "anime",
+    "city pop",
+    "krautrock",
+    "zeuhl",
+    "ethereal",
+    "dark ambient",
+    "drone",
+    "musique concrete",
+    "breakcore",
+    "speedcore",
+    "digital hardcore",
+    "witch",
+    "horrorcore",
+    "crunk",
+    "g-funk",
+    "boom bap",
 ];
 
 const ALIASES: &[(&str, &str)] = &[
-    ("hip hop", "hip-hop"), ("hiphop", "hip-hop"), ("rnb", "r&b"), ("rhythm and blues", "r&b"),
-    ("drum n bass", "drum and bass"), ("drum & bass", "drum and bass"), ("dnb", "drum and bass"),
-    ("drum'n'bass", "drum and bass"), ("lofi", "lo-fi"), ("lo fi", "lo-fi"), ("electronica", "electronic"),
-    ("post rock", "post-rock"), ("post punk", "post-punk"), ("post metal", "post-metal"),
-    ("post hardcore", "post-hardcore"), ("trip hop", "trip-hop"), ("nu-metal", "nu metal"),
-    ("alt rock", "alternative rock"), ("alternative", "alternative rock"), ("dream-pop", "dream pop"),
-    ("synth pop", "synthpop"), ("synth-pop", "synthpop"), ("edm", "electronic dance"),
-    ("black-metal", "black metal"), ("death-metal", "death metal"), ("witchhouse", "witch house"),
-    ("shoegazer", "shoegaze"), ("blackgaze", "blackgaze"), ("rap", "hip-hop"),
+    ("hip hop", "hip-hop"),
+    ("hiphop", "hip-hop"),
+    ("rnb", "r&b"),
+    ("rhythm and blues", "r&b"),
+    ("drum n bass", "drum and bass"),
+    ("drum & bass", "drum and bass"),
+    ("dnb", "drum and bass"),
+    ("drum'n'bass", "drum and bass"),
+    ("lofi", "lo-fi"),
+    ("lo fi", "lo-fi"),
+    ("electronica", "electronic"),
+    ("post rock", "post-rock"),
+    ("post punk", "post-punk"),
+    ("post metal", "post-metal"),
+    ("post hardcore", "post-hardcore"),
+    ("trip hop", "trip-hop"),
+    ("nu-metal", "nu metal"),
+    ("alt rock", "alternative rock"),
+    ("alternative", "alternative rock"),
+    ("dream-pop", "dream pop"),
+    ("synth pop", "synthpop"),
+    ("synth-pop", "synthpop"),
+    ("edm", "electronic dance"),
+    ("black-metal", "black metal"),
+    ("death-metal", "death metal"),
+    ("witchhouse", "witch house"),
+    ("shoegazer", "shoegaze"),
+    ("blackgaze", "blackgaze"),
+    ("rap", "hip-hop"),
 ];
 
 const UPPER: &[&str] = &["idm", "ebm", "edm", "r&b", "uk", "dnb", "vgm", "8-bit"];
 
 /// Words that make a subgenre of the genre after them ("Symphonic Deathcore" is Deathcore).
 const MODIFIERS: &[&str] = &[
-    "progressive", "symphonic", "technical", "brutal", "blackened", "melodic", "atmospheric", "modern",
-    "epic", "slam", "orchestral", "cinematic", "raw", "old", "school", "old-school", "dissonant", "mathy",
-    "experimental", "avant-garde",
+    "progressive",
+    "symphonic",
+    "technical",
+    "brutal",
+    "blackened",
+    "melodic",
+    "atmospheric",
+    "modern",
+    "epic",
+    "slam",
+    "orchestral",
+    "cinematic",
+    "raw",
+    "old",
+    "school",
+    "old-school",
+    "dissonant",
+    "mathy",
+    "experimental",
+    "avant-garde",
 ];
 
 /// The display form of a tag when it is a genre (Genres.normalize), else None.
 pub fn normalize(raw: &str, artist: &str) -> Option<String> {
-    let mut tag = raw.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let mut tag = raw
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
     if tag.is_empty() || tag == artist || tag.chars().count() > 30 {
         return None;
     }
@@ -267,7 +471,11 @@ impl App {
 
     async fn genres_from_lastfm(&self, artist: &str) -> Option<Vec<String>> {
         let v = self
-            .lastfm_get(&[("method", "artist.gettoptags"), ("artist", artist), ("autocorrect", "1")])
+            .lastfm_get(&[
+                ("method", "artist.gettoptags"),
+                ("artist", artist),
+                ("autocorrect", "1"),
+            ])
             .await?;
         let tags = v
             .get("toptags")
@@ -307,7 +515,10 @@ impl App {
         let req = self
             .inner
             .http
-            .request(drx_core::http::Method::GET, "https://musicbrainz.org/ws/2/artist/")
+            .request(
+                drx_core::http::Method::GET,
+                "https://musicbrainz.org/ws/2/artist/",
+            )
             .query(&[("query", query.as_str()), ("limit", "1"), ("fmt", "json")])
             .header("User-Agent", MUSICBRAINZ_UA)
             .timeout(Duration::from_secs(10));
@@ -318,7 +529,11 @@ impl App {
         if first.get("score").and_then(|s| s.as_i64()).unwrap_or(0) < 90 {
             return Some(Vec::new());
         }
-        let tags = first.get("tags").and_then(|t| t.as_array()).cloned().unwrap_or_default();
+        let tags = first
+            .get("tags")
+            .and_then(|t| t.as_array())
+            .cloned()
+            .unwrap_or_default();
         Some(pick(
             tags.iter()
                 .filter_map(|t| {
@@ -336,15 +551,27 @@ impl App {
     /// The genre's most tagged artists on Last.fm (up to 250), as normalized names (letters and digits).
     pub async fn genre_top_artists(&self, genre: &str) -> std::collections::HashSet<String> {
         let tag = lastfm_tag(genre);
-        let safe: String = tag.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
-        let file = self.profile().cache_dir().join(format!("genre_artists_{safe}.json"));
+        let safe: String = tag
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        let file = self
+            .profile()
+            .cache_dir()
+            .join(format!("genre_artists_{safe}.json"));
         let now = crate::songs::now_ms();
-        let kept: Option<TopArtists> = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok());
+        let kept: Option<TopArtists> = std::fs::read(&file)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok());
         let names = match kept {
             Some(k) if now - k.at < ARTISTS_TTL_MS && !k.names.is_empty() => k.names,
             kept => {
                 let fresh: Option<Vec<String>> = self
-                    .lastfm_get(&[("method", "tag.gettopartists"), ("tag", &tag), ("limit", "250")])
+                    .lastfm_get(&[
+                        ("method", "tag.gettopartists"),
+                        ("tag", &tag),
+                        ("limit", "250"),
+                    ])
                     .await
                     .map(|v| {
                         v.get("topartists")
@@ -361,7 +588,11 @@ impl App {
                     Some(n) if !n.is_empty() => {
                         let _ = drx_core::paths::write_atomic(
                             &file,
-                            &serde_json::to_vec(&TopArtists { at: now, names: n.clone() }).unwrap_or_default(),
+                            &serde_json::to_vec(&TopArtists {
+                                at: now,
+                                names: n.clone(),
+                            })
+                            .unwrap_or_default(),
                         );
                         n
                     }
@@ -375,7 +606,10 @@ impl App {
 
 /// Letters and digits in lower case.
 pub(crate) fn norm(s: &str) -> String {
-    s.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect()
+    s.to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect()
 }
 
 #[cfg(test)]
@@ -391,7 +625,10 @@ mod tests {
         assert_eq!(normalize("female vocalists", ""), None);
         assert_eq!(normalize("idm", ""), Some("IDM".into()));
         assert_eq!(normalize("Deathcore", "deathcore"), None);
-        assert_eq!(normalize("melodic death metal", ""), Some("Melodic Death Metal".into()));
+        assert_eq!(
+            normalize("melodic death metal", ""),
+            Some("Melodic Death Metal".into())
+        );
     }
 
     #[test]

@@ -5,8 +5,8 @@
 //! A test run (a test copy of the profile, `drx_core::paths::test_run`) is the same identity as the owner: it
 //! publishes nothing unless DRX_SOCIAL_PUBLISH is set, so checks never show friends what a test played.
 
-use crate::songs::{catalog_id_fast, song_id_of};
 use crate::App;
+use crate::songs::{catalog_id_fast, song_id_of};
 use drx_catalog::model::{AlbumRef, ArtistRef, Image, Track};
 use drx_social::friends::{Friends, FriendsState, NowPlaying, Saved, TrackRef};
 use std::time::Duration;
@@ -56,12 +56,18 @@ pub fn track_of(r: &TrackRef) -> Track {
             .artist
             .split(", ")
             .filter(|a| !a.is_empty())
-            .map(|a| ArtistRef { id: String::new(), name: a.to_string() })
+            .map(|a| ArtistRef {
+                id: String::new(),
+                name: a.to_string(),
+            })
             .collect(),
         album: r.cover.as_ref().map(|c| AlbumRef {
             id: String::new(),
             name: String::new(),
-            images: vec![Image { url: c.clone(), width: Some(300) }],
+            images: vec![Image {
+                url: c.clone(),
+                width: Some(300),
+            }],
         }),
         duration_ms: r.duration_ms.max(0) as u64,
         isrc: None,
@@ -77,12 +83,17 @@ impl App {
             .friends
             .get_or_init(|| {
                 let vault = drx_core::secrets::Vault::load(&self.inner.profile).ok()?;
-                let sk = vault.shared(drx_core::keys::sp::FRIENDS, drx_core::keys::sp::FRIENDS_SECRET_KEY)?;
+                let sk = vault.shared(
+                    drx_core::keys::sp::FRIENDS,
+                    drx_core::keys::sp::FRIENDS_SECRET_KEY,
+                )?;
                 let keys = drx_social::nostr::Keys::from_hex(sk).ok()?;
-                let sp = std::fs::read_to_string(self.inner.profile.shared_prefs(drx_core::keys::sp::FRIENDS))
-                    .ok()
-                    .and_then(|x| drx_core::shared_prefs::SharedPrefs::parse(&x).ok())
-                    .unwrap_or_default();
+                let sp = std::fs::read_to_string(
+                    self.inner.profile.shared_prefs(drx_core::keys::sp::FRIENDS),
+                )
+                .ok()
+                .and_then(|x| drx_core::shared_prefs::SharedPrefs::parse(&x).ok())
+                .unwrap_or_default();
                 let set = |k: &str| match sp.values.get(k) {
                     Some(drx_core::shared_prefs::SpValue::Set(v)) => v.clone(),
                     _ => Vec::new(),
@@ -159,7 +170,9 @@ impl App {
         if !may_publish() {
             return;
         }
-        let Some(friends) = self.friends() else { return };
+        let Some(friends) = self.friends() else {
+            return;
+        };
         let mut pending = self.inner.history_publish.lock().expect("history publish");
         if let Some(t) = pending.take() {
             t.abort();
@@ -189,13 +202,20 @@ impl App {
     /// a narrowed field is cleared for those who saw it.
     pub fn set_privacy(&self, p: drx_social::friends::Privacy) {
         let Some(f) = self.friends() else { return };
-        let old = self.shared(drx_core::keys::sp::FRIENDS).get_str("privacy").map(str::to_string);
+        let old = self
+            .shared(drx_core::keys::sp::FRIENDS)
+            .get_str("privacy")
+            .map(str::to_string);
         let json = p.merge_json(old.as_deref());
         self.edit_shared_prefs(drx_core::keys::sp::FRIENDS, move |sp| {
-            sp.values.insert("privacy".into(), drx_core::shared_prefs::SpValue::String(json));
+            sp.values.insert(
+                "privacy".into(),
+                drx_core::shared_prefs::SpValue::String(json),
+            );
         });
         let publish = may_publish();
-        self.runtime.spawn(async move { f.set_privacy(p, publish).await });
+        self.runtime
+            .spawn(async move { f.set_privacy(p, publish).await });
     }
 
     /// «Уведомления о сообщениях» (chat.xml `notify`, as ChatHub).
@@ -208,28 +228,39 @@ impl App {
 
     pub fn set_chat_notify(&self, on: bool) {
         self.edit_shared_prefs("chat", move |sp| {
-            sp.values.insert("notify".into(), drx_core::shared_prefs::SpValue::Bool(on));
+            sp.values
+                .insert("notify".into(), drx_core::shared_prefs::SpValue::Bool(on));
         });
     }
 
     fn save_friends(&self, f: &Friends) {
         let (list, dismissed) = (f.friends_json(), f.dismissed());
         self.edit_shared_prefs(drx_core::keys::sp::FRIENDS, move |p| {
-            p.values.insert("friends".into(), drx_core::shared_prefs::SpValue::String(list));
-            p.values.insert("dismissed".into(), drx_core::shared_prefs::SpValue::Set(dismissed));
+            p.values.insert(
+                "friends".into(),
+                drx_core::shared_prefs::SpValue::String(list),
+            );
+            p.values.insert(
+                "dismissed".into(),
+                drx_core::shared_prefs::SpValue::Set(dismissed),
+            );
         });
     }
 
     /// Adds a friend by code (npub / hex), invite link or accepted request. Err = not a profile code.
     pub async fn add_friend(&self, code: &str, name: &str) -> crate::AppResult<()> {
-        let f = self.friends().ok_or_else(|| crate::AppError::Other("нет профиля друзей".into()))?;
+        let f = self
+            .friends()
+            .ok_or_else(|| crate::AppError::Other("нет профиля друзей".into()))?;
         let text = code.trim();
         let key = text.rsplit('/').next().unwrap_or(text);
         let key = key.split('?').next().unwrap_or(key);
         let pubkey = drx_social::nostr::pubkey_from_text(key)
             .ok_or_else(|| crate::AppError::Other("это не код профиля".into()))?;
         if !may_publish() {
-            return Err(crate::AppError::Other("в тестовом запуске друзей не добавляю".into()));
+            return Err(crate::AppError::Other(
+                "в тестовом запуске друзей не добавляю".into(),
+            ));
         }
         f.add_friend(&pubkey, name, drx_core::APP_VERSION).await;
         self.save_friends(&f);
@@ -246,9 +277,13 @@ impl App {
 
     /// Removes a friend (their data cleared on the relays too). A test run never does it.
     pub async fn remove_friend(&self, pubkey: &str) -> crate::AppResult<()> {
-        let f = self.friends().ok_or_else(|| crate::AppError::Other("нет профиля друзей".into()))?;
+        let f = self
+            .friends()
+            .ok_or_else(|| crate::AppError::Other("нет профиля друзей".into()))?;
         if !may_publish() {
-            return Err(crate::AppError::Other("в тестовом запуске друзей не удаляю".into()));
+            return Err(crate::AppError::Other(
+                "в тестовом запуске друзей не удаляю".into(),
+            ));
         }
         if self.listening_along().as_deref() == Some(pubkey) {
             self.stop_listen_along();

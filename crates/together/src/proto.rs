@@ -427,7 +427,10 @@ pub fn open(data: &[u8]) -> Option<(String, Vec<u8>)> {
     }
     if compressed {
         let mut out = Vec::new();
-        if flate2::read::GzDecoder::new(payload.as_slice()).read_to_end(&mut out).is_ok() {
+        if flate2::read::GzDecoder::new(payload.as_slice())
+            .read_to_end(&mut out)
+            .is_ok()
+        {
             payload = out;
         }
     }
@@ -444,8 +447,19 @@ mod tests {
             action: "change_track".into(),
             track_id: "abc".into(),
             position: 123_456,
-            track_info: Some(TrackInfo { id: "abc".into(), title: "Т".into(), duration: 200_000, ..Default::default() }),
-            queue: vec![TrackInfo { id: "q".into(), ..Default::default() }; 3],
+            track_info: Some(TrackInfo {
+                id: "abc".into(),
+                title: "Т".into(),
+                duration: 200_000,
+                ..Default::default()
+            }),
+            queue: vec![
+                TrackInfo {
+                    id: "q".into(),
+                    ..Default::default()
+                };
+                3
+            ],
             volume: 0.5,
             revision: 7,
             ..Default::default()
@@ -454,7 +468,10 @@ mod tests {
         let (kind, payload) = open(&bytes).unwrap();
         assert_eq!(kind, "playback_action");
         assert_eq!(PlaybackAction::read(&payload), a);
-        assert_eq!(strings(&write_strings(&["ROOM1234", "", "tok"]).0), vec!["ROOM1234", "", "tok"]);
+        assert_eq!(
+            strings(&write_strings(&["ROOM1234", "", "tok"]).0),
+            vec!["ROOM1234", "", "tok"]
+        );
     }
 
     #[test]

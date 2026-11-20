@@ -9,7 +9,7 @@
 //! close to their favourites in that genre, kept to the genre by Last.fm). Not ported yet: Last.fm agreement for
 //! related artists.
 
-use crate::lists::{SongRow, SONG_COVER};
+use crate::lists::{SONG_COVER, SongRow};
 use crate::playback::Playable;
 use crate::{App, AppError, AppResult};
 use drx_catalog::model::{ArtistPage, Image, Source, Track};
@@ -755,11 +755,34 @@ impl App {
     /// played.
     async fn genre_stats(&self, taste: &Taste) -> (Vec<String>, HashMap<String, Vec<String>>) {
         const UMBRELLA: &[&str] = &[
-            "metal", "rock", "pop", "hip-hop", "electronic", "alternative rock", "alternative", "indie",
-            "punk", "dance", "experimental", "electronic dance", "hard rock", "heavy metal", "soundtrack",
-            "classical", "jazz", "folk", "r&b", "soul", "rap",
+            "metal",
+            "rock",
+            "pop",
+            "hip-hop",
+            "electronic",
+            "alternative rock",
+            "alternative",
+            "indie",
+            "punk",
+            "dance",
+            "experimental",
+            "electronic dance",
+            "hard rock",
+            "heavy metal",
+            "soundtrack",
+            "classical",
+            "jazz",
+            "folk",
+            "r&b",
+            "soul",
+            "rap",
         ];
-        let mut artists: Vec<String> = taste.favorites.iter().take(40).map(|f| f.name.clone()).collect();
+        let mut artists: Vec<String> = taste
+            .favorites
+            .iter()
+            .take(40)
+            .map(|f| f.name.clone())
+            .collect();
         let mut by_plays: Vec<(&String, &f64)> = taste.plays.iter().collect();
         by_plays.sort_by(|a, b| b.1.total_cmp(a.1));
         for (k, _) in by_plays.into_iter().take(30) {
@@ -768,10 +791,16 @@ impl App {
             }
         }
         self.ensure_genres(&artists).await;
-        let fav_score: HashMap<String, f64> =
-            taste.favorites.iter().map(|f| (f.name.to_lowercase(), f.score)).collect();
-        let (mut love, mut like, mut play) =
-            (HashMap::<String, f64>::new(), HashMap::<String, f64>::new(), HashMap::<String, f64>::new());
+        let fav_score: HashMap<String, f64> = taste
+            .favorites
+            .iter()
+            .map(|f| (f.name.to_lowercase(), f.score))
+            .collect();
+        let (mut love, mut like, mut play) = (
+            HashMap::<String, f64>::new(),
+            HashMap::<String, f64>::new(),
+            HashMap::<String, f64>::new(),
+        );
         let mut artists_of: HashMap<String, Vec<String>> = HashMap::new();
         for name in &artists {
             let key = name.to_lowercase();
@@ -790,9 +819,12 @@ impl App {
                 .collect();
             for (i, g) in genres.iter().enumerate() {
                 let part = if i == 0 { 1.0 } else { 0.5 };
-                *love.entry(g.clone()).or_default() += fav_score.get(&key).copied().unwrap_or(0.0) * part;
-                *like.entry(g.clone()).or_default() += taste.likes.get(&key).copied().unwrap_or(0.0) * part;
-                *play.entry(g.clone()).or_default() += taste.plays.get(&key).copied().unwrap_or(0.0) * part;
+                *love.entry(g.clone()).or_default() +=
+                    fav_score.get(&key).copied().unwrap_or(0.0) * part;
+                *like.entry(g.clone()).or_default() +=
+                    taste.likes.get(&key).copied().unwrap_or(0.0) * part;
+                *play.entry(g.clone()).or_default() +=
+                    taste.plays.get(&key).copied().unwrap_or(0.0) * part;
                 artists_of.entry(g.clone()).or_default().push(name.clone());
             }
         }
@@ -801,17 +833,23 @@ impl App {
         let total_likes = like.values().sum::<f64>().max(1.0);
         let mut top: Vec<(String, f64)> = love
             .keys()
-            .map(|g| (g.clone(), love[g] / total_love + play.get(g).copied().unwrap_or(0.0) / total_plays))
+            .map(|g| {
+                (
+                    g.clone(),
+                    love[g] / total_love + play.get(g).copied().unwrap_or(0.0) / total_plays,
+                )
+            })
             .collect();
         top.sort_by(|a, b| b.1.total_cmp(&a.1));
         let worthy: Vec<String> = top
             .iter()
             .map(|(g, _)| g.clone())
             .filter(|g| {
-                artists_of
-                    .get(g)
-                    .map_or(0, |v| v.iter().filter(|a| fav_score.contains_key(&a.to_lowercase())).count())
-                    >= 2
+                artists_of.get(g).map_or(0, |v| {
+                    v.iter()
+                        .filter(|a| fav_score.contains_key(&a.to_lowercase()))
+                        .count()
+                }) >= 2
             })
             .collect();
         let mut rows: Vec<String> = worthy.iter().take(2).cloned().collect();
@@ -834,8 +872,11 @@ impl App {
     /// tags); two popular tracks of seven of them.
     async fn genre_rows(&self, taste: &Taste, rng: &mut Rng) -> Vec<HomeRow> {
         let (genres, artists_of) = self.genre_stats(taste).await;
-        let by_name: HashMap<String, &Favorite> =
-            taste.favorites.iter().map(|f| (f.name.to_lowercase(), f)).collect();
+        let by_name: HashMap<String, &Favorite> = taste
+            .favorites
+            .iter()
+            .map(|f| (f.name.to_lowercase(), f))
+            .collect();
         let mut out = Vec::new();
         for (index, genre) in genres.iter().enumerate() {
             let mut r = Rng(seed_mix(seed_u(genre), index as u64, rng.next()));
@@ -844,7 +885,8 @@ impl App {
             let in_genre = |app: &App, name: &str| {
                 of_genre.contains(&crate::genres::norm(name))
                     || app.cached_genres(name).iter().any(|g| {
-                        g.eq_ignore_ascii_case(genre) || crate::genres::family(g).to_lowercase() == fam
+                        g.eq_ignore_ascii_case(genre)
+                            || crate::genres::family(g).to_lowercase() == fam
                     })
             };
             let mine: Vec<Favorite> = artists_of
@@ -863,7 +905,9 @@ impl App {
                 .iter()
                 .filter_map(|id| pages.get(id))
                 .flat_map(|p| p.related.iter().map(|a| (a.id.clone(), a.name.clone())))
-                .filter(|(id, name)| !id.is_empty() && !taste.known_artists.contains(&name.to_lowercase()))
+                .filter(|(id, name)| {
+                    !id.is_empty() && !taste.known_artists.contains(&name.to_lowercase())
+                })
                 .collect();
             let mut counted: HashMap<String, usize> = HashMap::new();
             for (id, _) in &related {
@@ -878,9 +922,13 @@ impl App {
                     (id, name, g)
                 })
                 .collect();
-            candidates.sort_by_key(|(id, _, g)| std::cmp::Reverse(counted.get(id).copied().unwrap_or(0) + if *g { 2 } else { 0 }));
-            let (inside, outside): (Vec<_>, Vec<_>) = candidates.into_iter().partition(|(_, _, g)| *g);
-            let mut chosen: Vec<(String, String, bool)> = inside.into_iter().chain(outside).take(12).collect();
+            candidates.sort_by_key(|(id, _, g)| {
+                std::cmp::Reverse(counted.get(id).copied().unwrap_or(0) + if *g { 2 } else { 0 })
+            });
+            let (inside, outside): (Vec<_>, Vec<_>) =
+                candidates.into_iter().partition(|(_, _, g)| *g);
+            let mut chosen: Vec<(String, String, bool)> =
+                inside.into_iter().chain(outside).take(12).collect();
             r.shuffle(&mut chosen);
             chosen.truncate(7);
             let ids: Vec<String> = chosen.iter().map(|(id, _, _)| id.clone()).collect();
@@ -905,7 +953,11 @@ impl App {
                 })
                 .collect();
             let tracks: Vec<Track> = interleave(lists).into_iter().take(14).collect();
-            tracing::info!("home: more {genre} from {:?}: {} tracks", seeds.iter().map(|f| &f.name).collect::<Vec<_>>(), tracks.len());
+            tracing::info!(
+                "home: more {genre} from {:?}: {} tracks",
+                seeds.iter().map(|f| &f.name).collect::<Vec<_>>(),
+                tracks.len()
+            );
             if tracks.len() >= 4 {
                 out.push(HomeRow {
                     kind: HomeRowKind::Tracks,

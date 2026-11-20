@@ -42,12 +42,17 @@ fn friend_cards(app: &App) -> Vec<HomeCard> {
 }
 
 fn now_ms() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// Friends whose «now playing» is live, in the friends list's order.
 fn live_friends(app: &App) -> Vec<(drx_catalog::model::Track, String)> {
-    let Some(rx) = app.friends_state() else { return Vec::new() };
+    let Some(rx) = app.friends_state() else {
+        return Vec::new();
+    };
     let st = rx.borrow();
     let t = now_ms();
     st.friends
@@ -55,8 +60,15 @@ fn live_friends(app: &App) -> Vec<(drx_catalog::model::Track, String)> {
         .filter_map(|f| {
             let d = st.data.get(&f.pubkey)?;
             let n = d.now.as_ref().filter(|n| n.is_live(t))?;
-            let name = d.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| f.name.clone());
-            Some((drx_app::social::track_of(&n.track), crate::friends_view::plain(&name)))
+            let name = d
+                .name
+                .clone()
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| f.name.clone());
+            Some((
+                drx_app::social::track_of(&n.track),
+                crate::friends_view::plain(&name),
+            ))
         })
         .collect()
 }
@@ -69,7 +81,9 @@ pub fn follow_friends(ui: &MainWindow, app: &App) {
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     slint::Timer::single_shot(std::time::Duration::from_secs(3), move || {
         app2.start_friends_live();
-        let Some(mut rx) = app2.friends_state() else { return };
+        let Some(mut rx) = app2.friends_state() else {
+            return;
+        };
         let (app3, ui_w2) = (app2.clone(), ui_w.clone());
         app2.runtime().spawn(async move {
             loop {
@@ -79,7 +93,10 @@ pub fn follow_friends(ui: &MainWindow, app: &App) {
                     let live = live_friends(&app4);
                     let same = FRIENDS.with(|f| {
                         let f = f.borrow();
-                        f.len() == live.len() && f.iter().zip(&live).all(|(a, b)| a.0.id == b.0.id && a.1 == b.1)
+                        f.len() == live.len()
+                            && f.iter()
+                                .zip(&live)
+                                .all(|(a, b)| a.0.id == b.0.id && a.1 == b.1)
                     });
                     if !same {
                         FRIENDS.with(|f| *f.borrow_mut() = live);
@@ -87,7 +104,8 @@ pub fn follow_friends(ui: &MainWindow, app: &App) {
                     }
                 });
                 // Live means «played within the last minutes»: look again now and then even without news.
-                let _ = tokio::time::timeout(std::time::Duration::from_secs(60), rx.changed()).await;
+                let _ =
+                    tokio::time::timeout(std::time::Duration::from_secs(60), rx.changed()).await;
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             }
         });
@@ -282,14 +300,24 @@ pub fn show(ui: &MainWindow, app: &App, force: bool) {
 /// «Случайное» (Android HomeViewModel.getRandomItem): a random track of the home rows plays, the rest of its row
 /// after it. False when the feed is empty.
 pub fn play_random(app: &App) -> bool {
-    let rows: Vec<Vec<drx_catalog::model::Track>> =
-        FEED.with(|f| f.borrow().as_ref().map(|feed| feed.rows.iter().map(|r| r.tracks.clone()).collect()).unwrap_or_default());
-    let all: Vec<(usize, usize)> =
-        rows.iter().enumerate().flat_map(|(s, r)| (0..r.len()).map(move |c| (s, c))).collect();
+    let rows: Vec<Vec<drx_catalog::model::Track>> = FEED.with(|f| {
+        f.borrow()
+            .as_ref()
+            .map(|feed| feed.rows.iter().map(|r| r.tracks.clone()).collect())
+            .unwrap_or_default()
+    });
+    let all: Vec<(usize, usize)> = rows
+        .iter()
+        .enumerate()
+        .flat_map(|(s, r)| (0..r.len()).map(move |c| (s, c)))
+        .collect();
     if all.is_empty() {
         return false;
     }
-    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(7);
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(7);
     let (s, c) = all[seed as usize % all.len()];
     app.play_tracks(rows[s].clone(), c);
     true

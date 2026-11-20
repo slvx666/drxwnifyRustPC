@@ -17,10 +17,23 @@ thread_local! {
 fn set_lines(ui: &MainWindow, lyrics: Option<&Lyrics>) {
     let (lines, synced): (Vec<LyricLine>, bool) = match lyrics {
         Some(Lyrics::Synced(ls)) => (
-            ls.iter().map(|l| LyricLine { text: l.text.clone().into(), time_ms: l.time_ms.min(i32::MAX as u64) as i32 }).collect(),
+            ls.iter()
+                .map(|l| LyricLine {
+                    text: l.text.clone().into(),
+                    time_ms: l.time_ms.min(i32::MAX as u64) as i32,
+                })
+                .collect(),
             true,
         ),
-        Some(Lyrics::Plain(text)) => (text.lines().map(|t| LyricLine { text: t.trim().into(), time_ms: 0 }).collect(), false),
+        Some(Lyrics::Plain(text)) => (
+            text.lines()
+                .map(|t| LyricLine {
+                    text: t.trim().into(),
+                    time_ms: 0,
+                })
+                .collect(),
+            false,
+        ),
         None => (Vec::new(), false),
     };
     ui.set_lyrics_synced(synced);
@@ -39,8 +52,14 @@ fn tick(ui: &MainWindow, app: &App) {
             if ui.get_lyrics_current() != i {
                 ui.set_lyrics_current(i);
             }
-            let now = cur.and_then(|i| lines.get(i)).map(|l| l.text.as_str()).unwrap_or("");
-            let next = lines.get(cur.map_or(0, |i| i + 1)).map(|l| l.text.as_str()).unwrap_or("");
+            let now = cur
+                .and_then(|i| lines.get(i))
+                .map(|l| l.text.as_str())
+                .unwrap_or("");
+            let next = lines
+                .get(cur.map_or(0, |i| i + 1))
+                .map(|l| l.text.as_str())
+                .unwrap_or("");
             if ui.get_lyric_now() != now {
                 ui.set_lyric_now(now.into());
             }
@@ -85,9 +104,15 @@ pub fn wire(ui: &MainWindow, app: &App) {
         loop {
             let (lyrics, track) = {
                 let n = rx.borrow_and_update();
-                (n.lyrics.clone(), n.track.as_ref().map(|t| t.id.clone()).unwrap_or_default())
+                (
+                    n.lyrics.clone(),
+                    n.track.as_ref().map(|t| t.id.clone()).unwrap_or_default(),
+                )
             };
-            let key = (lyrics.as_ref().map(|l| Arc::as_ptr(l) as usize), track.clone());
+            let key = (
+                lyrics.as_ref().map(|l| Arc::as_ptr(l) as usize),
+                track.clone(),
+            );
             if key == last {
                 // Play/pause: the line timer runs only while it has something to follow.
                 let (app3, ui_w3) = (app2.clone(), ui_w.clone());
@@ -99,7 +124,11 @@ pub fn wire(ui: &MainWindow, app: &App) {
                 let _ = ui_w.upgrade_in_event_loop(move |ui| {
                     SHOWN.with(|s| {
                         let mut s = s.borrow_mut();
-                        let since = if new_track { std::time::Instant::now() } else { s.2 };
+                        let since = if new_track {
+                            std::time::Instant::now()
+                        } else {
+                            s.2
+                        };
                         *s = (lyrics.clone(), track, since);
                     });
                     set_lines(&ui, lyrics.as_deref());
@@ -132,19 +161,23 @@ fn update_timer(ui: &MainWindow, app: &App) {
             t.stop();
         } else if !t.running() {
             let (app, ui_w) = (app.clone(), ui.as_weak());
-            t.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(200), move || {
-                if let Some(ui) = ui_w.upgrade() {
-                    tick(&ui, &app);
-                    // Done looking: stop (the status line has its final words).
-                    let done = SHOWN.with(|s| {
-                        let s = s.borrow();
-                        s.0.is_none() && (s.1.is_empty() || s.2.elapsed().as_secs() >= 9)
-                    });
-                    if done {
-                        TIMER.with(|t| t.stop());
+            t.start(
+                slint::TimerMode::Repeated,
+                std::time::Duration::from_millis(200),
+                move || {
+                    if let Some(ui) = ui_w.upgrade() {
+                        tick(&ui, &app);
+                        // Done looking: stop (the status line has its final words).
+                        let done = SHOWN.with(|s| {
+                            let s = s.borrow();
+                            s.0.is_none() && (s.1.is_empty() || s.2.elapsed().as_secs() >= 9)
+                        });
+                        if done {
+                            TIMER.with(|t| t.stop());
+                        }
                     }
-                }
-            });
+                },
+            );
         }
     });
 }

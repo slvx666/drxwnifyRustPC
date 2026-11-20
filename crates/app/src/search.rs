@@ -108,15 +108,25 @@ pub fn share_text(kind: &str, id: &str, title: &str, by: &str) -> String {
     let (title, by) = (title.trim(), by.trim());
     let mut query = Vec::new();
     if !title.is_empty() {
-        query.push(format!("n={}", uri_encode(&title.chars().take(80).collect::<String>())));
+        query.push(format!(
+            "n={}",
+            uri_encode(&title.chars().take(80).collect::<String>())
+        ));
     }
     if !by.is_empty() {
-        query.push(format!("by={}", uri_encode(&by.chars().take(60).collect::<String>())));
+        query.push(format!(
+            "by={}",
+            uri_encode(&by.chars().take(60).collect::<String>())
+        ));
     }
     let link = format!(
         "{LINK_SITE}/{kind}/{}{}",
         uri_encode(id),
-        if query.is_empty() { String::new() } else { format!("?{}", query.join("&")) }
+        if query.is_empty() {
+            String::new()
+        } else {
+            format!("?{}", query.join("&"))
+        }
     );
     let head = match (title.is_empty(), by.is_empty()) {
         (false, false) => format!("{by} — {title}\n"),
@@ -225,7 +235,6 @@ impl App {
         out
     }
 
-
     /// Searches `query` in `source` (or opens the link it is).
     pub async fn search_page(&self, query: &str, source: SearchSource) -> AppResult<SearchOutcome> {
         let out = self.search_page_inner(query, source).await?;
@@ -234,7 +243,11 @@ impl App {
         Ok(out)
     }
 
-    async fn search_page_inner(&self, query: &str, source: SearchSource) -> AppResult<SearchOutcome> {
+    async fn search_page_inner(
+        &self,
+        query: &str,
+        source: SearchSource,
+    ) -> AppResult<SearchOutcome> {
         let q = query.trim();
         if q.is_empty() {
             return Ok(SearchOutcome::default());
@@ -801,7 +814,11 @@ mod tests {
         assert_eq!(p("https://example.com/track/1"), None);
         // A shared link reads back as what was shared.
         let shared = share_text("album", "ym_123", "Альбом №1", "Кто-то");
-        assert!(shared.starts_with("Кто-то — Альбом №1\nhttps://drxwnify.pages.dev/album/ym_123?n=%D0%90"));
+        assert!(
+            shared.starts_with(
+                "Кто-то — Альбом №1\nhttps://drxwnify.pages.dev/album/ym_123?n=%D0%90"
+            )
+        );
         assert_eq!(link_page(&shared), Some(("album", "ym_123".to_string())));
         assert_eq!(
             url_in("Artist — Title https://youtu.be/dQw4w9WgXcQ."),

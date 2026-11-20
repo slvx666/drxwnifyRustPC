@@ -16,8 +16,13 @@ pub const SYSTEM_DEFAULT: &str = "SYSTEM_DEFAULT";
 /// AudioQuality: AUTO, HIGH, LOW.
 pub const QUALITIES: [(&str, &str); 3] = [("AUTO", "Авто"), ("HIGH", "Высокое"), ("LOW", "Низкое")];
 /// Content languages offered (hl).
-pub const LANGUAGES: [(&str, &str); 5] =
-    [(SYSTEM_DEFAULT, "Как в системе"), ("ru", "Русский"), ("en", "English"), ("uk", "Українська"), ("kk", "Қазақша")];
+pub const LANGUAGES: [(&str, &str); 5] = [
+    (SYSTEM_DEFAULT, "Как в системе"),
+    ("ru", "Русский"),
+    ("en", "English"),
+    ("uk", "Українська"),
+    ("kk", "Қазақша"),
+];
 /// Content countries offered (gl).
 pub const COUNTRIES: [(&str, &str); 7] = [
     (SYSTEM_DEFAULT, "Как в системе"),
@@ -40,10 +45,17 @@ impl App {
     /// Applies quality and content locale (`system`: the computer's language and country for SYSTEM_DEFAULT).
     pub fn apply_content_prefs(&self, system: Option<(String, String)>) {
         let low = self.pref_string(AUDIO_QUALITY_KEY).as_deref() == Some("LOW");
-        drx_resolver::providers::youtube::LOW_QUALITY.store(low, std::sync::atomic::Ordering::Relaxed);
+        drx_resolver::providers::youtube::LOW_QUALITY
+            .store(low, std::sync::atomic::Ordering::Relaxed);
         let (sys_hl, sys_gl) = system.unwrap_or_else(|| ("ru".into(), "RU".into()));
-        let hl = self.pref_string(CONTENT_LANGUAGE_KEY).filter(|v| !v.is_empty() && v != SYSTEM_DEFAULT).unwrap_or(sys_hl);
-        let gl = self.pref_string(CONTENT_COUNTRY_KEY).filter(|v| !v.is_empty() && v != SYSTEM_DEFAULT).unwrap_or(sys_gl);
+        let hl = self
+            .pref_string(CONTENT_LANGUAGE_KEY)
+            .filter(|v| !v.is_empty() && v != SYSTEM_DEFAULT)
+            .unwrap_or(sys_hl);
+        let gl = self
+            .pref_string(CONTENT_COUNTRY_KEY)
+            .filter(|v| !v.is_empty() && v != SYSTEM_DEFAULT)
+            .unwrap_or(sys_gl);
         drx_resolver::providers::youtube::set_content_locale(&hl, &gl);
     }
 
@@ -85,12 +97,18 @@ impl App {
     /// Moves a source up (-1) or down (+1); the phone's other names stay at the end of the saved list.
     pub fn move_source(&self, id: &str, delta: i32) {
         let mut ids: Vec<&str> = self.source_order().into_iter().map(|s| s.0).collect();
-        let Some(at) = ids.iter().position(|x| *x == id) else { return };
+        let Some(at) = ids.iter().position(|x| *x == id) else {
+            return;
+        };
         let to = (at as i32 + delta).clamp(0, ids.len() as i32 - 1) as usize;
         let x = ids.remove(at);
         ids.insert(to, x);
         let saved = self.pref_string(SOURCE_ORDER_KEY).unwrap_or_default();
-        let others: Vec<&str> = saved.split(',').map(str::trim).filter(|n| !n.is_empty() && !ids.contains(n)).collect();
+        let others: Vec<&str> = saved
+            .split(',')
+            .map(str::trim)
+            .filter(|n| !n.is_empty() && !ids.contains(n))
+            .collect();
         let all: Vec<&str> = ids.into_iter().chain(others).collect();
         let _ = self.set_pref(SOURCE_ORDER_KEY, PrefValue::String(all.join(",")));
         self.install_providers();

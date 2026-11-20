@@ -272,7 +272,9 @@ impl Yandex {
     /// Ids (`ym_…`) of the liked albums or artists (`kind`: "albums", "artists").
     pub async fn liked_ids(&self, kind: &str) -> Result<std::collections::HashSet<String>> {
         let uid = self.uid().await?;
-        let v = self.get(&format!("users/{uid}/likes/{kind}"), &[], false).await?;
+        let v = self
+            .get(&format!("users/{uid}/likes/{kind}"), &[], false)
+            .await?;
         let one = if kind == "artists" { "artist" } else { "album" };
         Ok(v.as_array()
             .map(|a| a.as_slice())
@@ -281,7 +283,10 @@ impl Yandex {
             .filter_map(|o| {
                 let inner = o.get(one).unwrap_or(o);
                 let id = inner.get("id")?;
-                let raw = id.as_i64().map(|n| n.to_string()).or_else(|| id.as_str().map(str::to_string))?;
+                let raw = id
+                    .as_i64()
+                    .map(|n| n.to_string())
+                    .or_else(|| id.as_str().map(str::to_string))?;
                 Some(format!("{PREFIX}{raw}"))
             })
             .collect())

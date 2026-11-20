@@ -16,20 +16,30 @@ thread_local! {
 
 /// «Имя» of a friend, as the friends list shows it.
 fn name_of(app: &App, peer: &str) -> String {
-    let Some(rx) = app.friends_state() else { return "Друг".into() };
+    let Some(rx) = app.friends_state() else {
+        return "Друг".into();
+    };
     let st = rx.borrow();
     let name = st
         .data
         .get(peer)
         .and_then(|d| d.name.clone())
         .filter(|n| !n.trim().is_empty())
-        .or_else(|| st.friends.iter().find(|f| f.pubkey == peer).map(|f| f.name.clone()))
+        .or_else(|| {
+            st.friends
+                .iter()
+                .find(|f| f.pubkey == peer)
+                .map(|f| f.name.clone())
+        })
         .unwrap_or_else(|| "Друг".into());
     crate::friends_view::plain(&name)
 }
 
 fn body_of(p: &drx_app::chats::ChatPreview) -> String {
-    let text: String = drx_social::chat::plain_stickers(&p.text).split_whitespace().collect::<Vec<_>>().join(" ");
+    let text: String = drx_social::chat::plain_stickers(&p.text)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     match (&p.music, text.is_empty()) {
         (Some(m), false) => format!("♪ {m} · {text}"),
         (Some(m), true) => format!("♪ {m}"),
@@ -40,7 +50,12 @@ fn body_of(p: &drx_app::chats::ChatPreview) -> String {
 
 fn check(ui: &MainWindow, app: &App, platform: Option<&Platform>) {
     let previews = app.chat_previews();
-    let newest = previews.iter().filter(|p| !p.mine).map(|p| p.ts).max().unwrap_or(0);
+    let newest = previews
+        .iter()
+        .filter(|p| !p.mine)
+        .map(|p| p.ts)
+        .max()
+        .unwrap_or(0);
     let seen = SEEN.with(Cell::get);
     if seen == i64::MAX {
         // The first look: what is there now is old news — and so is what the first sync brings in later (a new
@@ -52,16 +67,23 @@ fn check(ui: &MainWindow, app: &App, platform: Option<&Platform>) {
         SEEN.with(|s| s.set(newest.max(now - 120_000)));
         return;
     }
-    let fresh: Vec<&drx_app::chats::ChatPreview> =
-        previews.iter().filter(|p| !p.mine && p.unread > 0 && p.ts > seen).collect();
+    let fresh: Vec<&drx_app::chats::ChatPreview> = previews
+        .iter()
+        .filter(|p| !p.mine && p.unread > 0 && p.ts > seen)
+        .collect();
     SEEN.with(|s| s.set(newest.max(seen)));
     if fresh.is_empty() || !app.chat_notify_on() {
         return;
     }
     use slint::winit_030::WinitWindowAccessor;
-    let focused = ui.window().with_winit_window(|w| w.has_focus()).unwrap_or(false);
+    let focused = ui
+        .window()
+        .with_winit_window(|w| w.has_focus())
+        .unwrap_or(false);
     for p in fresh {
-        let open_here = ui.get_view_friends() && ui.get_friend_page() && crate::friends_view::open_peer().as_deref() == Some(p.peer.as_str());
+        let open_here = ui.get_view_friends()
+            && ui.get_friend_page()
+            && crate::friends_view::open_peer().as_deref() == Some(p.peer.as_str());
         if focused && open_here {
             continue;
         }
@@ -82,7 +104,9 @@ pub fn start(ui: &MainWindow, app: &App, platform: Option<Arc<Platform>>) {
     let (app2, ui_w) = (app.clone(), ui.as_weak());
     slint::Timer::single_shot(std::time::Duration::from_secs(4), move || {
         app2.start_chats_live();
-        let Some(mut rx) = app2.chats_version() else { return };
+        let Some(mut rx) = app2.chats_version() else {
+            return;
+        };
         if let Some(ui) = ui_w.upgrade() {
             check(&ui, &app2, platform.as_deref());
         }

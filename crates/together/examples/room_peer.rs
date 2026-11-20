@@ -31,7 +31,13 @@ async fn main() {
             let secs: u64 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(90);
             let c = Client::start(DEFAULT_SERVER, "room-peer-host", None, tx);
             let mut room = c.room();
-            let info = TrackInfo { id: args[1].clone(), title: args[2].clone(), artist: args[3].clone(), duration: 213_000, ..Default::default() };
+            let info = TrackInfo {
+                id: args[1].clone(),
+                title: args[2].clone(),
+                artist: args[3].clone(),
+                duration: 213_000,
+                ..Default::default()
+            };
             let end = tokio::time::sleep(Duration::from_secs(secs));
             tokio::pin!(end);
             let mut sent = false;

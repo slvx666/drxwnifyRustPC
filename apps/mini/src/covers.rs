@@ -56,9 +56,14 @@ pub fn get(
         app.request_image(url, size);
         return None;
     };
-    let mut buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(&p.rgba, p.size, p.size);
+    let mut buf =
+        slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(&p.rgba, p.size, p.size);
     if radius > 0.0 {
-        round(buf.make_mut_slice(), p.size as usize, radius.min(p.size as f32 / 2.0));
+        round(
+            buf.make_mut_slice(),
+            p.size as usize,
+            radius.min(p.size as f32 / 2.0),
+        );
     }
     let bytes = p.rgba.len();
     drop(p);
@@ -83,7 +88,12 @@ pub fn get(
 
 /// Whether the cover is ready to show at `size` (in any corner radius, or waiting in the core).
 pub fn ready(app: &App, url: &str, size: u32) -> bool {
-    CACHE.with(|c| c.borrow().map.keys().any(|(u, s, _)| *s == size && u == url)) || app.image(url, size).is_some()
+    CACHE.with(|c| {
+        c.borrow()
+            .map
+            .keys()
+            .any(|(u, s, _)| *s == size && u == url)
+    }) || app.image(url, size).is_some()
 }
 
 /// What is kept now: (pictures, bytes) — for the developer log.

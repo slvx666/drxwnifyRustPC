@@ -30,7 +30,9 @@ pub fn wire(ui: &MainWindow, app: &App) {
     let ui_w = ui.as_weak();
     ui.on_rename_view(move || {
         let Some(ui) = ui_w.upgrade() else { return };
-        let Some((_, name)) = OPEN.with(|o| o.borrow().clone()) else { return };
+        let Some((_, name)) = OPEN.with(|o| o.borrow().clone()) else {
+            return;
+        };
         ui.set_dialog_title("Переименовать плейлист".into());
         ui.set_dialog_subtitle("".into());
         ui.set_dialog_text(name.into());
@@ -39,7 +41,9 @@ pub fn wire(ui: &MainWindow, app: &App) {
     let ui_w = ui.as_weak();
     ui.on_delete_view(move || {
         let Some(ui) = ui_w.upgrade() else { return };
-        let Some((_, name)) = OPEN.with(|o| o.borrow().clone()) else { return };
+        let Some((_, name)) = OPEN.with(|o| o.borrow().clone()) else {
+            return;
+        };
         ui.set_dialog_title("Удалить плейлист?".into());
         ui.set_dialog_subtitle(format!("«{name}» исчезнет, треки останутся в медиатеке").into());
         ui.set_dialog_kind("delete".into());
@@ -65,7 +69,12 @@ pub fn wire(ui: &MainWindow, app: &App) {
             ui.set_toast(format!("Уже в «{name}»").into());
             return;
         }
-        add_pending(&ui, &app2, id.to_string(), name.map(|n| n.0).unwrap_or_default());
+        add_pending(
+            &ui,
+            &app2,
+            id.to_string(),
+            name.map(|n| n.0).unwrap_or_default(),
+        );
     });
 }
 
@@ -118,7 +127,12 @@ pub fn ask_add(ui: &MainWindow, app: &App, track_id: String) {
                 .into_iter()
                 .map(|c| {
                     let cover = c.cover.as_deref().and_then(|u| {
-                        crate::cover_r(&app2, u, crate::ROW_COVER, crate::theme_r(crate::ROW_COVER_R, crate::ROW_COVER, 40.0))
+                        crate::cover_r(
+                            &app2,
+                            u,
+                            crate::ROW_COVER,
+                            crate::theme_r(crate::ROW_COVER_R, crate::ROW_COVER, 40.0),
+                        )
                     });
                     PlaylistPick {
                         id: c.id.into(),
@@ -178,7 +192,9 @@ fn confirm(ui: &MainWindow, app: &App, text: String) {
             }
         }
         "rename" => {
-            let Some((id, _)) = OPEN.with(|o| o.borrow().clone()) else { return };
+            let Some((id, _)) = OPEN.with(|o| o.borrow().clone()) else {
+                return;
+            };
             let name = text.trim().to_string();
             if name.is_empty() {
                 return;
@@ -195,7 +211,9 @@ fn confirm(ui: &MainWindow, app: &App, text: String) {
         }
         "unfriend" => crate::friends_view::remove_open(ui, app),
         "delete" => {
-            let Some((id, name)) = OPEN.with(|o| o.borrow().clone()) else { return };
+            let Some((id, name)) = OPEN.with(|o| o.borrow().clone()) else {
+                return;
+            };
             ui.set_dialog_kind("".into());
             match app.runtime().block_on(app.delete_playlist(&id)) {
                 Ok(()) => {
@@ -216,7 +234,8 @@ pub fn edit_row(ui: &MainWindow, app: &App, index: i64, delta: i64) {
     let res = if delta == 0 {
         app.runtime().block_on(app.remove_from_playlist(&id, index))
     } else {
-        app.runtime().block_on(app.move_in_playlist(&id, index, index + delta))
+        app.runtime()
+            .block_on(app.move_in_playlist(&id, index, index + delta))
     };
     match res {
         Ok(()) => ui.invoke_library_panel_changed(),

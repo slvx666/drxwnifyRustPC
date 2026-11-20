@@ -12,7 +12,12 @@ pub const ADVANCED_KEY: &str = "discordAdvancedMode";
 pub const TYPE_KEY: &str = "discordActivityType";
 pub const BUTTON_KEY: &str = "discordButton1Visible";
 /// discordActivityType values and the Discord activity type of each.
-pub const TYPES: [(&str, &str, u8); 4] = [("listening", "Слушает", 2), ("playing", "Играет", 0), ("watching", "Смотрит", 3), ("competing", "Соревнуется", 5)];
+pub const TYPES: [(&str, &str, u8); 4] = [
+    ("listening", "Слушает", 2),
+    ("playing", "Играет", 0),
+    ("watching", "Смотрит", 3),
+    ("competing", "Соревнуется", 5),
+];
 
 /// The settings changed: the status is sent again with them.
 pub fn refresh(app: &App) {
@@ -20,7 +25,6 @@ pub fn refresh(app: &App) {
         r.set(presence(app));
     }
 }
-
 
 static RPC: OnceLock<Mutex<Option<Rpc>>> = OnceLock::new();
 
@@ -47,7 +51,10 @@ pub fn set_enabled(app: &App, on: bool) {
 }
 
 fn now_ms() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// What plays now as a presence; None when nothing plays.
@@ -62,13 +69,24 @@ fn presence(app: &App) -> Option<Presence> {
     let c = app.clock();
     let now = now_ms();
     let start = now - (c.position_s * 1000.0) as i64;
-    let dur = c.duration_s.map(|d| (d * 1000.0) as i64).filter(|d| *d > 0).unwrap_or(t.duration_ms as i64);
-    let link = drx_app::share_text("track", &t.id, &t.title, &t.artist_names()).lines().last().map(str::to_string);
+    let dur = c
+        .duration_s
+        .map(|d| (d * 1000.0) as i64)
+        .filter(|d| *d > 0)
+        .unwrap_or(t.duration_ms as i64);
+    let link = drx_app::share_text("track", &t.id, &t.title, &t.artist_names())
+        .lines()
+        .last()
+        .map(str::to_string);
     Some(Presence {
         title: t.title.clone(),
         artist: t.artist_names(),
         album: t.album.as_ref().map(|a| a.name.clone()).unwrap_or_default(),
-        cover: t.album.as_ref().and_then(|a| drx_catalog::model::best_image(&a.images, 300)).map(|i| i.url.clone()),
+        cover: t
+            .album
+            .as_ref()
+            .and_then(|a| drx_catalog::model::best_image(&a.images, 300))
+            .map(|i| i.url.clone()),
         start_ms: Some(start),
         end_ms: (dur > 0).then_some(start + dur),
         link: link.filter(|_| !t.id.starts_with("local:")),

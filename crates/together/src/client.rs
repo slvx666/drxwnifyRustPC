@@ -85,17 +85,43 @@ pub struct Client {
 
 impl Client {
     /// Connects and creates a room (as `username`) or joins `code`. Events go to `events`.
-    pub fn start(url: &str, username: &str, join: Option<&str>, events: mpsc::UnboundedSender<Event>) -> Client {
+    pub fn start(
+        url: &str,
+        username: &str,
+        join: Option<&str>,
+        events: mpsc::UnboundedSender<Event>,
+    ) -> Client {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let (out_tx, out_rx) = mpsc::unbounded_channel();
-        let status = if join.is_some() { "Ждём, когда хост впустит…" } else { "Создаю комнату…" };
-        let (room_tx, room_rx) = watch::channel(Room { status: status.into(), ..Default::default() });
+        let status = if join.is_some() {
+            "Ждём, когда хост впустит…"
+        } else {
+            "Создаю комнату…"
+        };
+        let (room_tx, room_rx) = watch::channel(Room {
+            status: status.into(),
+            ..Default::default()
+        });
         let first = match join {
-            Some(code) => proto::envelope("join_room", &proto::write_strings(&[&normalize_code(code), username]).0, false),
+            Some(code) => proto::envelope(
+                "join_room",
+                &proto::write_strings(&[&normalize_code(code), username]).0,
+                false,
+            ),
             None => proto::envelope("create_room", &proto::write_strings(&[username]).0, false),
         };
-        tokio::spawn(run(url.to_string(), username.to_string(), first, out_rx, room_tx, events));
-        Client { out: out_tx, room: room_rx }
+        tokio::spawn(run(
+            url.to_string(),
+            username.to_string(),
+            first,
+            out_rx,
+            room_tx,
+            events,
+        ));
+        Client {
+            out: out_tx,
+            room: room_rx,
+        }
     }
 
     pub fn room(&self) -> watch::Receiver<Room> {
@@ -103,7 +129,9 @@ impl Client {
     }
 
     fn send(&self, kind: &str, payload: &[u8]) {
-        let _ = self.out.send(Out::Send(proto::envelope(kind, payload, true)));
+        let _ = self
+            .out
+            .send(Out::Send(proto::envelope(kind, payload, true)));
     }
 
     fn send_strings(&self, kind: &str, values: &[&str]) {
@@ -156,7 +184,10 @@ pub fn normalize_code(text: &str) -> String {
         .or_else(|| t.split_once("room="))
         .map(|(_, c)| c.split(['&', '#']).next().unwrap_or(""))
         .unwrap_or(t);
-    code.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_uppercase()
+    code.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_uppercase()
 }
 
 async fn run(
@@ -171,7 +202,12 @@ async fn run(
     let mut attempts = 0u32;
     let mut opening = Some(first);
     loop {
-        let socket = match tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(url.as_str())).await {
+        let socket = match tokio::time::timeout(
+            CONNECT_TIMEOUT,
+            tokio_tungstenite::connect_async(url.as_str()),
+        )
+        .await
+        {
             Ok(Ok((s, _))) => s,
             other => {
                 let why = match other {
@@ -180,8 +216,15 @@ async fn run(
                 };
                 tracing::warn!(%why, "listen together: no connection");
                 attempts += 1;
-                if attempts > MAX_RECONNECTS || (token.is_none() && opening.is_some() && attempts > 2) {
-                    room.send_modify(|r| *r = Room { status: format!("Нет связи с сервером: {why}"), ..Default::default() });
+                if attempts > MAX_RECONNECTS
+                    || (token.is_none() && opening.is_some() && attempts > 2)
+                {
+                    room.send_modify(|r| {
+                        *r = Room {
+                            status: format!("Нет связи с сервером: {why}"),
+                            ..Default::default()
+                        }
+                    });
                     let _ = events.send(Event::Ended("Нет связи с сервером".into()));
                     return;
                 }
@@ -258,7 +301,12 @@ async fn run(
         }
         attempts += 1;
         if attempts > MAX_RECONNECTS {
-            room.send_modify(|r| *r = Room { status: "Связь с комнатой потеряна".into(), ..Default::default() });
+            room.send_modify(|r| {
+                *r = Room {
+                    status: "Связь с комнатой потеряна".into(),
+                    ..Default::default()
+                }
+            });
             let _ = events.send(Event::Ended("Связь с комнатой потеряна".into()));
             return;
         }
@@ -289,7 +337,12 @@ fn handle(
                 r.code = at(0);
                 r.my_id = at(1);
                 r.host_id = at(1);
-                r.users = vec![UserInfo { user_id: at(1), username: me.to_string(), is_host: true, is_connected: true }];
+                r.users = vec![UserInfo {
+                    user_id: at(1),
+                    username: me.to_string(),
+                    is_host: true,
+                    is_connected: true,
+                }];
                 r.status = String::new();
             });
             return true;
@@ -325,7 +378,14 @@ fn handle(
             *token = None;
             room.send_modify(|r| {
                 r.role = Role::None;
-                r.status = format!("Хост не впустил{}", if at(0).is_empty() { String::new() } else { format!(": {}", at(0)) });
+                r.status = format!(
+                    "Хост не впустил{}",
+                    if at(0).is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {}", at(0))
+                    }
+                );
             });
             let _ = events.send(Event::Ended(at(0)));
         }
@@ -338,7 +398,12 @@ fn handle(
             r.requests.retain(|(id, _)| *id != at(0));
             match r.users.iter_mut().find(|u| u.user_id == at(0)) {
                 Some(u) => u.is_connected = true,
-                None => r.users.push(UserInfo { user_id: at(0), username: at(1), is_host: false, is_connected: true }),
+                None => r.users.push(UserInfo {
+                    user_id: at(0),
+                    username: at(1),
+                    is_host: false,
+                    is_connected: true,
+                }),
             }
         }),
         "user_left" => room.send_modify(|r| {
@@ -355,12 +420,26 @@ fn handle(
             for u in &mut r.users {
                 u.is_host = u.user_id == r.host_id;
             }
-            r.role = if r.host_id == r.my_id { Role::Host } else { Role::Guest };
+            r.role = if r.host_id == r.my_id {
+                Role::Host
+            } else {
+                Role::Guest
+            };
         }),
         "kicked" => {
             *token = None;
             room.send_modify(|r| {
-                *r = Room { status: format!("Тебя удалили из комнаты{}", if at(0).is_empty() { String::new() } else { format!(": {}", at(0)) }), ..Default::default() };
+                *r = Room {
+                    status: format!(
+                        "Тебя удалили из комнаты{}",
+                        if at(0).is_empty() {
+                            String::new()
+                        } else {
+                            format!(": {}", at(0))
+                        }
+                    ),
+                    ..Default::default()
+                };
             });
             let _ = events.send(Event::Ended(at(0)));
         }
@@ -375,7 +454,10 @@ fn handle(
             let _ = events.send(Event::SyncState(SyncState::read(p)));
         }
         "buffer_wait" => {
-            let waiting: Vec<String> = proto::Fields::new(p).filter(|(f, _)| *f == 2).map(|(_, v)| v.str()).collect();
+            let waiting: Vec<String> = proto::Fields::new(p)
+                .filter(|(f, _)| *f == 2)
+                .map(|(_, v)| v.str())
+                .collect();
             room.send_modify(|r| r.buffering = waiting);
         }
         "buffer_complete" => {
@@ -391,7 +473,11 @@ fn handle(
             }
             room.send_modify(|r| {
                 if r.role == Role::Host {
-                    r.suggestions.push(Suggestion { id: at(0), from: at(2), track });
+                    r.suggestions.push(Suggestion {
+                        id: at(0),
+                        from: at(2),
+                        track,
+                    });
                 }
             });
         }
@@ -425,7 +511,13 @@ mod tests {
     #[test]
     fn codes_from_links() {
         assert_eq!(normalize_code(" ab12cd34 "), "AB12CD34");
-        assert_eq!(normalize_code("https://metrolist.meowery.eu/listen?code=Xy7Kq2Lm&utm=1"), "XY7KQ2LM");
-        assert_eq!(normalize_code("drxwnify://listen?room=abcd1234"), "ABCD1234");
+        assert_eq!(
+            normalize_code("https://metrolist.meowery.eu/listen?code=Xy7Kq2Lm&utm=1"),
+            "XY7KQ2LM"
+        );
+        assert_eq!(
+            normalize_code("drxwnify://listen?room=abcd1234"),
+            "ABCD1234"
+        );
     }
 }

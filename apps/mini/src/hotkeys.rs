@@ -206,7 +206,13 @@ mod tests {
 
     #[test]
     fn codes_round_trip() {
-        let h = Hotkey { id: 4, ctrl: true, alt: false, shift: true, key: 0x4C };
+        let h = Hotkey {
+            id: 4,
+            ctrl: true,
+            alt: false,
+            shift: true,
+            key: 0x4C,
+        };
         assert_eq!(encode(&h), "ctrl+shift+76");
         let d = decode(4, "ctrl+shift+76").unwrap();
         assert!(d.ctrl && !d.alt && d.shift && d.key == 0x4C);

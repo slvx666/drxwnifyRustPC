@@ -4,5 +4,7 @@
 pub mod client;
 pub mod proto;
 
-pub use client::{Client, DEFAULT_SERVER, Event, LINK_PREFIX, Role, Room, Suggestion, normalize_code};
+pub use client::{
+    Client, DEFAULT_SERVER, Event, LINK_PREFIX, Role, Room, Suggestion, normalize_code,
+};
 pub use proto::{PlaybackAction, RoomState, SyncState, TrackInfo, UserInfo};

@@ -3,34 +3,34 @@
 //! Drxwnify Mini: the native, light edition. All logic lives in `drx-app`; this file only binds the UI to it.
 
 mod artist_view;
+mod chat_notify;
+mod covers;
+mod discord_ui;
+mod downloads_ui;
 mod friends_view;
 mod history_view;
-mod hotkeys;
 mod home_view;
+mod hotkeys;
 mod lazy_library;
 mod lazy_songs;
 mod likes_ui;
-mod playlists_ui;
-mod portrait_view;
-mod rooms_ui;
-mod sleep_ui;
-mod queue_ui;
 mod lyrics_ui;
-mod chat_notify;
-mod discord_ui;
-mod downloads_ui;
-mod track_menu;
 mod nav;
 mod os;
-mod yt_view;
-mod covers;
 mod perf;
+mod playlists_ui;
+mod portrait_view;
+mod queue_ui;
+mod rooms_ui;
 mod search_view;
 mod settings_view;
+mod sleep_ui;
 mod sound_ui;
 mod stats_view;
 mod themes;
+mod track_menu;
 mod viewer;
+mod yt_view;
 
 use drx_app::{App, AppEvent, Command, CommandOutcome, EditionProfile, LibraryKind, ListSpec};
 use drx_core::paths::Profile;
@@ -86,15 +86,22 @@ fn main() {
     #[cfg(windows)]
     if args.iter().any(|a| a == "--uninstall") {
         use drx_platform::setup::{APP_NAME, Layout, ask, ask_careful, tell, uninstall};
-        let Some(layout) = Layout::current() else { return };
+        let Some(layout) = Layout::current() else {
+            return;
+        };
         // `--quiet`: no questions, the profile stays (scripted removal, checks).
         if args.iter().any(|a| a == "--quiet") {
             uninstall(&layout, None);
             return;
         }
-        if !ask(APP_NAME, &format!("Удалить {APP_NAME} с этого компьютера?
+        if !ask(
+            APP_NAME,
+            &format!(
+                "Удалить {APP_NAME} с этого компьютера?
 
-Закройте программу, если она открыта.")) {
+Закройте программу, если она открыта."
+            ),
+        ) {
             return;
         }
         let data = ask_careful(
@@ -147,7 +154,10 @@ fn main() {
     };
     themes::apply(&ui, &theme, day);
     // DRX_ANIM_MS: stretch the opening animations (checks of a frame in the middle of one).
-    if let Some(ms) = std::env::var("DRX_ANIM_MS").ok().and_then(|v| v.parse::<i64>().ok()) {
+    if let Some(ms) = std::env::var("DRX_ANIM_MS")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+    {
         ui.global::<Anim>().set_page(ms);
     }
     ui.set_day_theme(day);
@@ -168,7 +178,10 @@ fn main() {
                     id: item.id.to_string(),
                 },
                 "liked" => ListSpec::LikedSongs,
-                "top" => ListSpec::Top { period: app2.top_period(), size: app2.top_size() },
+                "top" => ListSpec::Top {
+                    period: app2.top_period(),
+                    size: app2.top_size(),
+                },
                 "album" => ListSpec::Album {
                     id: item.id.to_string(),
                 },
@@ -719,18 +732,30 @@ fn main() {
     // Side column widths the owner dragged (PC-only keys; the phone ignores them).
     {
         let grid = ui.global::<Grid>();
-        if let Some(w) = app.pref_i64("pcLibraryWidth").filter(|w| (200..=480).contains(w)) {
+        if let Some(w) = app
+            .pref_i64("pcLibraryWidth")
+            .filter(|w| (200..=480).contains(w))
+        {
             grid.set_lib_width(w as f32);
         }
-        if let Some(w) = app.pref_i64("pcSideWidth").filter(|w| (240..=520).contains(w)) {
+        if let Some(w) = app
+            .pref_i64("pcSideWidth")
+            .filter(|w| (240..=520).contains(w))
+        {
             grid.set_side_width(w as f32);
         }
         let (a, ui_w) = (app.clone(), ui.as_weak());
         ui.on_panels_resized(move || {
             let Some(ui) = ui_w.upgrade() else { return };
             let grid = ui.global::<Grid>();
-            let _ = a.set_pref("pcLibraryWidth", drx_core::prefs::PrefValue::Int(grid.get_lib_width().round() as i32));
-            let _ = a.set_pref("pcSideWidth", drx_core::prefs::PrefValue::Int(grid.get_side_width().round() as i32));
+            let _ = a.set_pref(
+                "pcLibraryWidth",
+                drx_core::prefs::PrefValue::Int(grid.get_lib_width().round() as i32),
+            );
+            let _ = a.set_pref(
+                "pcSideWidth",
+                drx_core::prefs::PrefValue::Int(grid.get_side_width().round() as i32),
+            );
         });
     }
 
@@ -950,10 +975,13 @@ fn main() {
                 let url = ui.get_now_cover_url().to_string();
                 if url.is_empty() {
                     ui.set_has_now_cover(false);
-                } else if let Some(c) = cover_r(&app3, &url, NOW_COVER, theme_r(100.0, NOW_COVER, 288.0)) {
+                } else if let Some(c) =
+                    cover_r(&app3, &url, NOW_COVER, theme_r(100.0, NOW_COVER, 288.0))
+                {
                     ui.set_now_cover(c);
                     ui.set_has_now_cover(true);
-                    if let Some(small) = cover_r(&app3, &url, 104, theme_r(ROW_COVER_R, 104, 52.0)) {
+                    if let Some(small) = cover_r(&app3, &url, 104, theme_r(ROW_COVER_R, 104, 52.0))
+                    {
                         ui.set_now_cover_small(small);
                     }
                 }
@@ -1028,13 +1056,24 @@ fn main() {
     app.keep_queue_saved();
     let demo_page = std::env::var("DRX_DEMO").ok();
     // DRX_DEMO=settings[:<px>]: the settings page, scrolled that far (checks by screenshot, no input).
-    if let Some(rest) = demo_page.as_deref().and_then(|d| d.strip_prefix("settings")) {
+    if let Some(rest) = demo_page
+        .as_deref()
+        .and_then(|d| d.strip_prefix("settings"))
+    {
         nav::go(&ui, &app, &songs, nav::Page::settings());
         let y: f32 = rest.trim_start_matches(':').parse().unwrap_or(0.0);
         ui.global::<SettingsUi>().set_start_y(y);
     } else if demo_page.as_deref() == Some("top") {
-        let spec = ListSpec::Top { period: app.top_period(), size: app.top_size() };
-        nav::go(&ui, &app, &songs, nav::Page::list(spec, &format!("Мой топ {}", app.top_size()), "top", None));
+        let spec = ListSpec::Top {
+            period: app.top_period(),
+            size: app.top_size(),
+        };
+        nav::go(
+            &ui,
+            &app,
+            &songs,
+            nav::Page::list(spec, &format!("Мой топ {}", app.top_size()), "top", None),
+        );
     } else if demo_page.as_deref() == Some("wrapped") {
         nav::go(&ui, &app, &songs, nav::Page::stats());
         stats_view::set_period(&ui, &app, drx_app::StatPeriod::ALL.len() - 1);
@@ -1042,7 +1081,10 @@ fn main() {
         nav::go(&ui, &app, &songs, nav::Page::history());
     } else if demo_page.as_deref() == Some("stats") {
         nav::go(&ui, &app, &songs, nav::Page::stats());
-    } else if let Some(y) = std::env::var("DRX_DEMO").ok().and_then(|d| d.strip_prefix("yt:").map(str::to_string)) {
+    } else if let Some(y) = std::env::var("DRX_DEMO")
+        .ok()
+        .and_then(|d| d.strip_prefix("yt:").map(str::to_string))
+    {
         // DRX_DEMO=yt:moods|new, yt:<browse id> (a page), yt:list:<id> (a playlist or album).
         let page = match y.as_str() {
             "moods" | "new" => yt_view::root_page(&y),
@@ -1062,7 +1104,10 @@ fn main() {
             &songs,
             nav::Page::search(&q, drx_app::SearchSource::Main),
         );
-    } else if let Some(demo) = std::env::var("DRX_DEMO").ok().filter(|d| !d.starts_with("chat") && d != "top" && d != "wrapped") {
+    } else if let Some(demo) = std::env::var("DRX_DEMO")
+        .ok()
+        .filter(|d| !d.starts_with("chat") && d != "top" && d != "wrapped")
+    {
         app.set_volume(0.0);
         let entries = app
             .runtime()
@@ -1161,7 +1206,11 @@ fn main() {
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());
         ui.global::<LibraryUi>().on_import_file(move || {
-            let Some(path) = drx_platform::pick_file("Импорт плейлиста", "Плейлисты (CSV, M3U)", "*.csv;*.m3u;*.m3u8;*.txt") else {
+            let Some(path) = drx_platform::pick_file(
+                "Импорт плейлиста",
+                "Плейлисты (CSV, M3U)",
+                "*.csv;*.m3u;*.m3u8;*.txt",
+            ) else {
                 return;
             };
             let (app3, ui_w2) = (app2.clone(), ui_w.clone());
@@ -1170,7 +1219,9 @@ fn main() {
                 let _ = ui_w2.upgrade_in_event_loop(move |ui| {
                     ui.set_toast(
                         match got {
-                            Ok((name, n)) => format!("Плейлист «{name}» импортирован: {}", nav::tracks_word(n)),
+                            Ok((name, n)) => {
+                                format!("Плейлист «{name}» импортирован: {}", nav::tracks_word(n))
+                            }
                             Err(e) => format!("Не получилось: {e}"),
                         }
                         .into(),
@@ -1183,13 +1234,19 @@ fn main() {
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());
         ui.global::<PageChips>().on_pick(move |i| {
-            if let (Some(ui), Some(p)) = (ui_w.upgrade(), drx_app::TopPeriod::ALL.get(i.max(0) as usize)) {
+            if let (Some(ui), Some(p)) = (
+                ui_w.upgrade(),
+                drx_app::TopPeriod::ALL.get(i.max(0) as usize),
+            ) {
                 nav::set_top_period(&ui, &app2, *p);
             }
         });
     }
     // DRX_DEMO=chat[:<n>]: the n-th most recent chat opens after the chats load (checks by screenshot, no input).
-    if let Some(rest) = std::env::var("DRX_DEMO").ok().and_then(|d| d.strip_prefix("chat").map(str::to_string)) {
+    if let Some(rest) = std::env::var("DRX_DEMO")
+        .ok()
+        .and_then(|d| d.strip_prefix("chat").map(str::to_string))
+    {
         let mut parts = rest.trim_start_matches(':').split(':');
         let n: usize = parts.next().and_then(|x| x.parse().ok()).unwrap_or(0);
         let select = parts.next() == Some("sel");
@@ -1197,7 +1254,7 @@ fn main() {
         slint::Timer::single_shot(std::time::Duration::from_secs(6), move || {
             let Some(ui) = ui_w.upgrade() else { return };
             let mut previews = app2.chat_previews();
-            previews.sort_by(|a, b| b.ts.cmp(&a.ts));
+            previews.sort_by_key(|a| std::cmp::Reverse(a.ts));
             if let Some(p) = previews.get(n) {
                 nav::go_page(&ui, &app2, nav::Page::friends());
                 ui.invoke_friend_open(p.peer.clone().into());
@@ -1226,7 +1283,9 @@ fn main() {
                     let _ = ui_w2.upgrade_in_event_loop(move |ui| {
                         ui.set_toast(
                             match got {
-                                Ok((_, n)) => format!("Плейлист «{name}» создан: {}", nav::tracks_word(n)),
+                                Ok((_, n)) => {
+                                    format!("Плейлист «{name}» создан: {}", nav::tracks_word(n))
+                                }
                                 Err(e) => format!("Не получилось: {e}"),
                             }
                             .into(),
@@ -1260,7 +1319,9 @@ fn main() {
                         match got {
                             Ok(p) => format!(
                                 "Сохранено в «Загрузки»: {}",
-                                p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                                p.file_name()
+                                    .map(|n| n.to_string_lossy().into_owned())
+                                    .unwrap_or_default()
                             ),
                             Err(e) => format!("Не сохранилось: {e}"),
                         }
@@ -1276,8 +1337,16 @@ fn main() {
         ui.on_share_view(move || {
             let Some(ui) = ui_w.upgrade() else { return };
             let Some(page) = nav::current() else { return };
-            let Some((kind, id)) = nav::share_target(&page) else { return };
-            let by = page.subtitle.rsplit(" · ").next().filter(|_| kind != "artist").unwrap_or("").to_string();
+            let Some((kind, id)) = nav::share_target(&page) else {
+                return;
+            };
+            let by = page
+                .subtitle
+                .rsplit(" · ")
+                .next()
+                .filter(|_| kind != "artist")
+                .unwrap_or("")
+                .to_string();
             track_menu::copy_share(&ui, &drx_app::share_text(kind, &id, &page.title, &by));
         });
     }
@@ -1289,7 +1358,8 @@ fn main() {
             let Some(ui) = ui_w.upgrade() else { return };
             let link = link.trim().to_string();
             // A room link (the phone's metrolist.meowery.eu/listen?code=…, or drxwnify://listen?code=…): join it.
-            if link.starts_with(drx_together::LINK_PREFIX) || link.starts_with("drxwnify://listen") {
+            if link.starts_with(drx_together::LINK_PREFIX) || link.starts_with("drxwnify://listen")
+            {
                 let code = drx_together::normalize_code(&link);
                 if code.len() >= 4 {
                     nav::go_page(&ui, &app2, nav::Page::friends());
@@ -1306,12 +1376,18 @@ fn main() {
                 Some(code) => {
                     nav::go_page(&ui, &app2, nav::Page::friends());
                     ui.set_friends_add_text(code.into());
-                    ui.set_toast("Приглашение в друзья: нажмите «Добавить», чтобы отправить заявку".into());
+                    ui.set_toast(
+                        "Приглашение в друзья: нажмите «Добавить», чтобы отправить заявку".into(),
+                    );
                 }
                 None => match drx_app::link_page(&link) {
                     Some(("album", id)) => ui.invoke_open_album(id.into()),
                     Some((_, id)) => ui.invoke_open_artist(id.into()),
-                    None => nav::go_page(&ui, &app2, nav::Page::search(&link, drx_app::SearchSource::Main)),
+                    None => nav::go_page(
+                        &ui,
+                        &app2,
+                        nav::Page::search(&link, drx_app::SearchSource::Main),
+                    ),
                 },
             }
         });
@@ -1371,7 +1447,17 @@ fn main() {
             let Some(ui) = ui_w.upgrade() else { return };
             match hotkeys::vk_of(&text) {
                 Some(key) if ctrl || alt || shift => {
-                    hotkeys::set(&app2, id as u32, Some(drx_platform::Hotkey { id: id as u32, ctrl, alt, shift, key }));
+                    hotkeys::set(
+                        &app2,
+                        id as u32,
+                        Some(drx_platform::Hotkey {
+                            id: id as u32,
+                            ctrl,
+                            alt,
+                            shift,
+                            key,
+                        }),
+                    );
                     ui.set_hotkey_recording(-1);
                     re(&ui);
                 }
@@ -1401,11 +1487,15 @@ fn main() {
         });
         let (app2, ui_w) = (app.clone(), ui.as_weak());
         ui.on_window_key(move |text, ctrl, alt, shift| {
-            let Some(ui) = ui_w.upgrade() else { return false };
+            let Some(ui) = ui_w.upgrade() else {
+                return false;
+            };
             if os::hotkeys_on(&app2) {
                 return false; // registered system-wide: Windows hands them over itself
             }
-            match hotkeys::vk_of(&text).and_then(|vk| hotkeys::action_for(&app2, ctrl, alt, shift, vk)) {
+            match hotkeys::vk_of(&text)
+                .and_then(|vk| hotkeys::action_for(&app2, ctrl, alt, shift, vk))
+            {
                 Some(id) => {
                     os::perform(&ui, &app2, id);
                     true
@@ -1541,7 +1631,7 @@ pub fn theme_r(max: f32, decoded: u32, shown: f32) -> f32 {
 /// A cover with rounded corners baked into its pixels (`radius` in decoded px; size/2 = a circle). The software
 /// renderer does not clip images to rounded rectangles, so the corners are made transparent here, antialiased.
 pub fn cover_r(app: &App, url: &str, size: u32, radius: f32) -> Option<slint::Image> {
-    covers::get(app, url, size, radius, |px, n, r| round_corners(px, n, r))
+    covers::get(app, url, size, radius, round_corners)
 }
 
 fn round_corners(px: &mut [slint::Rgba8Pixel], n: usize, r: f32) {

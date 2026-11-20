@@ -53,7 +53,13 @@ impl Event {
 
     /// The id is the hash of the content (cheap).
     pub fn has_valid_id(&self) -> bool {
-        id_of(&self.pubkey, self.created_at, self.kind, &self.tags, &self.content) == self.id
+        id_of(
+            &self.pubkey,
+            self.created_at,
+            self.kind,
+            &self.tags,
+            &self.content,
+        ) == self.id
     }
 
     /// The id matches and the author signed it.
@@ -61,11 +67,17 @@ impl Event {
         if !self.has_valid_id() {
             return false;
         }
-        let (Ok(id), Ok(pk), Ok(sig)) = (hex::decode(&self.id), hex::decode(&self.pubkey), hex::decode(&self.sig))
-        else {
+        let (Ok(id), Ok(pk), Ok(sig)) = (
+            hex::decode(&self.id),
+            hex::decode(&self.pubkey),
+            hex::decode(&self.sig),
+        ) else {
             return false;
         };
-        let (Ok(vk), Ok(sig)) = (VerifyingKey::from_bytes(&pk), Signature::try_from(sig.as_slice())) else {
+        let (Ok(vk), Ok(sig)) = (
+            VerifyingKey::from_bytes(&pk),
+            Signature::try_from(sig.as_slice()),
+        ) else {
             return false;
         };
         vk.verify_prehash(&id, &sig).is_ok()
@@ -91,7 +103,13 @@ fn push_json_string(out: &mut String, s: &str) {
 }
 
 /// The NIP-01 event id (lower-case hex).
-pub fn id_of(pubkey: &str, created_at: i64, kind: u32, tags: &[Vec<String>], content: &str) -> String {
+pub fn id_of(
+    pubkey: &str,
+    created_at: i64,
+    kind: u32,
+    tags: &[Vec<String>],
+    content: &str,
+) -> String {
     let mut s = String::from("[0,");
     push_json_string(&mut s, pubkey);
     s.push_str(&format!(",{created_at},{kind},["));
@@ -163,7 +181,13 @@ impl Keys {
         self.sign_at(created_at, kind, tags, content)
     }
 
-    pub fn sign_at(&self, created_at: i64, kind: u32, tags: Vec<Vec<String>>, content: String) -> Event {
+    pub fn sign_at(
+        &self,
+        created_at: i64,
+        kind: u32,
+        tags: Vec<Vec<String>>,
+        content: String,
+    ) -> Event {
         let pubkey = self.public_hex();
         let id = id_of(&pubkey, created_at, kind, &tags, &content);
         let digest = hex::decode(&id).expect("hex id");
@@ -189,7 +213,8 @@ impl Keys {
         let mut sec1 = vec![0x02];
         sec1.extend_from_slice(&x);
         let pk = k256::PublicKey::from_sec1_bytes(&sec1).map_err(|_| NostrError::Key)?;
-        let sk = k256::SecretKey::from_bytes(&self.signing.to_bytes()).map_err(|_| NostrError::Key)?;
+        let sk =
+            k256::SecretKey::from_bytes(&self.signing.to_bytes()).map_err(|_| NostrError::Key)?;
         let shared = k256::ecdh::diffie_hellman(sk.to_nonzero_scalar(), pk.as_affine());
         let mut out = [0u8; 32];
         out.copy_from_slice(shared.raw_secret_bytes());
@@ -208,10 +233,16 @@ impl Keys {
 
     /// NIP-04 decryption of what `from_pubkey` sent.
     pub fn decrypt(&self, from_pubkey: &str, payload: &str) -> Result<String, NostrError> {
-        let (data, iv) = payload.split_once("?iv=").ok_or(NostrError::Data("no iv"))?;
+        let (data, iv) = payload
+            .split_once("?iv=")
+            .ok_or(NostrError::Data("no iv"))?;
         let key = self.shared_secret(from_pubkey)?;
-        let ct = B64.decode(data.trim()).map_err(|_| NostrError::Data("base64"))?;
-        let iv = B64.decode(iv.trim()).map_err(|_| NostrError::Data("base64"))?;
+        let ct = B64
+            .decode(data.trim())
+            .map_err(|_| NostrError::Data("base64"))?;
+        let iv = B64
+            .decode(iv.trim())
+            .map_err(|_| NostrError::Data("base64"))?;
         if iv.len() != 16 {
             return Err(NostrError::Data("iv"));
         }
@@ -298,7 +329,11 @@ pub fn bech32_encode(hrp: &str, data: &[u8]) -> String {
     input.extend([0u8; 6]);
     let m = polymod(&input) ^ 1;
     let mut s = format!("{hrp}1");
-    for v in values.iter().copied().chain((0..6).map(|i| ((m >> (5 * (5 - i))) & 31) as u8)) {
+    for v in values
+        .iter()
+        .copied()
+        .chain((0..6).map(|i| ((m >> (5 * (5 - i))) & 31) as u8))
+    {
         s.push(CHARSET[v as usize] as char);
     }
     s
@@ -331,14 +366,24 @@ mod tests {
     #[test]
     fn bip340_vector_0_public_key() {
         // BIP-340 test vector 0: secret key 3 → its x-only public key.
-        let k = Keys::from_hex("0000000000000000000000000000000000000000000000000000000000000003").unwrap();
-        assert_eq!(k.public_hex(), "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9");
+        let k = Keys::from_hex("0000000000000000000000000000000000000000000000000000000000000003")
+            .unwrap();
+        assert_eq!(
+            k.public_hex(),
+            "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
+        );
     }
 
     #[test]
     fn id_escapes_like_android() {
         // Only NIP-01's characters are escaped; non-ASCII stays as is.
-        let id = id_of("ab", 1, 1, &[vec!["t".into(), "drxwnify".into()]], "a\"b\\c\nЁ");
+        let id = id_of(
+            "ab",
+            1,
+            1,
+            &[vec!["t".into(), "drxwnify".into()]],
+            "a\"b\\c\nЁ",
+        );
         let mut s = String::new();
         push_json_string(&mut s, "a\"b\\c\nЁ\u{1}");
         assert_eq!(s, "\"a\\\"b\\\\c\\nЁ\\u0001\"");
@@ -348,7 +393,11 @@ mod tests {
     #[test]
     fn signed_events_verify() {
         let k = Keys::generate();
-        let e = k.sign(KIND_APP_DATA, vec![vec!["d".into(), "drxw:profile".into()]], "{\"name\":\"x\"}".into());
+        let e = k.sign(
+            KIND_APP_DATA,
+            vec![vec!["d".into(), "drxw:profile".into()]],
+            "{\"name\":\"x\"}".into(),
+        );
         assert!(e.is_valid());
         let mut bad = e.clone();
         bad.content.push(' ');
@@ -365,7 +414,10 @@ mod tests {
         let ct = a.encrypt(&b.public_hex(), msg).unwrap();
         assert!(ct.contains("?iv="));
         assert_eq!(b.decrypt(&a.public_hex(), &ct).unwrap(), msg);
-        assert!(Keys::generate().decrypt(&a.public_hex(), &ct).is_err() || Keys::generate().decrypt(&a.public_hex(), &ct).unwrap() != msg);
+        assert!(
+            Keys::generate().decrypt(&a.public_hex(), &ct).is_err()
+                || Keys::generate().decrypt(&a.public_hex(), &ct).unwrap() != msg
+        );
     }
 
     #[test]
@@ -376,7 +428,8 @@ mod tests {
         assert_eq!(pubkey_from_text(&npub).unwrap(), k.public_hex());
         // NIP-19 example key.
         assert_eq!(
-            pubkey_from_text("npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg").unwrap(),
+            pubkey_from_text("npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg")
+                .unwrap(),
             "7e7e9c42a91bfef19fa929e5fda1b72e0ebc1a4c1141673e2794234d86addf4e"
         );
     }

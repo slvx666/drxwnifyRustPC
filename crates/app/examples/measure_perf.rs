@@ -7,8 +7,8 @@
 
 use drx_core::http::Http;
 use drx_resolver::provider::{AudioProvider, AudioQuery, DEFAULT_ORDER};
-use drx_resolver::providers::youtube::YouTube;
 use drx_resolver::providers::soundcloud::SoundCloud;
+use drx_resolver::providers::youtube::YouTube;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -92,7 +92,10 @@ async fn main() {
 
         if let Some(winner) = &outcome.winner {
             let t1 = Instant::now();
-            let provider = providers.iter().find(|p| p.id() == winner.provider).unwrap();
+            let provider = providers
+                .iter()
+                .find(|p| p.id() == winner.provider)
+                .unwrap();
             let stream = provider.stream(&q, winner).await;
             let stream_time = t1.elapsed();
 
@@ -114,10 +117,16 @@ async fn main() {
                 Err(e) => println!("  [ERR] Stream error: {e:?}"),
             }
         } else {
-            println!("  [FAIL] Nothing found for '{artist} - {title}' in {:.0}ms", resolve_time.as_millis());
+            println!(
+                "  [FAIL] Nothing found for '{artist} - {title}' in {:.0}ms",
+                resolve_time.as_millis()
+            );
         }
     }
-    println!(" Working Set after Test 1: {:.2} MB\n", get_working_set_mb());
+    println!(
+        " Working Set after Test 1: {:.2} MB\n",
+        get_working_set_mb()
+    );
 
     // -------------------------------------------------------------------------
     // TEST 2: DOWNLOAD THROUGHPUT COMPARISON BY CHUNK SIZE
@@ -135,7 +144,10 @@ async fn main() {
 
                 while downloaded < target_bytes {
                     let to = (downloaded + chunk_size - 1).min(target_bytes - 1);
-                    let mut req = http.client().get(url).header("Range", format!("bytes={downloaded}-{to}"));
+                    let mut req = http
+                        .client()
+                        .get(url)
+                        .header("Range", format!("bytes={downloaded}-{to}"));
                     if let Some(ua_str) = ua {
                         req = req.header("User-Agent", *ua_str);
                     }
@@ -153,7 +165,8 @@ async fn main() {
                 }
 
                 let elapsed = t0.elapsed();
-                let mb_per_sec = (downloaded as f64 / (1024.0 * 1024.0)) / elapsed.as_secs_f64().max(0.001);
+                let mb_per_sec =
+                    (downloaded as f64 / (1024.0 * 1024.0)) / elapsed.as_secs_f64().max(0.001);
                 println!(
                     "  Chunk size: {:>4} | Transferred: {:.2} MB in {:>5}ms ({:>2} reqs) | Speed: {:>6.2} MB/s",
                     chunk_label,
@@ -169,7 +182,10 @@ async fn main() {
     } else {
         println!("  (No stream URL available for download test)");
     }
-    println!(" Working Set after Test 2: {:.2} MB\n", get_working_set_mb());
+    println!(
+        " Working Set after Test 2: {:.2} MB\n",
+        get_working_set_mb()
+    );
 
     // -------------------------------------------------------------------------
     // TEST 3: MEMORY LEAK & STABILITY STRESS TEST (50 Track Resolutions)
@@ -193,13 +209,21 @@ async fn main() {
         let _ = drx_resolver::parallel::resolve(&q, &providers, &DEFAULT_ORDER).await;
 
         if i % 10 == 0 {
-            println!("  Iteration {:>2}/50 | Working Set: {:>6.2} MB (diff from start: {:>+6.2} MB)",
-                i, get_working_set_mb(), get_working_set_mb() - mem_start);
+            println!(
+                "  Iteration {:>2}/50 | Working Set: {:>6.2} MB (diff from start: {:>+6.2} MB)",
+                i,
+                get_working_set_mb(),
+                get_working_set_mb() - mem_start
+            );
         }
     }
 
     let mem_end = get_working_set_mb();
-    println!("  Final Working Set: {:.2} MB (Total change: {:>+6.2} MB)", mem_end, mem_end - mem_start);
+    println!(
+        "  Final Working Set: {:.2} MB (Total change: {:>+6.2} MB)",
+        mem_end,
+        mem_end - mem_start
+    );
 
     println!("\n===============================================================");
     println!(" AUDIT COMPLETE");

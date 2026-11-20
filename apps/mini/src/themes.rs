@@ -23,7 +23,8 @@ fn mini_specs() -> Vec<Value> {
 }
 
 pub fn current_theme_id(app: &App) -> String {
-    app.pref_string(THEME_KEY).unwrap_or_else(|| "tategaki".into())
+    app.pref_string(THEME_KEY)
+        .unwrap_or_else(|| "tategaki".into())
 }
 
 /// Setting key for the day (light) variant of the theme (PC only).

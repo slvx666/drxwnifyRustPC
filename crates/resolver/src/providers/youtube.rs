@@ -87,7 +87,8 @@ const STREAM_TTL: Duration = Duration::from_secs(60 * 60 * 5);
 /// «Качество звука: низкое» (the phone's audioQuality LOW): the smallest audio format instead of the best.
 pub static LOW_QUALITY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// Content language and country of YouTube Music answers (the phone's contentLanguage / contentCountry).
-static LOCALE: std::sync::RwLock<(String, String)> = std::sync::RwLock::new((String::new(), String::new()));
+static LOCALE: std::sync::RwLock<(String, String)> =
+    std::sync::RwLock::new((String::new(), String::new()));
 
 /// Sets the language (`hl`, e.g. "ru") and country (`gl`, e.g. "RU") of YouTube Music pages and search.
 pub fn set_content_locale(hl: &str, gl: &str) {
@@ -96,12 +97,16 @@ pub fn set_content_locale(hl: &str, gl: &str) {
 
 fn locale() -> (String, String) {
     let (hl, gl) = LOCALE.read().expect("locale").clone();
-    (if hl.is_empty() { "ru".into() } else { hl }, if gl.is_empty() { "RU".into() } else { gl })
+    (
+        if hl.is_empty() { "ru".into() } else { hl },
+        if gl.is_empty() { "RU".into() } else { gl },
+    )
 }
 
 fn context(c: &Client, visitor: Option<&str>) -> Value {
     let (hl, gl) = locale();
-    let mut client = json!({ "clientName": c.name, "clientVersion": c.version, "hl": hl, "gl": gl });
+    let mut client =
+        json!({ "clientName": c.name, "clientVersion": c.version, "hl": hl, "gl": gl });
     for (k, v) in [
         ("osName", c.os_name),
         ("osVersion", c.os_version),
@@ -242,7 +247,11 @@ pub(crate) fn best_audio(v: &Value) -> Option<(String, u32)> {
         })
         .max_by_key(|(opus, br, _)| {
             // Low quality: still Opus first (smaller for the same sound), then the smallest bitrate.
-            let br = if LOW_QUALITY.load(std::sync::atomic::Ordering::Relaxed) { u32::MAX - *br } else { *br };
+            let br = if LOW_QUALITY.load(std::sync::atomic::Ordering::Relaxed) {
+                u32::MAX - *br
+            } else {
+                *br
+            };
             (*opus, br)
         })
         .map(|(_, br, url)| (url, br / 1000))
@@ -316,7 +325,11 @@ impl YouTube {
 
     /// A YouTube Music page (moods, new releases, an artist or channel, a playlist or album) — see
     /// `yt_browse`. `browse_id` as the page's links carry it (VL…, MPREb…, UC…, FEmusic_…).
-    pub async fn browse(&self, browse_id: &str, params: Option<&str>) -> Result<super::yt_browse::YtPage, ProviderError> {
+    pub async fn browse(
+        &self,
+        browse_id: &str,
+        params: Option<&str>,
+    ) -> Result<super::yt_browse::YtPage, ProviderError> {
         let mut body = json!({ "browseId": browse_id });
         if let Some(p) = params {
             body["params"] = json!(p);
@@ -326,8 +339,13 @@ impl YouTube {
     }
 
     /// The next part of a long YouTube Music list (its `continuation` token).
-    pub async fn browse_more(&self, token: &str) -> Result<(Vec<super::yt_browse::YtItem>, Option<String>), ProviderError> {
-        let v = self.post("browse", &WEB_REMIX, json!({ "continuation": token })).await?;
+    pub async fn browse_more(
+        &self,
+        token: &str,
+    ) -> Result<(Vec<super::yt_browse::YtItem>, Option<String>), ProviderError> {
+        let v = self
+            .post("browse", &WEB_REMIX, json!({ "continuation": token }))
+            .await?;
         Ok(super::yt_browse::parse_continuation(&v))
     }
 
@@ -597,20 +615,43 @@ mod tests {
         let Ok(video) = std::env::var("DRX_TEST_YT_VIDEO") else {
             return;
         };
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(async {
             let http = Http::new().unwrap();
             let yt = YouTube::new(http.clone());
             for c in STREAM_CLIENTS {
-                let Ok(v) = yt.post("player", c, json!({ "videoId": video, "contentCheckOk": true, "racyCheckOk": true })).await else { continue };
-                let Some((url, _)) = best_audio(&v) else { eprintln!("{}: no audio", c.name); continue };
+                let Ok(v) = yt
+                    .post(
+                        "player",
+                        c,
+                        json!({ "videoId": video, "contentCheckOk": true, "racyCheckOk": true }),
+                    )
+                    .await
+                else {
+                    continue;
+                };
+                let Some((url, _)) = best_audio(&v) else {
+                    eprintln!("{}: no audio", c.name);
+                    continue;
+                };
                 let limit = 3u64 << 20;
                 // One request, read until 3 MB or 8 s.
                 let t = std::time::Instant::now();
                 let mut got = 0u64;
-                if let Ok(mut r) = http.client().get(&url).header("User-Agent", c.ua).send().await {
+                if let Ok(mut r) = http
+                    .client()
+                    .get(&url)
+                    .header("User-Agent", c.ua)
+                    .send()
+                    .await
+                {
                     while got < limit && t.elapsed().as_secs() < 8 {
-                        match tokio::time::timeout(std::time::Duration::from_secs(8), r.chunk()).await {
+                        match tokio::time::timeout(std::time::Duration::from_secs(8), r.chunk())
+                            .await
+                        {
                             Ok(Ok(Some(b))) => got += b.len() as u64,
                             _ => break,
                         }
@@ -621,8 +662,13 @@ mod tests {
                 let t = std::time::Instant::now();
                 let mut got = 0u64;
                 while got < limit && t.elapsed().as_secs() < 8 {
-                    let r = http.client().get(&url).header("User-Agent", c.ua)
-                        .header("Range", format!("bytes={}-{}", got, got + (1 << 20) - 1)).send().await;
+                    let r = http
+                        .client()
+                        .get(&url)
+                        .header("User-Agent", c.ua)
+                        .header("Range", format!("bytes={}-{}", got, got + (1 << 20) - 1))
+                        .send()
+                        .await;
                     match r {
                         Ok(r) if r.status().is_success() => match r.bytes().await {
                             Ok(b) if !b.is_empty() => got += b.len() as u64,
@@ -632,7 +678,11 @@ mod tests {
                     }
                 }
                 let ranged = got as f64 / t.elapsed().as_secs_f64() / 1024.0;
-                eprintln!("{}: one request {one:.0} KB/s, 1 MB ranges {ranged:.0} KB/s, rbp={}", c.name, url.contains("ratebypass"));
+                eprintln!(
+                    "{}: one request {one:.0} KB/s, 1 MB ranges {ranged:.0} KB/s, rbp={}",
+                    c.name,
+                    url.contains("ratebypass")
+                );
             }
         });
     }

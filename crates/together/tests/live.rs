@@ -31,7 +31,10 @@ async fn create_join_approve_leave() {
     println!("request from {:?}", r.requests);
     host.approve(&r.requests[0].0);
     let g = wait(&guest, |r| r.role == Role::Guest).await;
-    println!("guest in, users {:?}", g.users.iter().map(|u| &u.username).collect::<Vec<_>>());
+    println!(
+        "guest in, users {:?}",
+        g.users.iter().map(|u| &u.username).collect::<Vec<_>>()
+    );
     assert!(matches!(grx.recv().await, Some(Event::Joined(_))));
     host.playback(&drx_together::PlaybackAction {
         action: "change_track".into(),
@@ -45,7 +48,9 @@ async fn create_join_approve_leave() {
         }),
         ..Default::default()
     });
-    let got = tokio::time::timeout(Duration::from_secs(10), grx.recv()).await.expect("no sync");
+    let got = tokio::time::timeout(Duration::from_secs(10), grx.recv())
+        .await
+        .expect("no sync");
     println!("guest got {got:?}");
     guest.leave();
     host.leave();

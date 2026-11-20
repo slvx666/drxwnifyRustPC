@@ -26,7 +26,8 @@ type ChoiceRow = (String, String, i64, Option<String>, Option<String>);
 /// A new playlist id, as `PlaylistEntity.generatePlaylistId()` ("LP" + 8 letters).
 fn new_id() -> String {
     const LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    let mut x = (now_ms() as u64).rotate_left(17) ^ 0x9E37_79B9_7F4A_7C15 ^ std::process::id() as u64;
+    let mut x =
+        (now_ms() as u64).rotate_left(17) ^ 0x9E37_79B9_7F4A_7C15 ^ std::process::id() as u64;
     let mut s = String::from("LP");
     for _ in 0..8 {
         x ^= x << 13;
@@ -152,7 +153,11 @@ impl App {
             .await?)
     }
 
-    async fn add_to_spotify_playlist(&self, playlist_id: &str, tracks: &[Track]) -> AppResult<usize> {
+    async fn add_to_spotify_playlist(
+        &self,
+        playlist_id: &str,
+        tracks: &[Track],
+    ) -> AppResult<usize> {
         let sp = self.spotify().ok_or_else(|| err("нет входа в Spotify"))?;
         let mut uris = Vec::new();
         for t in tracks {
@@ -163,7 +168,9 @@ impl App {
                 .await
                 .ok()
                 .flatten();
-            match cid.filter(|c| Source::of_id(c) == Source::Spotify && crate::songs::is_spotify_id(c)) {
+            match cid
+                .filter(|c| Source::of_id(c) == Source::Spotify && crate::songs::is_spotify_id(c))
+            {
                 Some(c) => uris.push(format!("spotify:track:{c}")),
                 None => return Err(err(format!("«{}» нет в Spotify", t.title))),
             }
@@ -227,7 +234,10 @@ impl App {
 
     /// The playlists a track can go into, newest change first: own database playlists, then own Spotify ones.
     pub async fn playlist_choices(&self, track_ids: Vec<String>) -> Vec<PlaylistChoice> {
-        let songs: Vec<String> = track_ids.iter().map(|t| crate::songs::song_id_of(t)).collect();
+        let songs: Vec<String> = track_ids
+            .iter()
+            .map(|t| crate::songs::song_id_of(t))
+            .collect();
         let covers = self.inner.profile.covers_dir();
         let mut out = self
             .store()
@@ -303,7 +313,10 @@ mod tests {
         Track {
             id: id.into(),
             title: format!("Song {id}"),
-            artists: vec![ArtistRef { id: String::new(), name: "Band".into() }],
+            artists: vec![ArtistRef {
+                id: String::new(),
+                name: "Band".into(),
+            }],
             album: None,
             duration_ms: 180_000,
             isrc: None,
@@ -320,9 +333,17 @@ mod tests {
         let id = rt.block_on(app.create_playlist("")).unwrap();
         assert!(is_editable_id(&id));
         let tracks = vec![track("a"), track("b"), track("c"), track("d")];
-        assert_eq!(rt.block_on(app.add_to_playlist(&id, tracks.clone())).unwrap(), 4);
+        assert_eq!(
+            rt.block_on(app.add_to_playlist(&id, tracks.clone()))
+                .unwrap(),
+            4
+        );
         // Already there: skipped.
-        assert_eq!(rt.block_on(app.add_to_playlist(&id, vec![track("b")])).unwrap(), 0);
+        assert_eq!(
+            rt.block_on(app.add_to_playlist(&id, vec![track("b")]))
+                .unwrap(),
+            0
+        );
         let order = |app: &App| {
             let id = id.clone();
             app.runtime()
@@ -333,7 +354,11 @@ mod tests {
                 }))
                 .unwrap()
         };
-        let ids = |v: Vec<(String, i64)>| v.into_iter().map(|(s, _)| s.trim_start_matches("mfb:").to_string()).collect::<Vec<_>>();
+        let ids = |v: Vec<(String, i64)>| {
+            v.into_iter()
+                .map(|(s, _)| s.trim_start_matches("mfb:").to_string())
+                .collect::<Vec<_>>()
+        };
         assert_eq!(ids(order(&app)), ["a", "b", "c", "d"]);
         rt.block_on(app.move_in_playlist(&id, 3, 0)).unwrap();
         assert_eq!(ids(order(&app)), ["d", "a", "b", "c"]);
@@ -346,7 +371,14 @@ mod tests {
         rt.block_on(app.rename_playlist(&id, "Мой")).unwrap();
         let choices = rt.block_on(app.playlist_choices(vec!["a".into()]));
         assert_eq!(choices.len(), 1);
-        assert_eq!((choices[0].name.as_str(), choices[0].count, choices[0].has_all), ("Мой", 3, true));
+        assert_eq!(
+            (
+                choices[0].name.as_str(),
+                choices[0].count,
+                choices[0].has_all
+            ),
+            ("Мой", 3, true)
+        );
         rt.block_on(app.delete_playlist(&id)).unwrap();
         assert!(rt.block_on(app.playlist_choices(Vec::new())).is_empty());
     }

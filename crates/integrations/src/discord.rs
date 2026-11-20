@@ -38,7 +38,9 @@ pub struct Rpc {
 impl Rpc {
     pub fn start() -> Rpc {
         let (tx, rx) = mpsc::channel();
-        let _ = std::thread::Builder::new().name("discord-rpc".into()).spawn(move || run(rx));
+        let _ = std::thread::Builder::new()
+            .name("discord-rpc".into())
+            .spawn(move || run(rx));
         Rpc { tx }
     }
 
@@ -73,13 +75,24 @@ fn read_frame(pipe: &mut std::fs::File) -> Option<(u32, Value)> {
 fn connect() -> Option<std::fs::File> {
     for i in 0..10 {
         let path = format!(r"\\.\pipe\discord-ipc-{i}");
-        let Ok(mut pipe) = std::fs::OpenOptions::new().read(true).write(true).open(&path) else { continue };
-        if pipe.write_all(&frame(0, &json!({"v": 1, "client_id": APPLICATION_ID}))).is_err() {
+        let Ok(mut pipe) = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+        else {
+            continue;
+        };
+        if pipe
+            .write_all(&frame(0, &json!({"v": 1, "client_id": APPLICATION_ID})))
+            .is_err()
+        {
             continue;
         }
         // READY (or an error frame when the id is refused).
         match read_frame(&mut pipe) {
-            Some((1, v)) if v.get("evt").and_then(Value::as_str) == Some("READY") => return Some(pipe),
+            Some((1, v)) if v.get("evt").and_then(Value::as_str) == Some("READY") => {
+                return Some(pipe);
+            }
             other => tracing::debug!("discord ipc handshake: {other:?}"),
         }
     }
@@ -100,7 +113,11 @@ pub fn activity(p: &Presence) -> Value {
         json!({ "type": p.kind, "details": "Drxwnify", "instance": false })
     };
     let mut assets = serde_json::Map::new();
-    if let Some(c) = p.cover.as_ref().filter(|c| c.starts_with("https://") && p.details) {
+    if let Some(c) = p
+        .cover
+        .as_ref()
+        .filter(|c| c.starts_with("https://") && p.details)
+    {
         assets.insert("large_image".into(), json!(c));
         if !p.album.is_empty() {
             assets.insert("large_text".into(), json!(clip(&p.album, 128)));
@@ -112,7 +129,11 @@ pub fn activity(p: &Presence) -> Value {
     if let (Some(s), Some(e)) = (p.start_ms, p.end_ms) {
         a["timestamps"] = json!({"start": s, "end": e});
     }
-    if let Some(l) = p.link.as_ref().filter(|l| l.starts_with("https://") && p.button) {
+    if let Some(l) = p
+        .link
+        .as_ref()
+        .filter(|l| l.starts_with("https://") && p.button)
+    {
         a["buttons"] = json!([{"label": "Открыть в Drxwnify", "url": l}]);
     }
     a
@@ -160,7 +181,9 @@ fn run(rx: mpsc::Receiver<Option<Presence>>) {
             "args": {"pid": pid, "activity": wanted.as_ref().map(activity)},
             "nonce": nonce.to_string(),
         });
-        let ok = pipe.as_mut().is_some_and(|p| p.write_all(&frame(1, &body)).is_ok() && read_frame(p).is_some());
+        let ok = pipe
+            .as_mut()
+            .is_some_and(|p| p.write_all(&frame(1, &body)).is_ok() && read_frame(p).is_some());
         if ok {
             sent = Some(wanted.clone());
         } else {
@@ -178,7 +201,10 @@ mod tests {
     fn frames_and_activity() {
         let f = frame(1, &json!({"a": 1}));
         assert_eq!(&f[0..4], &1u32.to_le_bytes());
-        assert_eq!(u32::from_le_bytes(f[4..8].try_into().unwrap()) as usize, f.len() - 8);
+        assert_eq!(
+            u32::from_le_bytes(f[4..8].try_into().unwrap()) as usize,
+            f.len() - 8
+        );
         let a = activity(&Presence {
             title: "Never".into(),
             artist: "Rick Astley".into(),

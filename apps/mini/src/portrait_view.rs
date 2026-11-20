@@ -2,7 +2,10 @@
 //! year, the numbers, who they listen to most, their favourite tracks and the genre bar; the genre tags under the
 //! friend's name. A friend on an older version sends the old weekly numbers instead (FriendsScreens, «За 7 дней»).
 
-use crate::{GenreItem, GenreRow, MainWindow, PortraitArtistItem, PortraitData, SongItem, SourceChip, StatTile};
+use crate::{
+    GenreItem, GenreRow, MainWindow, PortraitArtistItem, PortraitData, SongItem, SourceChip,
+    StatTile,
+};
 use drx_app::App;
 use drx_social::friends::FriendData;
 use drx_social::portrait::{Portrait, hues_for};
@@ -14,7 +17,9 @@ thread_local! {
     static PERIOD: Cell<Option<i32>> = const { Cell::new(None) };
 }
 
-const MONTHS: [&str; 12] = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
+const MONTHS: [&str; 12] = [
+    "Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек",
+];
 
 /// Another friend's page: the default period again.
 pub fn reset() {
@@ -65,29 +70,53 @@ fn duration_label(minutes: i64) -> String {
 /// «5 раз», «3 раза» (portrait_plays).
 fn plays_label(n: i64) -> String {
     let (d10, d100) = (n % 10, n % 100);
-    let word = if (2..=4).contains(&d10) && !(12..=14).contains(&d100) { "раза" } else { "раз" };
+    let word = if (2..=4).contains(&d10) && !(12..=14).contains(&d100) {
+        "раза"
+    } else {
+        "раз"
+    };
     format!("{n} {word}")
 }
 
 /// «2026-10» → «Окт», with the year when it is not this one.
 fn month_label(key: &str, this_year: &str) -> String {
     let (y, m) = key.split_once('-').unwrap_or((key, ""));
-    let name = m.parse::<usize>().ok().and_then(|m| MONTHS.get(m.wrapping_sub(1))).copied().unwrap_or(m);
-    if y == this_year { name.to_string() } else { format!("{name} {y}") }
+    let name = m
+        .parse::<usize>()
+        .ok()
+        .and_then(|m| MONTHS.get(m.wrapping_sub(1)))
+        .copied()
+        .unwrap_or(m);
+    if y == this_year {
+        name.to_string()
+    } else {
+        format!("{name} {y}")
+    }
 }
 
 /// The genre tags under a friend's name (GenreTag: tinted background, text and dot of the genre's hue).
 pub fn tags(ui: &MainWindow, d: Option<&FriendData>) {
     let dark = !ui.get_day_theme();
-    let tags = d.and_then(|d| d.portrait.as_ref()).map(|p| p.tags.clone()).unwrap_or_default();
+    let tags = d
+        .and_then(|d| d.portrait.as_ref())
+        .map(|p| p.tags.clone())
+        .unwrap_or_default();
     let items = hues_for(&tags)
         .into_iter()
         .take(3)
         .map(|(name, h)| GenreItem {
             name: name.into(),
             pct: 0,
-            color: if dark { hsv(h, 0.25, 0.95) } else { hsv(h, 0.75, 0.38) },
-            bg: if dark { hsv(h, 0.45, 0.32) } else { hsv(h, 0.18, 0.97) },
+            color: if dark {
+                hsv(h, 0.25, 0.95)
+            } else {
+                hsv(h, 0.75, 0.38)
+            },
+            bg: if dark {
+                hsv(h, 0.45, 0.32)
+            } else {
+                hsv(h, 0.18, 0.97)
+            },
             dot: hsv(h, 0.6, if dark { 0.9 } else { 0.65 }),
         })
         .collect();
@@ -95,7 +124,11 @@ pub fn tags(ui: &MainWindow, d: Option<&FriendData>) {
 }
 
 /// Fills the tab; returns the tracks of «Любимые треки» (a click plays them as a list).
-pub fn render(ui: &MainWindow, app: &App, d: Option<&FriendData>) -> Vec<drx_catalog::model::Track> {
+pub fn render(
+    ui: &MainWindow,
+    app: &App,
+    d: Option<&FriendData>,
+) -> Vec<drx_catalog::model::Track> {
     let dark = !ui.get_day_theme();
     let mut data = PortraitData {
         footer: "".into(),
@@ -107,9 +140,18 @@ pub fn render(ui: &MainWindow, app: &App, d: Option<&FriendData>) -> Vec<drx_cat
             Some(s) => {
                 data.note = "За 7 дней (у друга версия без портрета)".into();
                 data.tiles = model(vec![
-                    StatTile { value: duration_label(s.week_minutes).into(), label: "Слушал".into() },
-                    StatTile { value: s.week_plays.to_string().into(), label: "Прослушиваний".into() },
-                    StatTile { value: s.liked.to_string().into(), label: "Лайков".into() },
+                    StatTile {
+                        value: duration_label(s.week_minutes).into(),
+                        label: "Слушал".into(),
+                    },
+                    StatTile {
+                        value: s.week_plays.to_string().into(),
+                        label: "Прослушиваний".into(),
+                    },
+                    StatTile {
+                        value: s.liked.to_string().into(),
+                        label: "Лайков".into(),
+                    },
                 ]);
                 data.artists_title = "Топ исполнителей".into();
                 data.artists = model(
@@ -125,7 +167,11 @@ pub fn render(ui: &MainWindow, app: &App, d: Option<&FriendData>) -> Vec<drx_cat
                         .collect(),
                 );
             }
-            None => data.note = "Портрета пока нет: друг его не прислал или скрыл статистику в приватности.".into(),
+            None => {
+                data.note =
+                    "Портрета пока нет: друг его не прислал или скрыл статистику в приватности."
+                        .into()
+            }
         }
         ui.set_friend_portrait(data);
         return Vec::new();
@@ -133,7 +179,13 @@ pub fn render(ui: &MainWindow, app: &App, d: Option<&FriendData>) -> Vec<drx_cat
 
     let mut months: Vec<(&String, &Portrait)> = portrait.months.iter().collect();
     months.reverse(); // newest first
-    let default = if portrait.month.is_some() { 1 } else if portrait.week.is_some() { 0 } else { 2 };
+    let default = if portrait.month.is_some() {
+        1
+    } else if portrait.week.is_some() {
+        0
+    } else {
+        2
+    };
     let mut period = PERIOD.with(|p| p.get()).unwrap_or(default);
     if period >= 100 && (period - 100) as usize >= months.len() {
         period = default;
@@ -148,15 +200,24 @@ pub fn render(ui: &MainWindow, app: &App, d: Option<&FriendData>) -> Vec<drx_cat
         ["Неделя", "Месяц", "Год"]
             .iter()
             .enumerate()
-            .map(|(i, l)| SourceChip { label: (*l).into(), selected: period == i as i32 })
+            .map(|(i, l)| SourceChip {
+                label: (*l).into(),
+                selected: period == i as i32,
+            })
             .collect(),
     );
-    let this_year = months.first().map(|(k, _)| k.split('-').next().unwrap_or("").to_string()).unwrap_or_default();
+    let this_year = months
+        .first()
+        .map(|(k, _)| k.split('-').next().unwrap_or("").to_string())
+        .unwrap_or_default();
     data.months = model(
         months
             .iter()
             .enumerate()
-            .map(|(i, (k, _))| SourceChip { label: month_label(k, &this_year).into(), selected: period == 100 + i as i32 })
+            .map(|(i, (k, _))| SourceChip {
+                label: month_label(k, &this_year).into(),
+                selected: period == 100 + i as i32,
+            })
             .collect(),
     );
     data.footer = "По прослушиваниям в Drxwnify и лайкам. Фоновое радио весит меньше, пропущенные треки не считаются. \
@@ -173,19 +234,42 @@ pub fn render(ui: &MainWindow, app: &App, d: Option<&FriendData>) -> Vec<drx_cat
     }
     let mut tiles = Vec::new();
     if !p.by_likes {
-        tiles.push(StatTile { value: duration_label(p.minutes).into(), label: "Слушал".into() });
-        tiles.push(StatTile { value: p.tracks.to_string().into(), label: "Треков".into() });
+        tiles.push(StatTile {
+            value: duration_label(p.minutes).into(),
+            label: "Слушал".into(),
+        });
+        tiles.push(StatTile {
+            value: p.tracks.to_string().into(),
+            label: "Треков".into(),
+        });
     }
-    tiles.push(StatTile { value: p.new_likes.to_string().into(), label: "Новых лайков".into() });
+    tiles.push(StatTile {
+        value: p.new_likes.to_string().into(),
+        label: "Новых лайков".into(),
+    });
     data.tiles = model(tiles);
 
-    data.artists_title = if p.by_likes { "Лайкал больше всего" } else { "Слушает больше всего" }.into();
-    let max_minutes = p.artists.iter().map(|a| a.minutes).max().unwrap_or(1).max(1);
+    data.artists_title = if p.by_likes {
+        "Лайкал больше всего"
+    } else {
+        "Слушает больше всего"
+    }
+    .into();
+    let max_minutes = p
+        .artists
+        .iter()
+        .map(|a| a.minutes)
+        .max()
+        .unwrap_or(1)
+        .max(1);
     data.artists = model(
         p.artists
             .iter()
             .map(|a| {
-                let cover = a.cover.as_deref().and_then(|u| crate::cover_r(app, u, 88, 44.0));
+                let cover = a
+                    .cover
+                    .as_deref()
+                    .and_then(|u| crate::cover_r(app, u, 88, 44.0));
                 let mut parts = Vec::new();
                 if a.minutes > 0 && !p.by_likes {
                     parts.push(duration_label(a.minutes));
@@ -196,7 +280,11 @@ pub fn render(ui: &MainWindow, app: &App, d: Option<&FriendData>) -> Vec<drx_cat
                 PortraitArtistItem {
                     name: a.name.clone().into(),
                     info: parts.join(" · ").into(),
-                    frac: if p.by_likes { -1.0 } else { a.minutes as f32 / max_minutes as f32 },
+                    frac: if p.by_likes {
+                        -1.0
+                    } else {
+                        a.minutes as f32 / max_minutes as f32
+                    },
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
                 }
@@ -204,9 +292,17 @@ pub fn render(ui: &MainWindow, app: &App, d: Option<&FriendData>) -> Vec<drx_cat
             .collect(),
     );
 
-    data.tracks_title = if p.by_likes { "Новые лайки" } else { "Любимые треки" }.into();
-    let tracks: Vec<drx_catalog::model::Track> =
-        p.top_tracks.iter().map(|t| drx_app::social::track_of(&t.track)).collect();
+    data.tracks_title = if p.by_likes {
+        "Новые лайки"
+    } else {
+        "Любимые треки"
+    }
+    .into();
+    let tracks: Vec<drx_catalog::model::Track> = p
+        .top_tracks
+        .iter()
+        .map(|t| drx_app::social::track_of(&t.track))
+        .collect();
     app.remember_tracks(&tracks);
     data.tracks = model(
         tracks
@@ -215,10 +311,18 @@ pub fn render(ui: &MainWindow, app: &App, d: Option<&FriendData>) -> Vec<drx_cat
             .enumerate()
             .map(|(i, (tr, t))| {
                 let cover = t.track.cover.as_deref().and_then(|u| {
-                    crate::cover_r(app, u, crate::ROW_COVER, crate::theme_r(crate::ROW_COVER_R, crate::ROW_COVER, 44.0))
+                    crate::cover_r(
+                        app,
+                        u,
+                        crate::ROW_COVER,
+                        crate::theme_r(crate::ROW_COVER_R, crate::ROW_COVER, 44.0),
+                    )
                 });
-                let artists =
-                    if t.plays > 0 { format!("{} · {}", t.track.artist, plays_label(t.plays)) } else { t.track.artist.clone() };
+                let artists = if t.plays > 0 {
+                    format!("{} · {}", t.track.artist, plays_label(t.plays))
+                } else {
+                    t.track.artist.clone()
+                };
                 SongItem {
                     id: tr.id.clone().into(),
                     title: tr.title.clone().into(),
@@ -238,7 +342,11 @@ pub fn render(ui: &MainWindow, app: &App, d: Option<&FriendData>) -> Vec<drx_cat
 
     let names: Vec<String> = p.genres.iter().map(|(g, _)| g.clone()).collect();
     let hues = hues_for(&names);
-    let other = if dark { Color::from_rgb_u8(0x5a, 0x5a, 0x62) } else { Color::from_rgb_u8(0xc8, 0xc8, 0xcd) };
+    let other = if dark {
+        Color::from_rgb_u8(0x5a, 0x5a, 0x62)
+    } else {
+        Color::from_rgb_u8(0xc8, 0xc8, 0xcd)
+    };
     let genres: Vec<GenreItem> = p
         .genres
         .iter()
@@ -249,7 +357,11 @@ pub fn render(ui: &MainWindow, app: &App, d: Option<&FriendData>) -> Vec<drx_cat
                 .find(|(n, _)| n == g)
                 .map_or(other, |(_, h)| hsv(*h, 0.6, if dark { 0.85 } else { 0.72 }));
             GenreItem {
-                name: if g.is_empty() { "Другое".into() } else { g.clone().into() },
+                name: if g.is_empty() {
+                    "Другое".into()
+                } else {
+                    g.clone().into()
+                },
                 pct: *pct as i32,
                 color,
                 bg: color,
@@ -258,7 +370,12 @@ pub fn render(ui: &MainWindow, app: &App, d: Option<&FriendData>) -> Vec<drx_cat
         })
         .collect();
     data.legend = model(
-        genres.chunks(6).map(|c| GenreRow { items: model(c.to_vec()) }).collect(),
+        genres
+            .chunks(6)
+            .map(|c| GenreRow {
+                items: model(c.to_vec()),
+            })
+            .collect(),
     );
     data.genres = model(genres);
     ui.set_friend_portrait(data);

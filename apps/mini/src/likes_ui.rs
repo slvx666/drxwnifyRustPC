@@ -83,7 +83,11 @@ pub fn shown_liked(ui: &MainWindow, id: &str) -> bool {
 }
 
 fn models(ui: &MainWindow) -> [ModelRc<crate::SongItem>; 3] {
-    [ui.get_search_tracks(), ui.get_artist_tracks(), ui.get_stats_tracks()]
+    [
+        ui.get_search_tracks(),
+        ui.get_artist_tracks(),
+        ui.get_stats_tracks(),
+    ]
 }
 
 /// Shows the new state in the player, every list model and the history.

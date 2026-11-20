@@ -64,7 +64,6 @@ pub fn fill(ui: &MainWindow, app: &App) {
     crate::perf::step("sound");
 }
 
-
 fn switch(key: &str, label: &str, hint: &str, on: bool, header: &str) -> crate::FlagItem {
     crate::FlagItem {
         key: key.into(),
@@ -84,7 +83,14 @@ fn switch_info(label: &str, hint: &str, header: &str) -> crate::FlagItem {
     it
 }
 
-fn choice(key: &str, label: &str, hint: &str, options: &[&str], marks: Vec<bool>, header: &str) -> crate::FlagItem {
+fn choice(
+    key: &str,
+    label: &str,
+    hint: &str,
+    options: &[&str],
+    marks: Vec<bool>,
+    header: &str,
+) -> crate::FlagItem {
     let options: Vec<slint::SharedString> = options.iter().map(|o| (*o).into()).collect();
     crate::FlagItem {
         key: key.into(),
@@ -116,8 +122,8 @@ fn sponsor_categories(app: &App) -> Vec<String> {
 }
 
 pub fn fill_flags(ui: &MainWindow, app: &App) {
+    use crate::discord_ui::{ADVANCED_KEY, BUTTON_KEY, TYPE_KEY, TYPES};
     use drx_app::content::{AUDIO_QUALITY_KEY, COUNTRIES, LANGUAGES, QUALITIES, SYSTEM_DEFAULT};
-    use crate::discord_ui::{ADVANCED_KEY, BUTTON_KEY, TYPES, TYPE_KEY};
 
     let mut sound = Vec::new();
     let mut content = Vec::new();
@@ -125,7 +131,9 @@ pub fn fill_flags(ui: &MainWindow, app: &App) {
     let mut privacy = Vec::new();
 
     // --- 1. Sound flags ---
-    let q = app.pref_string(AUDIO_QUALITY_KEY).unwrap_or_else(|| "AUTO".into());
+    let q = app
+        .pref_string(AUDIO_QUALITY_KEY)
+        .unwrap_or_else(|| "AUTO".into());
     let names: Vec<&str> = QUALITIES.iter().map(|x| x.1).collect();
     sound.push(choice(
         AUDIO_QUALITY_KEY,
@@ -174,7 +182,15 @@ pub fn fill_flags(ui: &MainWindow, app: &App) {
             (0, true) => "Ищем здесь первым",
             _ => "Включён",
         };
-        let opts = [if on { "Включён" } else { "Выключен" }, "Выше", "Ниже"];
+        let opts = [
+            if on {
+                "Включён"
+            } else {
+                "Выключен"
+            },
+            "Выше",
+            "Ниже",
+        ];
         let usable: Vec<&str> = opts
             .iter()
             .enumerate()
@@ -188,10 +204,16 @@ pub fn fill_flags(ui: &MainWindow, app: &App) {
             hint,
             &usable,
             marks,
-            if i == 0 { "ПРИОРИТЕТ ИСТОЧНИКОВ" } else { "" },
+            if i == 0 {
+                "ПРИОРИТЕТ ИСТОЧНИКОВ"
+            } else {
+                ""
+            },
         ));
     }
-    let lang = app.pref_string(drx_app::content::CONTENT_LANGUAGE_KEY).unwrap_or_else(|| SYSTEM_DEFAULT.into());
+    let lang = app
+        .pref_string(drx_app::content::CONTENT_LANGUAGE_KEY)
+        .unwrap_or_else(|| SYSTEM_DEFAULT.into());
     let names: Vec<&str> = LANGUAGES.iter().map(|x| x.1).collect();
     content.push(choice(
         drx_app::content::CONTENT_LANGUAGE_KEY,
@@ -201,7 +223,9 @@ pub fn fill_flags(ui: &MainWindow, app: &App) {
         LANGUAGES.iter().map(|x| x.0 == lang).collect(),
         "РЕГИОН И КОНТЕНТ",
     ));
-    let country = app.pref_string(drx_app::content::CONTENT_COUNTRY_KEY).unwrap_or_else(|| SYSTEM_DEFAULT.into());
+    let country = app
+        .pref_string(drx_app::content::CONTENT_COUNTRY_KEY)
+        .unwrap_or_else(|| SYSTEM_DEFAULT.into());
     let names: Vec<&str> = COUNTRIES.iter().map(|x| x.1).collect();
     content.push(choice(
         drx_app::content::CONTENT_COUNTRY_KEY,
@@ -265,7 +289,10 @@ pub fn fill_flags(ui: &MainWindow, app: &App) {
         "",
     ));
     if adv {
-        let t = app.pref_string(TYPE_KEY).unwrap_or_else(|| "listening".into()).to_lowercase();
+        let t = app
+            .pref_string(TYPE_KEY)
+            .unwrap_or_else(|| "listening".into())
+            .to_lowercase();
         let names: Vec<&str> = TYPES.iter().map(|x| x.1).collect();
         integrations.push(choice(
             TYPE_KEY,
@@ -286,7 +313,11 @@ pub fn fill_flags(ui: &MainWindow, app: &App) {
 
     let lf = app.lastfm_state();
     match (&lf.user, lf.available) {
-        (_, false) => integrations.push(switch_info("Last.fm", "Нет ключа приложения Last.fm в этой сборке", "LAST.FM")),
+        (_, false) => integrations.push(switch_info(
+            "Last.fm",
+            "Нет ключа приложения Last.fm в этой сборке",
+            "LAST.FM",
+        )),
         (None, true) => {
             integrations.push(choice(
                 "lastfm:account",
@@ -330,7 +361,9 @@ pub fn fill_flags(ui: &MainWindow, app: &App) {
         }
     }
 
-    let sb_on = app.pref_bool(drx_app::sponsorblock::ENABLED_KEY).unwrap_or(false);
+    let sb_on = app
+        .pref_bool(drx_app::sponsorblock::ENABLED_KEY)
+        .unwrap_or(false);
     integrations.push(switch(
         drx_app::sponsorblock::ENABLED_KEY,
         "Пропускать немузыкальные вставки",
@@ -339,27 +372,39 @@ pub fn fill_flags(ui: &MainWindow, app: &App) {
         "SPONSORBLOCK",
     ));
     let cats = sponsor_categories(app);
-    let names: Vec<&str> = drx_app::sponsorblock::CATEGORIES.iter().map(|(_, n)| *n).collect();
+    let names: Vec<&str> = drx_app::sponsorblock::CATEGORIES
+        .iter()
+        .map(|(_, n)| *n)
+        .collect();
     integrations.push(choice(
         "sb:cats",
         "Что пропускать",
         "В клипах с YouTube, когда включено «Пропускать немузыкальные вставки»",
         &names,
-        drx_app::sponsorblock::CATEGORIES.iter().map(|(k, _)| cats.iter().any(|c| c == k)).collect(),
+        drx_app::sponsorblock::CATEGORIES
+            .iter()
+            .map(|(k, _)| cats.iter().any(|c| c == k))
+            .collect(),
         "",
     ));
     integrations.push(switch(
         drx_app::sponsorblock::TOAST_KEY,
         "Сообщать о пропуске",
         "Короткое уведомление, что именно пропущено",
-        app.pref_bool(drx_app::sponsorblock::TOAST_KEY).unwrap_or(false),
+        app.pref_bool(drx_app::sponsorblock::TOAST_KEY)
+            .unwrap_or(false),
         "",
     ));
 
     // --- 4. Privacy & History flags ---
     if let Some(f) = app.friends() {
         let p = f.privacy();
-        let marks = |a: drx_social::friends::Audience| AUDIENCES.iter().map(|(x, _)| *x == a).collect::<Vec<bool>>();
+        let marks = |a: drx_social::friends::Audience| {
+            AUDIENCES
+                .iter()
+                .map(|(x, _)| *x == a)
+                .collect::<Vec<bool>>()
+        };
         let opts: Vec<&str> = AUDIENCES.iter().map(|(_, n)| *n).collect();
         privacy.push(choice(
             "privacy:now",
@@ -484,7 +529,10 @@ fn pick(ui: &MainWindow, app: &App, key: &str, i: usize) {
                 } else {
                     cats.push((*cat).to_string());
                 }
-                let _ = app.set_pref(drx_app::sponsorblock::CATEGORIES_PREF, PrefValue::String(cats.join(",")));
+                let _ = app.set_pref(
+                    drx_app::sponsorblock::CATEGORIES_PREF,
+                    PrefValue::String(cats.join(",")),
+                );
             }
         }
         "lastfm:account" => {
@@ -498,21 +546,33 @@ fn pick(ui: &MainWindow, app: &App, key: &str, i: usize) {
                     let (token, url) = match begun {
                         Ok(x) => x,
                         Err(e) => {
-                            let _ = ui_w.upgrade_in_event_loop(move |ui| ui.set_toast(format!("Не получилось: {e}").into()));
+                            let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                                ui.set_toast(format!("Не получилось: {e}").into())
+                            });
                             return;
                         }
                     };
                     let _ = ui_w.upgrade_in_event_loop(move |ui| {
                         let opened = drx_platform::open_url(&url);
-                        ui.set_toast(if opened { "Подтвердите вход на странице Last.fm в браузере" } else { "Не открылся браузер" }.into());
+                        ui.set_toast(
+                            if opened {
+                                "Подтвердите вход на странице Last.fm в браузере"
+                            } else {
+                                "Не открылся браузер"
+                            }
+                            .into(),
+                        );
                     });
                     let done = app2.lastfm_finish(&token).await;
                     let app3 = app2.clone();
                     let _ = ui_w.upgrade_in_event_loop(move |ui| {
-                        ui.set_toast(match done {
-                            Ok(name) => format!("Last.fm: вы вошли как {name}"),
-                            Err(e) => format!("Last.fm: {e}"),
-                        }.into());
+                        ui.set_toast(
+                            match done {
+                                Ok(name) => format!("Last.fm: вы вошли как {name}"),
+                                Err(e) => format!("Last.fm: {e}"),
+                            }
+                            .into(),
+                        );
                         fill_flags(&ui, &app3);
                     });
                 });
@@ -525,8 +585,11 @@ fn pick(ui: &MainWindow, app: &App, key: &str, i: usize) {
             }
         }
         drx_app::content::CONTENT_LANGUAGE_KEY | drx_app::content::CONTENT_COUNTRY_KEY => {
-            let list: &[(&str, &str)] =
-                if key == drx_app::content::CONTENT_LANGUAGE_KEY { &drx_app::content::LANGUAGES } else { &drx_app::content::COUNTRIES };
+            let list: &[(&str, &str)] = if key == drx_app::content::CONTENT_LANGUAGE_KEY {
+                &drx_app::content::LANGUAGES
+            } else {
+                &drx_app::content::COUNTRIES
+            };
             if let Some((v, _)) = list.get(i) {
                 let _ = app.set_pref(key, PrefValue::String((*v).into()));
                 app.apply_content_prefs(drx_platform::user_locale());
@@ -539,7 +602,9 @@ fn pick(ui: &MainWindow, app: &App, key: &str, i: usize) {
             }
         }
         "autoeq" => {
-            if let Some(path) = drx_platform::pick_file("Профиль AutoEq", "AutoEq (ParametricEQ.txt)", "*.txt") {
+            if let Some(path) =
+                drx_platform::pick_file("Профиль AutoEq", "AutoEq (ParametricEQ.txt)", "*.txt")
+            {
                 match app.import_autoeq(&path) {
                     Ok(name) => ui.set_toast(format!("Эквалайзер: {name}").into()),
                     Err(e) => ui.set_toast(format!("Не получилось: {e}").into()),
@@ -591,7 +656,6 @@ fn pick(ui: &MainWindow, app: &App, key: &str, i: usize) {
 }
 
 pub fn wire(ui: &MainWindow, app: &App) {
-
     {
         let (app2, ui_w) = (app.clone(), ui.as_weak());
         ui.on_set_settings_flag(move |key, on| {
@@ -635,7 +699,11 @@ pub fn fill_hotkeys(ui: &MainWindow, app: &App) {
             crate::HotkeyRow {
                 id: *id as i32,
                 label: (*label).into(),
-                combo: combo.as_ref().map(hotkeys::label).unwrap_or_default().into(),
+                combo: combo
+                    .as_ref()
+                    .map(hotkeys::label)
+                    .unwrap_or_default()
+                    .into(),
                 note: note.into(),
                 is_default: hotkeys::is_default(app, *id),
                 taken,

@@ -334,8 +334,17 @@ impl TimeStretch {
 
     pub fn new(speed: f64) -> Self {
         let n = Self::N;
-        let window = (0..n).map(|i| (0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / n as f64).cos()) as f32).collect();
-        Self { speed: speed.clamp(0.25, 4.0), input: Vec::new(), pos: Self::SEEK as f64, prev: None, tail: vec![0.0; Self::HOP * 2], window }
+        let window = (0..n)
+            .map(|i| (0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / n as f64).cos()) as f32)
+            .collect();
+        Self {
+            speed: speed.clamp(0.25, 4.0),
+            input: Vec::new(),
+            pos: Self::SEEK as f64,
+            prev: None,
+            tail: vec![0.0; Self::HOP * 2],
+            window,
+        }
     }
 
     pub fn speed(&self) -> f64 {
@@ -420,7 +429,12 @@ impl SilenceSkipper {
     pub const THRESHOLD: f32 = 1024.0 / 32768.0;
 
     pub fn new(rate: u32) -> Self {
-        Self { run: 0, held: Vec::new(), min_frames: rate as usize * 15 / 100, pad_frames: rate as usize / 50 }
+        Self {
+            run: 0,
+            held: Vec::new(),
+            min_frames: rate as usize * 15 / 100,
+            pad_frames: rate as usize / 50,
+        }
     }
 
     pub fn reset(&mut self) {
@@ -469,7 +483,9 @@ mod tests {
 
     #[test]
     fn time_stretch_changes_length_not_level() {
-        let input: Vec<f32> = (0..48_000 * 2 * 4).map(|i| ((i / 2) as f32 * 0.05).sin() * 0.5).collect();
+        let input: Vec<f32> = (0..48_000 * 2 * 4)
+            .map(|i| ((i / 2) as f32 * 0.05).sin() * 0.5)
+            .collect();
         for speed in [0.5, 1.5, 2.0] {
             let mut t = TimeStretch::new(speed);
             let mut out = Vec::new();
@@ -477,8 +493,13 @@ mod tests {
             t.finish(&mut out);
             let want = 4.0 * 48_000.0 / speed;
             let got = (out.len() / 2) as f64;
-            assert!((got - want).abs() / want < 0.06, "speed {speed}: {got} frames, want about {want}");
-            let peak = out[4096..out.len() - 4096].iter().fold(0.0f32, |m, s| m.max(s.abs()));
+            assert!(
+                (got - want).abs() / want < 0.06,
+                "speed {speed}: {got} frames, want about {want}"
+            );
+            let peak = out[4096..out.len() - 4096]
+                .iter()
+                .fold(0.0f32, |m, s| m.max(s.abs()));
             assert!(peak > 0.4 && peak < 0.6, "speed {speed}: peak {peak}");
         }
     }

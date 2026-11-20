@@ -61,13 +61,20 @@ pub struct ChatMusic {
 impl ChatMusic {
     fn parse(json: &str) -> Option<Self> {
         let o: serde_json::Value = serde_json::from_str(json).ok()?;
-        let s = |k: &str| o.get(k).and_then(serde_json::Value::as_str).unwrap_or("").to_string();
+        let s = |k: &str| {
+            o.get(k)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
         let id = s("id");
         if id.is_empty() {
             return None;
         }
         Some(ChatMusic {
-            kind: Some(s("k")).filter(|k| !k.is_empty()).unwrap_or_else(|| "track".into()),
+            kind: Some(s("k"))
+                .filter(|k| !k.is_empty())
+                .unwrap_or_else(|| "track".into()),
             id,
             title: s("t"),
             by: s("a"),
@@ -128,11 +135,15 @@ impl ChatStore {
 
     fn cursor(&self, me: &str) -> i64 {
         let c = self.db.lock().expect("chat db");
-        c.query_row("SELECT value FROM meta WHERE key = ?1", [format!("cursor_{me}")], |r| r.get(0))
-            .optional()
-            .ok()
-            .flatten()
-            .unwrap_or(0)
+        c.query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [format!("cursor_{me}")],
+            |r| r.get(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .unwrap_or(0)
     }
 
     fn advance(&self, me: &str, created_at: i64) {
@@ -155,7 +166,10 @@ impl ChatStore {
                 if w.mine || now_ms() / 1000 - w.created_at > 10 {
                     return false;
                 }
-                self.typing.lock().expect("typing").insert(w.peer.clone(), now_ms() + TYPING_SHOWN_MS);
+                self.typing
+                    .lock()
+                    .expect("typing")
+                    .insert(w.peer.clone(), now_ms() + TYPING_SHOWN_MS);
                 return true;
             }
             // They wrote, so they aren't typing any more.
@@ -245,7 +259,11 @@ impl App {
     fn chat_store(&self) -> Option<Arc<ChatStore>> {
         self.inner
             .chats
-            .get_or_init(|| ChatStore::open(&self.inner.profile.root().join("chat.db")).ok().map(Arc::new))
+            .get_or_init(|| {
+                ChatStore::open(&self.inner.profile.root().join("chat.db"))
+                    .ok()
+                    .map(Arc::new)
+            })
             .clone()
     }
 
@@ -256,7 +274,9 @@ impl App {
 
     /// Starts reading chats from the relays (both directions) while the app runs.
     pub fn start_chats_live(&self) {
-        let (Some(store), Some(friends)) = (self.chat_store(), self.friends()) else { return };
+        let (Some(store), Some(friends)) = (self.chat_store(), self.friends()) else {
+            return;
+        };
         let mut live = store.live.lock().expect("chat live");
         if live.is_some() {
             return;
@@ -265,7 +285,11 @@ impl App {
         let me = keys.public_hex();
         let cursor = store.cursor(&me);
         let now = now_ms() / 1000;
-        let since = if cursor == 0 { now - FIRST_LOOK_S } else { cursor.min(now) - OVERLAP_S };
+        let since = if cursor == 0 {
+            now - FIRST_LOOK_S
+        } else {
+            cursor.min(now) - OVERLAP_S
+        };
         let pool = friends.pool();
         let store2 = store.clone();
         *live = Some(self.runtime.spawn(async move {
@@ -326,7 +350,9 @@ impl App {
     /// Conversations, newest first. Unread: the friend's messages not read here, newer than my last answer (an
     /// answer from any device means I saw what came before it, even when the phone sends no read receipts).
     pub fn chat_previews(&self) -> Vec<ChatPreview> {
-        let (Some(store), Some(f)) = (self.chat_store(), self.friends()) else { return Vec::new() };
+        let (Some(store), Some(f)) = (self.chat_store(), self.friends()) else {
+            return Vec::new();
+        };
         let me = f.me();
         let c = store.db.lock().expect("chat db");
         let Ok(mut st) = c.prepare(
@@ -346,9 +372,17 @@ impl App {
                 text: r.get(1)?,
                 ts: r.get(2)?,
                 mine: r.get(3)?,
-                music: r.get::<_, Option<String>>(4)?.as_deref().and_then(ChatMusic::parse).map(|m| {
-                    if m.by.trim().is_empty() { m.title } else { format!("{} — {}", m.by, m.title) }
-                }),
+                music: r
+                    .get::<_, Option<String>>(4)?
+                    .as_deref()
+                    .and_then(ChatMusic::parse)
+                    .map(|m| {
+                        if m.by.trim().is_empty() {
+                            m.title
+                        } else {
+                            format!("{} — {}", m.by, m.title)
+                        }
+                    }),
                 unread: r.get(5)?,
             })
         })
@@ -358,7 +392,9 @@ impl App {
 
     /// A conversation, oldest first (the newest `limit`).
     pub fn chat_messages(&self, peer: &str, limit: usize) -> Vec<ChatRow> {
-        let (Some(store), Some(f)) = (self.chat_store(), self.friends()) else { return Vec::new() };
+        let (Some(store), Some(f)) = (self.chat_store(), self.friends()) else {
+            return Vec::new();
+        };
         let me = f.me();
         let c = store.db.lock().expect("chat db");
         let Ok(mut st) = c.prepare(
@@ -377,7 +413,10 @@ impl App {
                     edited: r.get(4)?,
                     state: r.get(5)?,
                     read: r.get(6)?,
-                    music: r.get::<_, Option<String>>(7)?.as_deref().and_then(ChatMusic::parse),
+                    music: r
+                        .get::<_, Option<String>>(7)?
+                        .as_deref()
+                        .and_then(ChatMusic::parse),
                     reactions: Vec::new(),
                     reply_to: r.get::<_, Option<String>>(8)?.filter(|s| !s.is_empty()),
                 })
@@ -392,11 +431,19 @@ impl App {
                  WHERE r.owner = ?1 AND r.peer = ?2 AND m.ts >= ?3 ORDER BY r.ts",
             )
         {
-            let mut by_msg: std::collections::HashMap<String, Vec<(String, bool)>> = std::collections::HashMap::new();
+            let mut by_msg: std::collections::HashMap<String, Vec<(String, bool)>> =
+                std::collections::HashMap::new();
             let found = st.query_map(params![me, peer, oldest], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
             });
-            for (msg, author, keys) in found.map(|it| it.flatten().collect::<Vec<_>>()).unwrap_or_default() {
+            for (msg, author, keys) in found
+                .map(|it| it.flatten().collect::<Vec<_>>())
+                .unwrap_or_default()
+            {
                 let list = by_msg.entry(msg).or_default();
                 for k in keys.split('\n').filter(|k| !k.is_empty()) {
                     list.push((k.to_string(), author == me));
@@ -425,7 +472,9 @@ impl App {
     }
 
     pub fn chat_opened(&self, peer: &str) {
-        let (Some(store), Some(f)) = (self.chat_store(), self.friends()) else { return };
+        let (Some(store), Some(f)) = (self.chat_store(), self.friends()) else {
+            return;
+        };
         let me = f.me();
         let newest: i64 = {
             let c = store.db.lock().expect("chat db");
@@ -466,7 +515,9 @@ impl App {
 
     /// The text field changed: the friend sees «печатает…» (when read receipts are on, as on the phone).
     pub fn chat_typing_now(&self, peer: &str) {
-        let (Some(store), Some(f)) = (self.chat_store(), self.friends()) else { return };
+        let (Some(store), Some(f)) = (self.chat_store(), self.friends()) else {
+            return;
+        };
         if !crate::social::may_publish_pub() || !f.privacy().read_receipts {
             return;
         }
@@ -500,12 +551,16 @@ impl App {
             .optional()
             .map_err(|e| crate::AppError::Other(e.to_string()))?
         };
-        let Some(old) = old else { return Err(crate::AppError::Other("это не моё сообщение".into())) };
+        let Some(old) = old else {
+            return Err(crate::AppError::Other("это не моё сообщение".into()));
+        };
         if text.is_empty() || text == old {
             return Ok(());
         }
         if !crate::social::may_publish_pub() {
-            return Err(crate::AppError::Other("в тестовом запуске сообщения не меняю".into()));
+            return Err(crate::AppError::Other(
+                "в тестовом запуске сообщения не меняю".into(),
+            ));
         }
         {
             let c = store.db.lock().expect("chat db");
@@ -530,7 +585,9 @@ impl App {
         let (store, f) = self.chat_parts()?;
         let me = f.me();
         if !crate::social::may_publish_pub() {
-            return Err(crate::AppError::Other("в тестовом запуске сообщения не удаляю".into()));
+            return Err(crate::AppError::Other(
+                "в тестовом запуске сообщения не удаляю".into(),
+            ));
         }
         let (mine, event_id): (bool, Option<String>) = {
             let c = store.db.lock().expect("chat db");
@@ -547,7 +604,10 @@ impl App {
                 "UPDATE message SET text = '', music = NULL, deleted = 1, eventId = NULL WHERE owner = ?1 AND peer = ?2 AND id = ?3",
                 params![me, peer, id],
             );
-            let _ = c.execute("DELETE FROM reaction WHERE owner = ?1 AND peer = ?2 AND msgId = ?3", params![me, peer, id]);
+            let _ = c.execute(
+                "DELETE FROM reaction WHERE owner = ?1 AND peer = ?2 AND msgId = ?3",
+                params![me, peer, id],
+            );
             row
         };
         store.bump();
@@ -558,7 +618,11 @@ impl App {
                     pool.publish(&e, Duration::from_secs(20)).await;
                 }
                 if let Some(eid) = event_id {
-                    pool.publish(&chat::relay_delete_event(&keys, &eid), Duration::from_secs(20)).await;
+                    pool.publish(
+                        &chat::relay_delete_event(&keys, &eid),
+                        Duration::from_secs(20),
+                    )
+                    .await;
                 }
             });
         }
@@ -573,7 +637,9 @@ impl App {
         let (store, f) = self.chat_parts()?;
         let me = f.me();
         if !crate::social::may_publish_pub() {
-            return Err(crate::AppError::Other("в тестовом запуске реакции не ставлю".into()));
+            return Err(crate::AppError::Other(
+                "в тестовом запуске реакции не ставлю".into(),
+            ));
         }
         let (keys, ts) = {
             let c = store.db.lock().expect("chat db");
@@ -598,7 +664,12 @@ impl App {
                 .map_err(|e| crate::AppError::Other(e.to_string()))?;
             let current: Vec<String> = old
                 .as_ref()
-                .map(|(k, _)| k.split('\n').filter(|k| !k.is_empty()).map(str::to_string).collect())
+                .map(|(k, _)| {
+                    k.split('\n')
+                        .filter(|k| !k.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
                 .unwrap_or_default();
             let keys = chat::toggle_reaction(&current, key);
             let ts = now_ms().max(old.map_or(0, |(_, t)| t + 1));
@@ -634,7 +705,8 @@ impl App {
             (None, Some(m)) if crate::songs::is_youtube_video_id(m) => format!("yt:{m}"),
             _ => t.id.clone(),
         };
-        let mut m = serde_json::json!({"k": "track", "id": id, "t": t.title, "a": t.artist_names()});
+        let mut m =
+            serde_json::json!({"k": "track", "id": id, "t": t.title, "a": t.artist_names()});
         if let Some(c) = &r.cover {
             m["i"] = serde_json::json!(c);
         }
@@ -646,7 +718,12 @@ impl App {
 
     /// Forwards messages of the chat with `from` to `peer` (ChatHub.startForwardMessages): each goes as a new
     /// message of mine — its text and music card, without who wrote it — in their order. Returns how many went.
-    pub fn forward_messages(&self, peer: &str, from: &str, ids: &[String]) -> crate::AppResult<usize> {
+    pub fn forward_messages(
+        &self,
+        peer: &str,
+        from: &str,
+        ids: &[String],
+    ) -> crate::AppResult<usize> {
         let (store, f) = self.chat_parts()?;
         let me = f.me();
         let mut found: Vec<(i64, String, Option<String>)> = {
@@ -679,7 +756,9 @@ impl App {
     pub fn retry_chat(&self, peer: &str, id: &str) -> crate::AppResult<()> {
         let (store, f) = self.chat_parts()?;
         if !crate::social::may_publish_pub() {
-            return Err(crate::AppError::Other("в тестовом запуске сообщения не отправляю".into()));
+            return Err(crate::AppError::Other(
+                "в тестовом запуске сообщения не отправляю".into(),
+            ));
         }
         let keys = f.keys();
         let me = keys.public_hex();
@@ -693,8 +772,9 @@ impl App {
             .map_err(|e| crate::AppError::Other(e.to_string()))?
         };
         let music = music.and_then(|m| serde_json::from_str::<serde_json::Value>(&m).ok());
-        let event = chat::music_message_event(&keys, peer, id, ts, &text, music.as_ref(), reply.as_deref())
-            .ok_or_else(|| crate::AppError::Other("не удалось зашифровать".into()))?;
+        let event =
+            chat::music_message_event(&keys, peer, id, ts, &text, music.as_ref(), reply.as_deref())
+                .ok_or_else(|| crate::AppError::Other("не удалось зашифровать".into()))?;
         {
             let c = store.db.lock().expect("chat db");
             let _ = c.execute(
@@ -748,7 +828,9 @@ impl App {
             .zip(self.friends())
             .ok_or_else(|| crate::AppError::Other("нет профиля друзей".into()))?;
         if !crate::social::may_publish_pub() {
-            return Err(crate::AppError::Other("в тестовом запуске сообщения не отправляю".into()));
+            return Err(crate::AppError::Other(
+                "в тестовом запуске сообщения не отправляю".into(),
+            ));
         }
         let keys = f.keys();
         let me = keys.public_hex();

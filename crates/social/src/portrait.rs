@@ -58,7 +58,9 @@ pub fn unpack(content: &str) -> Option<ProfilePortrait> {
         Some(b64) => {
             let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
             let mut s = String::new();
-            flate2::read::GzDecoder::new(bytes.as_slice()).read_to_string(&mut s).ok()?;
+            flate2::read::GzDecoder::new(bytes.as_slice())
+                .read_to_string(&mut s)
+                .ok()?;
             s
         }
         None => content.to_string(),
@@ -67,14 +69,25 @@ pub fn unpack(content: &str) -> Option<ProfilePortrait> {
     let months = o
         .get("months")
         .and_then(Value::as_object)
-        .map(|m| m.iter().filter(|(_, v)| v.is_object()).map(|(k, v)| (k.clone(), from_json(v))).collect())
+        .map(|m| {
+            m.iter()
+                .filter(|(_, v)| v.is_object())
+                .map(|(k, v)| (k.clone(), from_json(v)))
+                .collect()
+        })
         .unwrap_or_default();
     Some(ProfilePortrait {
         at: o.get("at").and_then(Value::as_i64).unwrap_or(0),
         tags: o
             .get("tags")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).filter(|t| !t.trim().is_empty()).map(str::to_string).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .filter(|t| !t.trim().is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
             .unwrap_or_default(),
         week: o.get("w").filter(|v| v.is_object()).map(from_json),
         month: o.get("m").filter(|v| v.is_object()).map(from_json),
@@ -100,7 +113,12 @@ fn from_json(o: &Value) -> Portrait {
         by_likes: o.get("bl").and_then(Value::as_bool).unwrap_or(false),
         artists: rows("a")
             .iter()
-            .map(|r| PortraitArtist { name: s(r, 0), minutes: n(r, 1), likes: n(r, 2), cover: ne(s(r, 3)) })
+            .map(|r| PortraitArtist {
+                name: s(r, 0),
+                minutes: n(r, 1),
+                likes: n(r, 2),
+                cover: ne(s(r, 3)),
+            })
             .collect(),
         genres: rows("g").iter().map(|r| (s(r, 0), n(r, 1))).collect(),
         top_tracks: rows("t")
@@ -168,12 +186,18 @@ mod tests {
             "months":{"2026-10":{"min":10,"n":1,"likes":0,"bl":true,"a":[],"g":[],"t":[]}}}"#;
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         gz.write_all(json.as_bytes()).unwrap();
-        let packed = format!("gz1:{}", base64::engine::general_purpose::STANDARD.encode(gz.finish().unwrap()));
+        let packed = format!(
+            "gz1:{}",
+            base64::engine::general_purpose::STANDARD.encode(gz.finish().unwrap())
+        );
         for content in [packed.as_str(), json] {
             let p = unpack(content).unwrap();
             assert_eq!(p.tags, vec!["Deathcore"]);
             let w = p.week.unwrap();
-            assert_eq!((w.minutes, w.tracks, w.new_likes, w.by_likes), (90, 12, 3, false));
+            assert_eq!(
+                (w.minutes, w.tracks, w.new_likes, w.by_likes),
+                (90, 12, 3, false)
+            );
             assert_eq!(w.artists[0].cover.as_deref(), Some("https://i/x"));
             assert_eq!(w.genres[1], (String::new(), 30));
             let t = &w.top_tracks[0];
@@ -189,7 +213,12 @@ mod tests {
         // "a".hashCode() = 97 → 97 × φ mod 1 × 360.
         let want = ((97.0f64 * 0.618_033_988_7) % 1.0 * 360.0) as f32;
         assert!((hue_of("A") - want).abs() < 1e-3);
-        let hs = hues_for(&["Deathcore".into(), "Deathcore".into(), String::new(), "Metalcore".into()]);
+        let hs = hues_for(&[
+            "Deathcore".into(),
+            "Deathcore".into(),
+            String::new(),
+            "Metalcore".into(),
+        ]);
         assert_eq!(hs.len(), 2);
         assert!(hue_distance(hs[0].1, hs[1].1) >= 38.0 || hs[1].1 != hue_of("Metalcore"));
     }

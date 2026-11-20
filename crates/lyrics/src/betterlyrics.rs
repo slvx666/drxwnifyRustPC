@@ -16,14 +16,21 @@ impl BetterLyrics {
     }
 
     pub async fn find(&self, title: &str, artist: &str, duration_s: Option<u64>) -> Option<Lyrics> {
-        let mut url = format!("https://lyrics-api.boidu.dev/getLyrics?s={}&a={}", enc(title), enc(artist));
+        let mut url = format!(
+            "https://lyrics-api.boidu.dev/getLyrics?s={}&a={}",
+            enc(title),
+            enc(artist)
+        );
         if let Some(d) = duration_s.filter(|d| *d > 0) {
             url.push_str(&format!("&d={d}"));
         }
         let r = self
             .http
             .request(Method::GET, &url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            )
             .header("Accept", "application/json");
         let resp = self.http.send(r).await.ok()?;
         if !resp.status().is_success() {
@@ -55,7 +62,12 @@ fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
 }
 
 fn unescape(s: &str) -> String {
-    s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&#39;", "'").replace("&amp;", "&")
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
 }
 
 /// The timed lines of a TTML document (one per `<p>`), with the document's `lyricOffset` applied.
@@ -74,12 +86,18 @@ pub fn parse_ttml(ttml: &str) -> Vec<Line> {
             rest = &after[2..];
             continue;
         }
-        let Some(tag_end) = after.find('>') else { break };
+        let Some(tag_end) = after.find('>') else {
+            break;
+        };
         let tag = &after[..tag_end];
-        let Some(close) = after.find("</p>") else { break };
+        let Some(close) = after.find("</p>") else {
+            break;
+        };
         let inner = &after[tag_end + 1..close];
         rest = &after[close + 4..];
-        let Some(begin) = attr(tag, "begin").and_then(time_ms) else { continue };
+        let Some(begin) = attr(tag, "begin").and_then(time_ms) else {
+            continue;
+        };
         // Inner text without tags; spans of words are separated by real spaces in the document.
         let mut text = String::new();
         let mut in_tag = false;
@@ -95,7 +113,10 @@ pub fn parse_ttml(ttml: &str) -> Vec<Line> {
         if text.is_empty() {
             continue;
         }
-        out.push(Line { time_ms: (begin as i64 + offset_ms).max(0) as u64, text });
+        out.push(Line {
+            time_ms: (begin as i64 + offset_ms).max(0) as u64,
+            text,
+        });
     }
     out.sort_by_key(|l| l.time_ms);
     out

@@ -63,7 +63,11 @@ pub fn cross_norm(text: &str) -> String {
     let mut s = String::with_capacity(lower.len());
     let mut rest = lower.as_str();
     while let Some(open) = rest.find(['(', '[']) {
-        let close_ch = if rest[open..].starts_with('(') { ')' } else { ']' };
+        let close_ch = if rest[open..].starts_with('(') {
+            ')'
+        } else {
+            ']'
+        };
         let Some(len) = rest[open..].find(close_ch) else {
             break;
         };
@@ -79,7 +83,10 @@ pub fn cross_norm(text: &str) -> String {
     // " - 2011 Remaster", " - Radio Edit".
     if let Some(dash) = s.find(" - ") {
         let tail = &s[dash..];
-        if ["remaster", "version", "edit"].iter().any(|n| tail.contains(n)) {
+        if ["remaster", "version", "edit"]
+            .iter()
+            .any(|n| tail.contains(n))
+        {
             s.truncate(dash);
         }
     }
@@ -185,7 +192,15 @@ impl App {
         if let Some(t) = self.inner.known.lock().expect("known").get(id).cloned() {
             return Some(t);
         }
-        if let Some(t) = self.inner.playback.now.borrow().track.clone().filter(|t| t.id == id) {
+        if let Some(t) = self
+            .inner
+            .playback
+            .now
+            .borrow()
+            .track
+            .clone()
+            .filter(|t| t.id == id)
+        {
             return Some(t);
         }
         let song = song_id_of(id);
@@ -243,7 +258,10 @@ impl App {
 
     /// Flips the heart of the track a row or the player shows; returns the new state.
     pub async fn toggle_like(&self, id: &str) -> AppResult<bool> {
-        let t = self.known_track(id).await.ok_or_else(|| err("unknown track"))?;
+        let t = self
+            .known_track(id)
+            .await
+            .ok_or_else(|| err("unknown track"))?;
         let liked = !self.is_track_liked(id).await;
         self.set_track_liked(&t, liked).await?;
         // «Отправлять лайки в Last.fm» (lastfmUseSendLikes).
@@ -272,12 +290,18 @@ impl App {
 
     /// The song rows that are the same catalog track as `song_id` (its `mfb:` row, older `spotify:` row and YouTube
     /// videos matched to it), `song_id` first.
-    fn same_track_rows(c: &rusqlite::Connection, song_id: &str, catalog: Option<&str>) -> Vec<String> {
+    fn same_track_rows(
+        c: &rusqlite::Connection,
+        song_id: &str,
+        catalog: Option<&str>,
+    ) -> Vec<String> {
         let mut rows = vec![song_id.to_string()];
         if let Some(cid) = catalog {
             rows.push(format!("mfb:{cid}"));
             rows.push(format!("spotify:{cid}"));
-            if let Ok(mut st) = c.prepare("SELECT youtubeId FROM spotify_match WHERE spotifyId = ?1") {
+            if let Ok(mut st) =
+                c.prepare("SELECT youtubeId FROM spotify_match WHERE spotifyId = ?1")
+            {
                 if let Ok(it) = st.query_map([cid], |r| r.get::<_, String>(0)) {
                     rows.extend(it.flatten());
                 }
@@ -296,9 +320,9 @@ impl App {
                 let cid = catalog_id_of(c, &song);
                 let rows = Self::same_track_rows(c, &song, cid.as_deref());
                 let mut st = c.prepare("SELECT liked FROM song WHERE id = ?1")?;
-                Ok(rows.iter().any(|r| {
-                    st.query_row([r], |x| x.get::<_, bool>(0)).unwrap_or(false)
-                }))
+                Ok(rows
+                    .iter()
+                    .any(|r| st.query_row([r], |x| x.get::<_, bool>(0)).unwrap_or(false)))
             })
             .await
             .unwrap_or(false)
@@ -453,8 +477,18 @@ impl App {
 
     async fn search_in(&self, target: Source, q: &str) -> Result<Vec<Track>, AppError> {
         match target {
-            Source::Spotify => self.spotify().ok_or_else(|| err("no Spotify"))?.search_tracks(q, 20).await.map_err(err),
-            Source::Yandex => self.yandex().ok_or_else(|| err("no Yandex"))?.search(q, 20).await.map_err(err),
+            Source::Spotify => self
+                .spotify()
+                .ok_or_else(|| err("no Spotify"))?
+                .search_tracks(q, 20)
+                .await
+                .map_err(err),
+            Source::Yandex => self
+                .yandex()
+                .ok_or_else(|| err("no Yandex"))?
+                .search(q, 20)
+                .await
+                .map_err(err),
             Source::Vk => Ok(self
                 .vk()
                 .ok_or_else(|| err("no VK"))?
@@ -521,7 +555,9 @@ impl App {
                 let Some(m) = albums.into_iter().find(|a| {
                     cross_norm(&a.name) == wanted_album
                         && (wanted_artists.is_empty()
-                            || a.artists.iter().any(|x| wanted_artists.contains(&cross_norm(&x.name))))
+                            || a.artists
+                                .iter()
+                                .any(|x| wanted_artists.contains(&cross_norm(&x.name))))
                 }) else {
                     continue;
                 };
@@ -582,7 +618,8 @@ impl App {
             let (o, c) = vk.add_track(&full).await.map_err(err)?;
             if c != 0 {
                 self.edit_shared(VK_SAVED, |p| {
-                    p.values.insert(full.clone(), SpValue::String(format!("{o}_{c}")));
+                    p.values
+                        .insert(full.clone(), SpValue::String(format!("{o}_{c}")));
                 });
             }
         } else if let Some(copy) = copy {
@@ -606,7 +643,11 @@ impl App {
         match Source::of_id(album_id) {
             Source::Spotify => {
                 let sp = self.spotify().ok_or_else(|| err("no Spotify"))?;
-                Ok(sp.library_ids("Albums").await.map_err(err)?.contains(album_id))
+                Ok(sp
+                    .library_ids("Albums")
+                    .await
+                    .map_err(err)?
+                    .contains(album_id))
             }
             Source::Yandex => {
                 let y = self.yandex().ok_or_else(|| err("no Yandex"))?;
@@ -642,13 +683,16 @@ impl App {
             }
             Source::Vk => {
                 let vk = self.vk().ok_or_else(|| err("no VK"))?;
-                let (o, p, key) =
-                    drx_catalog::vk::parse_playlist_id(album_id).ok_or_else(|| err("not a VK album"))?;
+                let (o, p, key) = drx_catalog::vk::parse_playlist_id(album_id)
+                    .ok_or_else(|| err("not a VK album"))?;
                 let mine = vk.my_playlists().await.map_err(err)?;
                 let have = mine.iter().find(|x| x.owner_id == o && x.playlist_id == p);
                 match (saved, have) {
                     (true, None) => vk.follow_playlist(o, p, key).await.map(|_| ()).map_err(err),
-                    (false, Some(x)) => vk.delete_playlist(x.owner_id, x.playlist_id).await.map_err(err),
+                    (false, Some(x)) => vk
+                        .delete_playlist(x.owner_id, x.playlist_id)
+                        .await
+                        .map_err(err),
                     _ => Ok(()),
                 }
             }
@@ -676,11 +720,19 @@ impl App {
         let raw = artist_id.strip_prefix("SP_").unwrap_or(artist_id);
         match Source::of_id(raw) {
             Source::Spotify => match self.spotify() {
-                Some(sp) => sp.library_ids("Artists").await.map(|s| s.contains(raw)).unwrap_or(false),
+                Some(sp) => sp
+                    .library_ids("Artists")
+                    .await
+                    .map(|s| s.contains(raw))
+                    .unwrap_or(false),
                 None => false,
             },
             Source::Yandex => match self.yandex() {
-                Some(y) => y.liked_ids("artists").await.map(|s| s.contains(raw)).unwrap_or(false),
+                Some(y) => y
+                    .liked_ids("artists")
+                    .await
+                    .map(|s| s.contains(raw))
+                    .unwrap_or(false),
                 None => false,
             },
             Source::Vk => false,
@@ -695,7 +747,10 @@ impl App {
         photo: Option<String>,
         followed: bool,
     ) -> AppResult<()> {
-        let raw = artist_id.strip_prefix("SP_").unwrap_or(artist_id).to_string();
+        let raw = artist_id
+            .strip_prefix("SP_")
+            .unwrap_or(artist_id)
+            .to_string();
         let catalog = matches!(Source::of_id(&raw), Source::Spotify | Source::Yandex)
             && (crate::songs::is_spotify_id(&raw) || raw.starts_with(drx_catalog::yandex::PREFIX));
         let (raw2, name2, id2) = (raw.clone(), name.to_string(), artist_id.to_string());

@@ -28,7 +28,9 @@ impl App {
         if !self.pref_bool("persistentQueue").unwrap_or(true) {
             return false;
         }
-        let Some(saved) = std::fs::read(self.queue_file()).ok().and_then(|b| serde_json::from_slice::<Saved>(&b).ok())
+        let Some(saved) = std::fs::read(self.queue_file())
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Saved>(&b).ok())
         else {
             return false;
         };
@@ -36,8 +38,14 @@ impl App {
             return false;
         }
         self.remember(saved.tracks.iter());
-        let items = saved.tracks.into_iter().map(|track| Playable { track, url: None }).collect();
-        self.inner.playback.restore(items, saved.index, saved.position_s);
+        let items = saved
+            .tracks
+            .into_iter()
+            .map(|track| Playable { track, url: None })
+            .collect();
+        self.inner
+            .playback
+            .restore(items, saved.index, saved.position_s);
         true
     }
 
@@ -52,9 +60,15 @@ impl App {
             return;
         }
         // Keep a window around the playing track when the queue is huge.
-        let start = index.saturating_sub(MAX_KEPT / 4).min(tracks.len().saturating_sub(MAX_KEPT));
+        let start = index
+            .saturating_sub(MAX_KEPT / 4)
+            .min(tracks.len().saturating_sub(MAX_KEPT));
         let kept: Vec<Track> = tracks.into_iter().skip(start).take(MAX_KEPT).collect();
-        let saved = Saved { index: index - start, position_s: self.clock().position_s, tracks: kept };
+        let saved = Saved {
+            index: index - start,
+            position_s: self.clock().position_s,
+            tracks: kept,
+        };
         if let Ok(bytes) = serde_json::to_vec(&saved) {
             let _ = drx_core::paths::write_atomic(&self.queue_file(), &bytes);
         }

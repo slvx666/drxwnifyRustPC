@@ -16,7 +16,9 @@ fn track(id: &str, title: &str, artist: &str, album: &str, duration_s: u64) -> O
         // A stable id per title and artist, so importing twice does not double the songs.
         let h = format!("{}|{}", title.to_lowercase(), artist.to_lowercase())
             .bytes()
-            .fold(1469598103934665603u64, |h, b| (h ^ b as u64).wrapping_mul(1099511628211));
+            .fold(1469598103934665603u64, |h, b| {
+                (h ^ b as u64).wrapping_mul(1099511628211)
+            });
         format!("import:{h:016x}")
     } else {
         id.to_string()
@@ -28,9 +30,18 @@ fn track(id: &str, title: &str, artist: &str, album: &str, duration_s: u64) -> O
             .split(';')
             .map(str::trim)
             .filter(|a| !a.is_empty())
-            .map(|a| ArtistRef { id: String::new(), name: a.to_string() })
+            .map(|a| ArtistRef {
+                id: String::new(),
+                name: a.to_string(),
+            })
             .collect(),
-        album: Some(album.trim()).filter(|a| !a.is_empty()).map(|a| AlbumRef { id: String::new(), name: a.to_string(), images: Vec::new() }),
+        album: Some(album.trim())
+            .filter(|a| !a.is_empty())
+            .map(|a| AlbumRef {
+                id: String::new(),
+                name: a.to_string(),
+                images: Vec::new(),
+            }),
         duration_ms: duration_s * 1000,
         isrc: None,
         plays: None,
@@ -61,10 +72,20 @@ fn csv_cells(line: &str) -> Vec<String> {
 fn youtube_id(s: &str) -> Option<String> {
     let s = s.trim();
     if let Some(i) = s.find("v=") {
-        return Some(s[i + 2..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect());
+        return Some(
+            s[i + 2..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+                .collect(),
+        );
     }
     if let Some(i) = s.find("youtu.be/") {
-        return Some(s[i + 9..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect());
+        return Some(
+            s[i + 9..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+                .collect(),
+        );
     }
     None
 }
@@ -88,22 +109,49 @@ pub fn parse_playlist(text: &str) -> Vec<Track> {
                 title.clear();
             } else if !line.is_empty() && !line.starts_with('#') {
                 let id = youtube_id(line).unwrap_or_default();
-                let fallback = std::path::Path::new(line).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-                let t = if title.is_empty() { fallback } else { std::mem::take(&mut title) };
+                let fallback = std::path::Path::new(line)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let t = if title.is_empty() {
+                    fallback
+                } else {
+                    std::mem::take(&mut title)
+                };
                 out.extend(track(&id, &t, &artist, "", secs));
             }
         }
         return out;
     }
     let mut lines = text.lines();
-    let Some(header) = lines.next() else { return out };
-    let head: Vec<String> = csv_cells(header).into_iter().map(|h| h.trim().to_lowercase()).collect();
-    let col = |names: &[&str]| head.iter().position(|h| names.iter().any(|n| h == n || h.starts_with(n)));
-    let (Some(t), a) = (col(&["title", "track name", "track", "название", "трек"]), col(&["artist", "исполнитель"])) else { return out };
-    let (al, id) = (col(&["album", "альбом"]), col(&["youtube video id", "video id", "id"]));
+    let Some(header) = lines.next() else {
+        return out;
+    };
+    let head: Vec<String> = csv_cells(header)
+        .into_iter()
+        .map(|h| h.trim().to_lowercase())
+        .collect();
+    let col = |names: &[&str]| {
+        head.iter()
+            .position(|h| names.iter().any(|n| h == n || h.starts_with(n)))
+    };
+    let (Some(t), a) = (
+        col(&["title", "track name", "track", "название", "трек"]),
+        col(&["artist", "исполнитель"]),
+    ) else {
+        return out;
+    };
+    let (al, id) = (
+        col(&["album", "альбом"]),
+        col(&["youtube video id", "video id", "id"]),
+    );
     for line in lines.filter(|l| !l.trim().is_empty()) {
         let cells = csv_cells(line);
-        let get = |i: Option<usize>| i.and_then(|i| cells.get(i)).map(String::as_str).unwrap_or("");
+        let get = |i: Option<usize>| {
+            i.and_then(|i| cells.get(i))
+                .map(String::as_str)
+                .unwrap_or("")
+        };
         out.extend(track(get(id), get(Some(t)), get(a), get(al), 0));
     }
     out
@@ -111,14 +159,22 @@ pub fn parse_playlist(text: &str) -> Vec<Track> {
 
 impl App {
     /// Imports a CSV or M3U file as a new playlist named after the file. Returns its name and how many tracks.
-    pub async fn import_playlist_file(&self, path: &std::path::Path) -> crate::AppResult<(String, usize)> {
+    pub async fn import_playlist_file(
+        &self,
+        path: &std::path::Path,
+    ) -> crate::AppResult<(String, usize)> {
         let bytes = std::fs::read(path).map_err(|e| crate::AppError::Other(e.to_string()))?;
         let text = String::from_utf8_lossy(&bytes);
         let tracks = parse_playlist(&text);
         if tracks.is_empty() {
-            return Err(crate::AppError::Other("в файле не нашлось треков (нужен CSV или M3U)".into()));
+            return Err(crate::AppError::Other(
+                "в файле не нашлось треков (нужен CSV или M3U)".into(),
+            ));
         }
-        let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Импорт".into());
+        let name = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Импорт".into());
         let id = self.create_playlist(&name).await?;
         let n = self.add_to_playlist(&id, tracks).await?;
         Ok((name, n))
@@ -132,18 +188,32 @@ mod tests {
     #[test]
     fn imports_a_file_into_a_new_playlist() {
         let dir = tempfile::tempdir().unwrap();
-        let app = App::start(drx_core::paths::Profile::at(dir.path()), crate::EditionProfile::mini()).unwrap();
+        let app = App::start(
+            drx_core::paths::Profile::at(dir.path()),
+            crate::EditionProfile::mini(),
+        )
+        .unwrap();
         let f = dir.path().join("Моя подборка.m3u");
-        std::fs::write(&f, "#EXTM3U
+        std::fs::write(
+            &f,
+            "#EXTM3U
 #EXTINF:200,The Weeknd - Blinding Lights
 #YTM:4NRXx6U8ABQ
 #EXTINF:100,A - B
 #YTM:
-").unwrap();
-        let (name, n) = app.runtime().block_on(app.import_playlist_file(&f)).unwrap();
+",
+        )
+        .unwrap();
+        let (name, n) = app
+            .runtime()
+            .block_on(app.import_playlist_file(&f))
+            .unwrap();
         assert_eq!((name.as_str(), n), ("Моя подборка", 2));
         let entries = app.runtime().block_on(app.library_entries()).unwrap();
-        assert!(entries.iter().any(|e| e.title == "Моя подборка"), "the playlist is in the library");
+        assert!(
+            entries.iter().any(|e| e.title == "Моя подборка"),
+            "the playlist is in the library"
+        );
     }
 
     #[test]
@@ -158,7 +228,14 @@ mod tests {
         let m3u = "#EXTM3U\n#EXTINF:200,The Weeknd - Blinding Lights\n#YTM:4NRXx6U8ABQ\n#EXTINF:100,Solo\nhttps://www.youtube.com/watch?v=abcdefghijk&t=1\n";
         let t = parse_playlist(m3u);
         assert_eq!(t.len(), 2);
-        assert_eq!((t[0].title.as_str(), t[0].artists[0].name.as_str(), t[0].duration_ms), ("Blinding Lights", "The Weeknd", 200_000));
+        assert_eq!(
+            (
+                t[0].title.as_str(),
+                t[0].artists[0].name.as_str(),
+                t[0].duration_ms
+            ),
+            ("Blinding Lights", "The Weeknd", 200_000)
+        );
         assert_eq!(t[1].id, "abcdefghijk");
     }
 }

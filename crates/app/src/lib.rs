@@ -3,35 +3,36 @@
 
 mod accounts;
 pub mod chats;
-pub mod listen_along;
+pub mod downloads;
 pub mod edition;
 pub mod genres;
 mod history;
 mod home;
+pub mod import;
+pub mod lastfm;
 pub mod likes;
+pub mod listen_along;
 pub mod lists;
 pub mod playback;
 pub mod playlists;
 pub mod radio;
 pub mod rooms;
 pub mod sleep;
-pub mod downloads;
-pub mod sponsorblock;
 pub mod sound;
-pub mod import;
-pub mod lastfm;
+pub mod sponsorblock;
 pub use history::{HISTORY_DURATION_KEY, PAUSE_HISTORY_KEY};
+pub mod content;
 mod prefs_cache;
 mod queue_store;
-pub mod content;
-pub mod yt;
 mod search;
 pub mod social;
 pub mod songs;
 mod stats;
+pub mod yt;
 
 pub use accounts::AccountState;
 pub use drx_audio::player::PlaybackClock;
+pub use drx_catalog::model::Source;
 use drx_core::http::Http;
 use drx_core::paths::Profile;
 use drx_core::store::Store;
@@ -40,9 +41,11 @@ pub use edition::{Edition, EditionProfile};
 pub use home::{HomeAlbum, HomeFeed, HomeRow, HomeRowKind};
 pub use lists::{ListHandle, ListHeader, ListSpec, SongRow, TopPeriod};
 pub use playback::{NowPlaying, Playable, Repeat};
-pub use drx_catalog::model::Source;
 pub use search::{SearchOutcome, SearchSource, fold, link_page, share_text};
-pub use stats::{HistoryEntry, StatItem, StatPeriod, StatSong, Stats, history_group, wrapped_playlist, wrapped_year};
+pub use stats::{
+    HistoryEntry, StatItem, StatPeriod, StatSong, Stats, history_group, wrapped_playlist,
+    wrapped_year,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
@@ -336,8 +339,16 @@ impl App {
     /// «Пропускать трек, если не включается» (Android autoSkipNextOnError) applied to the player.
     pub fn apply_playback_prefs(&self) {
         let on = self.pref_bool("autoSkipNextOnError").unwrap_or(false);
-        self.inner.playback.skip_on_error.store(on, std::sync::atomic::Ordering::Relaxed);
-        *self.inner.playback.lyrics_sources.lock().expect("lyrics sources") = drx_lyrics::Sources {
+        self.inner
+            .playback
+            .skip_on_error
+            .store(on, std::sync::atomic::Ordering::Relaxed);
+        *self
+            .inner
+            .playback
+            .lyrics_sources
+            .lock()
+            .expect("lyrics sources") = drx_lyrics::Sources {
             lrclib: self.pref_bool("enableLrclib").unwrap_or(true),
             better: self.pref_bool("enableBetterLyrics").unwrap_or(true),
             kugou: self.pref_bool("enableKugou").unwrap_or(true),
@@ -346,16 +357,25 @@ impl App {
     }
     /// How many songs «Мой топ» holds (the phone's `topSize`, a text setting; 50 by default).
     pub fn top_size(&self) -> usize {
-        self.pref_string("topSize").and_then(|s| s.trim().parse().ok()).filter(|n| *n > 0).unwrap_or(50).min(500)
+        self.pref_string("topSize")
+            .and_then(|s| s.trim().parse().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(50)
+            .min(500)
     }
 
     /// The period «Мой топ» shows (PC: `pcTopPeriod`, the phone's MyTopFilter names).
     pub fn top_period(&self) -> TopPeriod {
-        self.pref_string("pcTopPeriod").map(|s| TopPeriod::from_name(&s)).unwrap_or_default()
+        self.pref_string("pcTopPeriod")
+            .map(|s| TopPeriod::from_name(&s))
+            .unwrap_or_default()
     }
 
     pub fn set_top_period(&self, p: TopPeriod) {
-        let _ = self.set_pref("pcTopPeriod", drx_core::prefs::PrefValue::String(p.name().into()));
+        let _ = self.set_pref(
+            "pcTopPeriod",
+            drx_core::prefs::PrefValue::String(p.name().into()),
+        );
     }
 
     /// A number setting stored as a float in `settings.preferences_pb`.
@@ -943,7 +963,9 @@ impl App {
                 let start = range.start.min(end);
                 rows[start..end].iter().map(row_of).collect()
             };
-            let flags = self.liked_flags(out.iter().map(|r| r.id.clone()).collect()).await;
+            let flags = self
+                .liked_flags(out.iter().map(|r| r.id.clone()).collect())
+                .await;
             for (r, f) in out.iter_mut().zip(flags) {
                 r.liked = f;
             }
@@ -965,8 +987,12 @@ impl App {
                 continue;
             }
             match id {
-                "SOUNDCLOUD" => list.push(Arc::new(drx_resolver::providers::soundcloud::SoundCloud::new(self.inner.http.clone()))),
-                "YOUTUBE" => list.push(Arc::new(drx_resolver::providers::youtube::YouTube::new(self.inner.http.clone()))),
+                "SOUNDCLOUD" => list.push(Arc::new(
+                    drx_resolver::providers::soundcloud::SoundCloud::new(self.inner.http.clone()),
+                )),
+                "YOUTUBE" => list.push(Arc::new(drx_resolver::providers::youtube::YouTube::new(
+                    self.inner.http.clone(),
+                ))),
                 "VK" => {
                     if let Some(vk) = self.vk() {
                         list.push(Arc::new(drx_resolver::providers::vk::VkProvider::new(vk)));
@@ -1078,19 +1104,37 @@ impl App {
     ) -> Result<std::path::PathBuf, String> {
         let items = self.list_items(handle).await.map_err(|e| e.to_string())?;
         let tracks: Vec<&drx_catalog::model::Track> = items.iter().map(|p| &p.track).collect();
-        let (text, ext) = if format == "m3u" { (export_m3u(&tracks), "m3u") } else { (export_csv(&tracks), "csv") };
+        let (text, ext) = if format == "m3u" {
+            (export_m3u(&tracks), "m3u")
+        } else {
+            (export_csv(&tracks), "csv")
+        };
         let path = unique_path(dir, name, ext);
-        tokio::fs::write(&path, text.as_bytes()).await.map_err(|e| e.to_string())?;
+        tokio::fs::write(&path, text.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(path)
     }
 
     /// «Скачать» in the picture viewer (CoverSaver.save): the largest original into `dir` («Загрузки») as
     /// `<name>.<ext>` (` (2)`, ` (3)`… when taken). Returns the file written.
-    pub async fn save_image(&self, url: &str, name: &str, dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
-        let bytes = self.inner.images.original(url).await.ok_or("картинка не скачалась")?;
+    pub async fn save_image(
+        &self,
+        url: &str,
+        name: &str,
+        dir: &std::path::Path,
+    ) -> Result<std::path::PathBuf, String> {
+        let bytes = self
+            .inner
+            .images
+            .original(url)
+            .await
+            .ok_or("картинка не скачалась")?;
         let ext = drx_core::images::image_extension(&bytes);
         let path = unique_path(dir, name, ext);
-        tokio::fs::write(&path, &bytes).await.map_err(|e| e.to_string())?;
+        tokio::fs::write(&path, &bytes)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(path)
     }
 
@@ -1176,14 +1220,24 @@ impl App {
 fn unique_path(dir: &std::path::Path, name: &str, ext: &str) -> std::path::PathBuf {
     let base: String = name
         .chars()
-        .map(|c| if "\\/:*?\"<>|".contains(c) || c.is_control() { '_' } else { c })
+        .map(|c| {
+            if "\\/:*?\"<>|".contains(c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect::<String>()
         .trim()
         .trim_end_matches('.')
         .chars()
         .take(120)
         .collect();
-    let base = if base.is_empty() { "drxwnify".to_string() } else { base };
+    let base = if base.is_empty() {
+        "drxwnify".to_string()
+    } else {
+        base
+    };
     let mut path = dir.join(format!("{base}.{ext}"));
     let mut n = 2;
     while path.exists() {
@@ -1199,16 +1253,29 @@ fn csv_cell(s: &str) -> String {
 
 /// The id a phone knows a track by (its song id), for exports.
 fn song_id(t: &drx_catalog::model::Track) -> String {
-    crate::social::ref_of(t).media_id.unwrap_or_else(|| t.id.clone())
+    crate::social::ref_of(t)
+        .media_id
+        .unwrap_or_else(|| t.id.clone())
 }
 
 /// PlaylistExporter.exportPlaylistAsCSV.
 pub fn export_csv(tracks: &[&drx_catalog::model::Track]) -> String {
     let mut out = String::from("Title,Artist,Album,YouTube Video ID\n");
     for t in tracks {
-        let artists = t.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join("; ");
+        let artists = t
+            .artists
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>()
+            .join("; ");
         let album = t.album.as_ref().map(|a| a.name.as_str()).unwrap_or("");
-        out.push_str(&format!("{},{},{},{}\n", csv_cell(&t.title), csv_cell(&artists), csv_cell(album), song_id(t)));
+        out.push_str(&format!(
+            "{},{},{},{}\n",
+            csv_cell(&t.title),
+            csv_cell(&artists),
+            csv_cell(album),
+            song_id(t)
+        ));
     }
     out
 }
@@ -1217,8 +1284,17 @@ pub fn export_csv(tracks: &[&drx_catalog::model::Track]) -> String {
 pub fn export_m3u(tracks: &[&drx_catalog::model::Track]) -> String {
     let mut out = String::from("#EXTM3U\n");
     for t in tracks {
-        let artists = t.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(" - ");
-        out.push_str(&format!("#EXTINF:{},{artists} - {}\n", t.duration_ms / 1000, t.title));
+        let artists = t
+            .artists
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>()
+            .join(" - ");
+        out.push_str(&format!(
+            "#EXTINF:{},{artists} - {}\n",
+            t.duration_ms / 1000,
+            t.title
+        ));
         out.push_str(&format!("#YTM:{}\n", song_id(t)));
     }
     out
@@ -1599,12 +1675,20 @@ mod live_youtube {
         }
         let dir = tempfile::tempdir().unwrap();
         let app = App::start(Profile::at(dir.path()), EditionProfile::mini()).unwrap();
-        app.inner.playback.providers.lock().unwrap().retain(|p| p.id() == drx_resolver::provider::ProviderId::Youtube);
+        app.inner
+            .playback
+            .providers
+            .lock()
+            .unwrap()
+            .retain(|p| p.id() == drx_resolver::provider::ProviderId::Youtube);
         use drx_catalog::model::{ArtistRef, Track};
         let track = Track {
             id: "test-yt-dl".into(),
             title: "Blinding Lights".into(),
-            artists: vec![ArtistRef { id: String::new(), name: "The Weeknd".into() }],
+            artists: vec![ArtistRef {
+                id: String::new(),
+                name: "The Weeknd".into(),
+            }],
             album: None,
             duration_ms: 200_000,
             isrc: None,
@@ -1617,7 +1701,11 @@ mod live_youtube {
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
         let bytes = app.downloads_bytes();
-        eprintln!("downloaded {} KB in {:.1} s", bytes / 1024, t.elapsed().as_secs_f64());
+        eprintln!(
+            "downloaded {} KB in {:.1} s",
+            bytes / 1024,
+            t.elapsed().as_secs_f64()
+        );
         assert!(app.is_downloaded("test-yt-dl"), "not downloaded");
         assert!(t.elapsed().as_secs() < 30, "too slow");
     }
@@ -1988,31 +2076,79 @@ mod live_likes {
         let app = App::start(Profile::at(dir), EditionProfile::mini()).unwrap();
         let rt = app.runtime();
         if let Some(sp) = app.spotify() {
-            let liked: std::collections::HashSet<String> =
-                rt.block_on(sp.liked_songs(0, 50)).unwrap().items.into_iter().map(|t| t.id).collect();
-            let found = rt.block_on(sp.search_tracks("Iglooghost Clear Tamei", 10)).unwrap();
-            let t = found.into_iter().find(|t| !liked.contains(&t.id)).expect("a track not liked");
+            let liked: std::collections::HashSet<String> = rt
+                .block_on(sp.liked_songs(0, 50))
+                .unwrap()
+                .items
+                .into_iter()
+                .map(|t| t.id)
+                .collect();
+            let found = rt
+                .block_on(sp.search_tracks("Iglooghost Clear Tamei", 10))
+                .unwrap();
+            let t = found
+                .into_iter()
+                .find(|t| !liked.contains(&t.id))
+                .expect("a track not liked");
             let uri = vec![format!("spotify:track:{}", t.id)];
             rt.block_on(sp.set_in_library(&uri, true)).unwrap();
-            let after: Vec<String> = rt.block_on(sp.liked_songs(0, 5)).unwrap().items.into_iter().map(|t| t.id).collect();
+            let after: Vec<String> = rt
+                .block_on(sp.liked_songs(0, 5))
+                .unwrap()
+                .items
+                .into_iter()
+                .map(|t| t.id)
+                .collect();
             rt.block_on(sp.set_in_library(&uri, false)).unwrap();
-            let gone: Vec<String> = rt.block_on(sp.liked_songs(0, 5)).unwrap().items.into_iter().map(|t| t.id).collect();
-            eprintln!("spotify: liked first={} after unlike present={}", after.first() == Some(&t.id), gone.contains(&t.id));
+            let gone: Vec<String> = rt
+                .block_on(sp.liked_songs(0, 5))
+                .unwrap()
+                .items
+                .into_iter()
+                .map(|t| t.id)
+                .collect();
+            eprintln!(
+                "spotify: liked first={} after unlike present={}",
+                after.first() == Some(&t.id),
+                gone.contains(&t.id)
+            );
             assert_eq!(after.first(), Some(&t.id));
             assert!(!gone.contains(&t.id));
         }
         if let Some(y) = app.yandex() {
             let found = rt.block_on(y.search("Iglooghost Clear Tamei", 10)).unwrap();
-            let liked: std::collections::HashSet<String> =
-                rt.block_on(y.liked_songs(0, 50)).unwrap().items.into_iter().map(|t| t.id).collect();
-            let t = found.into_iter().find(|t| !liked.contains(&t.id)).expect("a track not liked");
+            let liked: std::collections::HashSet<String> = rt
+                .block_on(y.liked_songs(0, 50))
+                .unwrap()
+                .items
+                .into_iter()
+                .map(|t| t.id)
+                .collect();
+            let t = found
+                .into_iter()
+                .find(|t| !liked.contains(&t.id))
+                .expect("a track not liked");
             rt.block_on(y.set_liked("track", &t.id, true)).unwrap();
-            let after: std::collections::HashSet<String> =
-                rt.block_on(y.liked_songs(0, 50)).unwrap().items.into_iter().map(|t| t.id).collect();
+            let after: std::collections::HashSet<String> = rt
+                .block_on(y.liked_songs(0, 50))
+                .unwrap()
+                .items
+                .into_iter()
+                .map(|t| t.id)
+                .collect();
             rt.block_on(y.set_liked("track", &t.id, false)).unwrap();
-            let gone: std::collections::HashSet<String> =
-                rt.block_on(y.liked_songs(0, 50)).unwrap().items.into_iter().map(|t| t.id).collect();
-            eprintln!("yandex: liked={} after unlike present={}", after.contains(&t.id), gone.contains(&t.id));
+            let gone: std::collections::HashSet<String> = rt
+                .block_on(y.liked_songs(0, 50))
+                .unwrap()
+                .items
+                .into_iter()
+                .map(|t| t.id)
+                .collect();
+            eprintln!(
+                "yandex: liked={} after unlike present={}",
+                after.contains(&t.id),
+                gone.contains(&t.id)
+            );
             assert!(after.contains(&t.id));
             assert!(!gone.contains(&t.id));
         }

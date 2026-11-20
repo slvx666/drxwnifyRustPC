@@ -23,11 +23,23 @@ pub fn wire(ui: &MainWindow, app: &App) {
             let (url, title) = match kind.as_str() {
                 "page" => (
                     ui.get_view_cover_url().to_string(),
-                    crate::nav::current().map(|p| p.title.to_string()).unwrap_or_default(),
+                    crate::nav::current()
+                        .map(|p| p.title.to_string())
+                        .unwrap_or_default(),
                 ),
                 "now" => {
-                    let (t, a) = (ui.get_now_title().to_string(), ui.get_now_artists().to_string());
-                    (ui.get_now_cover_url().to_string(), if a.is_empty() { t } else { format!("{a} — {t}") })
+                    let (t, a) = (
+                        ui.get_now_title().to_string(),
+                        ui.get_now_artists().to_string(),
+                    );
+                    (
+                        ui.get_now_cover_url().to_string(),
+                        if a.is_empty() {
+                            t
+                        } else {
+                            format!("{a} — {t}")
+                        },
+                    )
                 }
                 "friend" => crate::friends_view::shown_avatar().unwrap_or_default(),
                 _ => return,
@@ -36,7 +48,8 @@ pub fn wire(ui: &MainWindow, app: &App) {
                 return;
             }
             // A small picture (a friend's avatar is a few hundred px) is not blown up past 1.5× its size.
-            let max = drx_core::images::local_side(&url).map_or(1000.0, |s| (s as f32 * 1.5).clamp(320.0, 1000.0));
+            let max = drx_core::images::local_side(&url)
+                .map_or(1000.0, |s| (s as f32 * 1.5).clamp(320.0, 1000.0));
             ui.set_viewer_max(max);
             ui.set_viewer_title(title.clone().into());
             ui.set_viewer_has_image(false);
@@ -60,7 +73,9 @@ pub fn wire(ui: &MainWindow, app: &App) {
         let (app2, ui_w) = (app.clone(), ui.as_weak());
         ui.on_viewer_download(move || {
             let Some(ui) = ui_w.upgrade() else { return };
-            let Some((url, name)) = SHOWN.with(|s| s.borrow().clone()) else { return };
+            let Some((url, name)) = SHOWN.with(|s| s.borrow().clone()) else {
+                return;
+            };
             let Some(dir) = drx_platform::downloads_dir() else {
                 ui.set_toast("Не нашлась папка «Загрузки»".into());
                 return;
@@ -75,7 +90,9 @@ pub fn wire(ui: &MainWindow, app: &App) {
                         match got {
                             Ok(path) => format!(
                                 "Сохранено в «Загрузки»: {}",
-                                path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                                path.file_name()
+                                    .map(|n| n.to_string_lossy().into_owned())
+                                    .unwrap_or_default()
                             ),
                             Err(e) => format!("Не сохранилось: {e}"),
                         }
@@ -90,16 +107,22 @@ pub fn wire(ui: &MainWindow, app: &App) {
 /// Shows the big picture once it is decoded: the largest variant, or the address itself when the large one
 /// does not load (YouTube has no maxres thumbnail for some videos). Called again when images arrive.
 pub fn refresh(ui: &MainWindow, app: &App) {
-    let Some((url, _)) = SHOWN.with(|s| s.borrow().clone()) else { return };
+    let Some((url, _)) = SHOWN.with(|s| s.borrow().clone()) else {
+        return;
+    };
     // Already showing it (the pixels were taken out of the core's cache, so do not ask for them again).
     if ui.get_viewer_has_image() {
         return;
     }
     let big = drx_core::images::largest(&url);
-    let pick = app.take_image(&big, VIEW_SIZE).or_else(|| app.take_image(&url, VIEW_SIZE));
+    let pick = app
+        .take_image(&big, VIEW_SIZE)
+        .or_else(|| app.take_image(&url, VIEW_SIZE));
     match pick {
         Some(p) => {
-            let buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(&p.rgba, p.size, p.size);
+            let buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                &p.rgba, p.size, p.size,
+            );
             ui.set_viewer_image(slint::Image::from_rgba8(buf));
             ui.set_viewer_has_image(true);
         }

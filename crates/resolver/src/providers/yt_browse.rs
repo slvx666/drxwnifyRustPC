@@ -76,13 +76,24 @@ impl YtPage {
 fn text(v: Option<&Value>) -> String {
     v.and_then(|t| t.get("runs"))
         .and_then(Value::as_array)
-        .map(|r| r.iter().filter_map(|x| x.get("text").and_then(Value::as_str)).collect::<String>())
-        .or_else(|| v.and_then(|t| t.get("simpleText")).and_then(Value::as_str).map(str::to_string))
+        .map(|r| {
+            r.iter()
+                .filter_map(|x| x.get("text").and_then(Value::as_str))
+                .collect::<String>()
+        })
+        .or_else(|| {
+            v.and_then(|t| t.get("simpleText"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .unwrap_or_default()
 }
 
 fn runs(v: Option<&Value>) -> &[Value] {
-    v.and_then(|t| t.get("runs")).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[])
+    v.and_then(|t| t.get("runs"))
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
 }
 
 fn thumb(v: &Value) -> Option<String> {
@@ -93,7 +104,10 @@ fn thumb(v: &Value) -> Option<String> {
         .or_else(|| v.pointer("/foregroundThumbnail/musicThumbnailRenderer/thumbnail/thumbnails"))
         .or_else(|| v.pointer("/thumbnails"))
         .and_then(Value::as_array)?;
-    list.last().and_then(|t| t.get("url")).and_then(Value::as_str).map(str::to_string)
+    list.last()
+        .and_then(|t| t.get("url"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 fn page_type(endpoint: Option<&Value>) -> &str {
@@ -118,15 +132,15 @@ fn explicit(v: &Value) -> bool {
         .and_then(Value::as_array)
         .is_some_and(|b| {
             b.iter().any(|x| {
-                x.pointer("/musicInlineBadgeRenderer/icon/iconType").and_then(Value::as_str)
+                x.pointer("/musicInlineBadgeRenderer/icon/iconType")
+                    .and_then(Value::as_str)
                     == Some("MUSIC_EXPLICIT_BADGE")
             })
         })
 }
 
 fn linked_artists(rs: &[Value]) -> Vec<(String, Option<String>)> {
-    rs
-        .iter()
+    rs.iter()
         .filter(|r| {
             matches!(
                 page_type(r.get("navigationEndpoint")),
@@ -143,8 +157,21 @@ fn linked_artists(rs: &[Value]) -> Vec<(String, Option<String>)> {
 /// Counts and kinds YouTube puts where artists would be («6,9 тыс. прослушиваний», «Сингл», «2025»).
 fn not_a_name(t: &str) -> bool {
     let l = t.trim().to_lowercase();
-    ["прослушив", "просмотр", " views", " plays"].iter().any(|w| l.contains(w))
-        || ["сингл", "single", "альбом", "album", "ep", "песня", "song", "видео", "video"].contains(&l.as_str())
+    ["прослушив", "просмотр", " views", " plays"]
+        .iter()
+        .any(|w| l.contains(w))
+        || [
+            "сингл",
+            "single",
+            "альбом",
+            "album",
+            "ep",
+            "песня",
+            "song",
+            "видео",
+            "video",
+        ]
+        .contains(&l.as_str())
         || l.chars().all(|c| c.is_ascii_digit())
 }
 
@@ -154,7 +181,10 @@ fn artists_of(rs: &[Value]) -> Vec<(String, Option<String>)> {
         return linked;
     }
     // Without links the first group (before " • ") names them.
-    let texts: Vec<&str> = rs.iter().filter_map(|r| r.get("text").and_then(Value::as_str)).collect();
+    let texts: Vec<&str> = rs
+        .iter()
+        .filter_map(|r| r.get("text").and_then(Value::as_str))
+        .collect();
     texts
         .split(|t| t.trim() == "•")
         .next()
@@ -168,10 +198,18 @@ fn artists_of(rs: &[Value]) -> Vec<(String, Option<String>)> {
 /// "3:21" / "1:02:03" → seconds.
 fn clock(s: &str) -> Option<i64> {
     let parts: Vec<&str> = s.trim().split(':').collect();
-    if !(2..=3).contains(&parts.len()) || parts.iter().any(|p| p.is_empty() || !p.bytes().all(|c| c.is_ascii_digit())) {
+    if !(2..=3).contains(&parts.len())
+        || parts
+            .iter()
+            .any(|p| p.is_empty() || !p.bytes().all(|c| c.is_ascii_digit()))
+    {
         return None;
     }
-    Some(parts.iter().fold(0i64, |a, p| a * 60 + p.parse::<i64>().unwrap_or(0)))
+    Some(
+        parts
+            .iter()
+            .fold(0i64, |a, p| a * 60 + p.parse::<i64>().unwrap_or(0)),
+    )
 }
 
 /// A card (album, playlist, artist, video, mood) — `musicTwoRowItemRenderer`.
@@ -181,7 +219,10 @@ fn two_row(r: &Value) -> Option<YtItem> {
     let subtitle = text(r.get("subtitle"));
     let nav = r.get("navigationEndpoint");
     let thumbnail = thumb(r);
-    if let Some(video) = nav.and_then(|n| n.pointer("/watchEndpoint/videoId")).and_then(Value::as_str) {
+    if let Some(video) = nav
+        .and_then(|n| n.pointer("/watchEndpoint/videoId"))
+        .and_then(Value::as_str)
+    {
         return Some(YtItem {
             kind: YtKind::Video,
             id: video.into(),
@@ -212,7 +253,11 @@ fn two_row(r: &Value) -> Option<YtItem> {
         id,
         params,
         title,
-        artists: if kind == YtKind::Album { linked_artists(sub_runs) } else { Vec::new() },
+        artists: if kind == YtKind::Album {
+            linked_artists(sub_runs)
+        } else {
+            Vec::new()
+        },
         subtitle,
         album: None,
         thumbnail,
@@ -224,8 +269,15 @@ fn two_row(r: &Value) -> Option<YtItem> {
 
 /// A row (song, video, or sometimes an album/artist in a list) — `musicResponsiveListItemRenderer`.
 fn list_item(r: &Value) -> Option<YtItem> {
-    let cols = r.get("flexColumns").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
-    let col = |i: usize| cols.get(i).and_then(|c| c.pointer("/musicResponsiveListItemFlexColumnRenderer/text"));
+    let cols = r
+        .get("flexColumns")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let col = |i: usize| {
+        cols.get(i)
+            .and_then(|c| c.pointer("/musicResponsiveListItemFlexColumnRenderer/text"))
+    };
     let title = text(col(0));
     let mut meta: Vec<Value> = Vec::new();
     for i in 1..cols.len() {
@@ -245,7 +297,10 @@ fn list_item(r: &Value) -> Option<YtItem> {
         .pointer("/fixedColumns/0/musicResponsiveListItemFixedColumnRenderer/text")
         .map(|t| text(Some(t)))
         .unwrap_or_default();
-    let texts: Vec<&str> = meta.iter().filter_map(|x| x.get("text").and_then(Value::as_str)).collect();
+    let texts: Vec<&str> = meta
+        .iter()
+        .filter_map(|x| x.get("text").and_then(Value::as_str))
+        .collect();
     let duration_s = clock(&fixed).or_else(|| texts.iter().rev().find_map(|t| clock(t)));
     let subtitle = texts
         .concat()
@@ -257,14 +312,21 @@ fn list_item(r: &Value) -> Option<YtItem> {
         Some(v) => {
             let album = meta.iter().find_map(|x| {
                 (page_type(x.get("navigationEndpoint")) == "MUSIC_PAGE_TYPE_ALBUM")
-                    .then(|| Some((x.get("text")?.as_str()?.to_string(), browse_of(x.get("navigationEndpoint"))?.0)))
+                    .then(|| {
+                        Some((
+                            x.get("text")?.as_str()?.to_string(),
+                            browse_of(x.get("navigationEndpoint"))?.0,
+                        ))
+                    })
                     .flatten()
             });
             let video_type = r
                 .pointer("/overlay/musicItemThumbnailOverlayRenderer/content/musicPlayButtonRenderer/playNavigationEndpoint/watchEndpoint/watchEndpointMusicSupportedConfigs/watchEndpointMusicConfig/musicVideoType")
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            let kind = if album.is_none() && matches!(video_type, "MUSIC_VIDEO_TYPE_UGC" | "MUSIC_VIDEO_TYPE_OMV") {
+            let kind = if album.is_none()
+                && matches!(video_type, "MUSIC_VIDEO_TYPE_UGC" | "MUSIC_VIDEO_TYPE_OMV")
+            {
                 YtKind::Video
             } else {
                 YtKind::Song
@@ -323,7 +385,10 @@ fn nav_button(r: &Value) -> Option<YtItem> {
         album: None,
         thumbnail: None,
         duration_s: None,
-        color: r.pointer("/solid/leftStripeColor").and_then(Value::as_u64).map(|c| c as u32),
+        color: r
+            .pointer("/solid/leftStripeColor")
+            .and_then(Value::as_u64)
+            .map(|c| c as u32),
         explicit: false,
     })
 }
@@ -337,7 +402,9 @@ fn item(v: &Value) -> Option<YtItem> {
         nav_button(r)
     } else if let Some(r) = v.get("musicMultiRowListItemRenderer") {
         // Podcast episodes.
-        let video = r.pointer("/onTap/watchEndpoint/videoId").and_then(Value::as_str)?;
+        let video = r
+            .pointer("/onTap/watchEndpoint/videoId")
+            .and_then(Value::as_str)?;
         Some(YtItem {
             kind: YtKind::Video,
             id: video.into(),
@@ -362,7 +429,11 @@ fn continuation_of(v: &Value) -> Option<String> {
             v.get("contents")
                 .and_then(Value::as_array)
                 .and_then(|c| c.last())
-                .and_then(|l| l.pointer("/continuationItemRenderer/continuationEndpoint/continuationCommand/token"))
+                .and_then(|l| {
+                    l.pointer(
+                        "/continuationItemRenderer/continuationEndpoint/continuationCommand/token",
+                    )
+                })
         })
         .and_then(Value::as_str)
         .map(str::to_string)
@@ -371,8 +442,20 @@ fn continuation_of(v: &Value) -> Option<String> {
 fn section(c: &Value) -> Option<(YtSection, Option<String>)> {
     if let Some(g) = c.get("gridRenderer") {
         let title = text(g.pointer("/header/gridHeaderRenderer/title"));
-        let items = g.get("items").and_then(Value::as_array)?.iter().filter_map(item).collect();
-        return Some((YtSection { title, items, more: None }, continuation_of(g)));
+        let items = g
+            .get("items")
+            .and_then(Value::as_array)?
+            .iter()
+            .filter_map(item)
+            .collect();
+        return Some((
+            YtSection {
+                title,
+                items,
+                more: None,
+            },
+            continuation_of(g),
+        ));
     }
     if let Some(s) = c.get("musicCarouselShelfRenderer") {
         let h = s.pointer("/header/musicCarouselShelfBasicHeaderRenderer");
@@ -380,8 +463,16 @@ fn section(c: &Value) -> Option<(YtSection, Option<String>)> {
         let more = h
             .and_then(|h| h.pointer("/moreContentButton/buttonRenderer/navigationEndpoint"))
             .and_then(|e| browse_of(Some(e)))
-            .or_else(|| h.and_then(|h| h.pointer("/title/runs/0/navigationEndpoint")).and_then(|e| browse_of(Some(e))));
-        let items = s.get("contents").and_then(Value::as_array)?.iter().filter_map(item).collect();
+            .or_else(|| {
+                h.and_then(|h| h.pointer("/title/runs/0/navigationEndpoint"))
+                    .and_then(|e| browse_of(Some(e)))
+            });
+        let items = s
+            .get("contents")
+            .and_then(Value::as_array)?
+            .iter()
+            .filter_map(item)
+            .collect();
         return Some((YtSection { title, items, more }, None));
     }
     for key in ["musicShelfRenderer", "musicPlaylistShelfRenderer"] {
@@ -390,8 +481,16 @@ fn section(c: &Value) -> Option<(YtSection, Option<String>)> {
             let more = s
                 .pointer("/bottomEndpoint")
                 .and_then(|e| browse_of(Some(e)))
-                .or_else(|| s.pointer("/title/runs/0/navigationEndpoint").and_then(|e| browse_of(Some(e))));
-            let items = s.get("contents").and_then(Value::as_array)?.iter().filter_map(item).collect();
+                .or_else(|| {
+                    s.pointer("/title/runs/0/navigationEndpoint")
+                        .and_then(|e| browse_of(Some(e)))
+                });
+            let items = s
+                .get("contents")
+                .and_then(Value::as_array)?
+                .iter()
+                .filter_map(item)
+                .collect();
             return Some((YtSection { title, items, more }, continuation_of(s)));
         }
     }
@@ -402,9 +501,15 @@ fn section(c: &Value) -> Option<(YtSection, Option<String>)> {
 pub fn parse_page(v: &Value) -> YtPage {
     let mut page = YtPage::default();
     // Headings: artists (immersive / visual), playlists and albums (responsive), plain pages.
-    if let Some(h) = v.pointer("/header/musicImmersiveHeaderRenderer").or_else(|| v.pointer("/header/musicVisualHeaderRenderer")) {
+    if let Some(h) = v
+        .pointer("/header/musicImmersiveHeaderRenderer")
+        .or_else(|| v.pointer("/header/musicVisualHeaderRenderer"))
+    {
         page.title = text(h.get("title"));
-        page.subtitle = text(h.get("subscriptionButton").and_then(|b| b.pointer("/subscribeButtonRenderer/subscriberCountText")));
+        page.subtitle = text(
+            h.get("subscriptionButton")
+                .and_then(|b| b.pointer("/subscribeButtonRenderer/subscriberCountText")),
+        );
         page.description = text(h.get("description"));
         page.thumbnail = thumb(h);
     } else if let Some(h) = v.pointer("/header/musicHeaderRenderer") {
@@ -417,7 +522,8 @@ pub fn parse_page(v: &Value) -> YtPage {
         lists.push(s);
     }
     if let Some(t) = two {
-        if let Some(first) = t.pointer("/tabs/0/tabRenderer/content/sectionListRenderer/contents/0") {
+        if let Some(first) = t.pointer("/tabs/0/tabRenderer/content/sectionListRenderer/contents/0")
+        {
             let h = first
                 .get("musicResponsiveHeaderRenderer")
                 .or_else(|| first.pointer("/musicEditablePlaylistDetailHeaderRenderer/header/musicResponsiveHeaderRenderer"));
@@ -427,8 +533,13 @@ pub fn parse_page(v: &Value) -> YtPage {
                 let strap = text(h.get("straplineTextOne"));
                 let sub = text(h.get("subtitle"));
                 let second = text(h.get("secondSubtitle"));
-                page.subtitle = [strap, sub, second].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
-                page.description = text(h.pointer("/description/musicDescriptionShelfRenderer/description"));
+                page.subtitle = [strap, sub, second]
+                    .into_iter()
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+                page.description =
+                    text(h.pointer("/description/musicDescriptionShelfRenderer/description"));
                 page.thumbnail = thumb(h);
             }
         }
@@ -437,7 +548,12 @@ pub fn parse_page(v: &Value) -> YtPage {
         }
     }
     for list in lists {
-        for c in list.get("contents").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
+        for c in list
+            .get("contents")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+        {
             if let Some(d) = c.get("musicDescriptionShelfRenderer") {
                 if page.description.is_empty() {
                     page.description = text(d.get("description"));
@@ -463,7 +579,11 @@ pub fn parse_page(v: &Value) -> YtPage {
 /// Reads the next part of a long list (`continuation` answers): its items and the next token.
 pub fn parse_continuation(v: &Value) -> (Vec<YtItem>, Option<String>) {
     if let Some(c) = v.get("continuationContents") {
-        for key in ["musicPlaylistShelfContinuation", "musicShelfContinuation", "gridContinuation"] {
+        for key in [
+            "musicPlaylistShelfContinuation",
+            "musicShelfContinuation",
+            "gridContinuation",
+        ] {
             if let Some(s) = c.get(key) {
                 let items = s
                     .get("contents")
@@ -482,7 +602,11 @@ pub fn parse_continuation(v: &Value) -> (Vec<YtItem>, Option<String>) {
         let items = a.iter().filter_map(item).collect();
         let next = a
             .last()
-            .and_then(|l| l.pointer("/continuationItemRenderer/continuationEndpoint/continuationCommand/token"))
+            .and_then(|l| {
+                l.pointer(
+                    "/continuationItemRenderer/continuationEndpoint/continuationCommand/token",
+                )
+            })
             .and_then(Value::as_str)
             .map(str::to_string);
         return (items, next);
@@ -512,10 +636,16 @@ mod tests {
         assert_eq!(p.sections.len(), 2);
         assert_eq!(p.sections[0].title, "Настроение");
         let mood = &p.sections[0].items[0];
-        assert_eq!((mood.kind, mood.title.as_str(), mood.params.as_deref()), (YtKind::Link, "Для сна", Some("ggMPOg1uX1Rh")));
+        assert_eq!(
+            (mood.kind, mood.title.as_str(), mood.params.as_deref()),
+            (YtKind::Link, "Для сна", Some("ggMPOg1uX1Rh"))
+        );
         assert_eq!(mood.color, Some(4278190335));
         let pl = &p.sections[1].items[0];
-        assert_eq!((pl.kind, pl.id.as_str(), pl.thumbnail.as_deref()), (YtKind::Playlist, "VLRDCLAK5uy", Some("b")));
+        assert_eq!(
+            (pl.kind, pl.id.as_str(), pl.thumbnail.as_deref()),
+            (YtKind::Playlist, "VLRDCLAK5uy", Some("b"))
+        );
     }
 
     #[test]
@@ -538,8 +668,14 @@ mod tests {
         ] } } } }] } } });
         let p = parse_page(&v);
         let s = &p.tracks()[0];
-        assert_eq!((s.kind, s.id.as_str(), s.title.as_str()), (YtKind::Song, "abc", "Song"));
-        assert_eq!(s.artists, vec![("Artist".to_string(), Some("UC1".to_string()))]);
+        assert_eq!(
+            (s.kind, s.id.as_str(), s.title.as_str()),
+            (YtKind::Song, "abc", "Song")
+        );
+        assert_eq!(
+            s.artists,
+            vec![("Artist".to_string(), Some("UC1".to_string()))]
+        );
         assert_eq!(s.album, Some(("Album".into(), "MPREb1".into())));
         assert_eq!(s.duration_s, Some(185));
     }
@@ -557,10 +693,33 @@ mod live {
         }
         let yt = crate::providers::youtube::YouTube::new(drx_core::http::Http::new().unwrap());
         let show = |name: &str, p: &YtPage| {
-            println!("== {name}: «{}» «{}» {} sections, cont {}", p.title, p.subtitle, p.sections.len(), p.continuation.is_some());
+            println!(
+                "== {name}: «{}» «{}» {} sections, cont {}",
+                p.title,
+                p.subtitle,
+                p.sections.len(),
+                p.continuation.is_some()
+            );
             for s in &p.sections {
-                let first = s.items.first().map(|i| format!("{:?} {} [{}] {:?}", i.kind, i.title, i.id, i.artists.first())).unwrap_or_default();
-                println!("   {} — {} items, more {:?}: {first}", s.title, s.items.len(), s.more.as_ref().map(|m| &m.0));
+                let first = s
+                    .items
+                    .first()
+                    .map(|i| {
+                        format!(
+                            "{:?} {} [{}] {:?}",
+                            i.kind,
+                            i.title,
+                            i.id,
+                            i.artists.first()
+                        )
+                    })
+                    .unwrap_or_default();
+                println!(
+                    "   {} — {} items, more {:?}: {first}",
+                    s.title,
+                    s.items.len(),
+                    s.more.as_ref().map(|m| &m.0)
+                );
             }
         };
         let moods = yt.browse(MOODS, None).await.unwrap();
@@ -574,11 +733,21 @@ mod live {
         let a = yt.browse(&album.id, None).await.unwrap();
         show(&album.title, &a);
         assert!(!a.tracks().is_empty(), "album tracks");
-        let pl = mood.sections.iter().flat_map(|s| s.items.iter()).find(|i| i.kind == YtKind::Playlist).cloned().unwrap();
+        let pl = mood
+            .sections
+            .iter()
+            .flat_map(|s| s.items.iter())
+            .find(|i| i.kind == YtKind::Playlist)
+            .cloned()
+            .unwrap();
         let p = yt.browse(&pl.id, None).await.unwrap();
         show(&pl.title, &p);
         assert!(!p.tracks().is_empty(), "playlist tracks");
-        let artist_id = a.tracks()[0].artists.iter().find_map(|x| x.1.clone()).unwrap();
+        let artist_id = a.tracks()[0]
+            .artists
+            .iter()
+            .find_map(|x| x.1.clone())
+            .unwrap();
         let ar = yt.browse(&artist_id, None).await.unwrap();
         show("artist", &ar);
         if let Some((id, params)) = ar.sections.iter().find_map(|s| s.more.clone()) {

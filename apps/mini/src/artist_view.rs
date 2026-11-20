@@ -224,9 +224,10 @@ fn render_discography(ui: &MainWindow, app: &App) {
         let d = d.borrow();
         let mut disc_albums = Vec::new();
         for alb in &d.albums {
-            let cover = alb.cover_url.as_deref().and_then(|u| {
-                crate::cover_r(app, u, ALBUM_COVER, 6.0)
-            });
+            let cover = alb
+                .cover_url
+                .as_deref()
+                .and_then(|u| crate::cover_r(app, u, ALBUM_COVER, 6.0));
             let has_cover = cover.is_some();
             let track_items: Vec<SongItem> = alb
                 .tracks
@@ -272,7 +273,11 @@ pub fn load_discography(ui: &MainWindow, app: &App) {
 
     let (artist_id, artist_title, releases) = DISCOGRAPHY.with(|d| {
         let d = d.borrow();
-        (d.artist_id.clone(), d.artist_title.clone(), d.releases.clone())
+        (
+            d.artist_id.clone(),
+            d.artist_title.clone(),
+            d.releases.clone(),
+        )
     });
 
     let (app2, ui_w) = (app.clone(), ui.as_weak());
@@ -286,8 +291,16 @@ pub fn load_discography(ui: &MainWindow, app: &App) {
                 for (alb_id, alb_title, yr, thumb, mut song) in rows {
                     if alb_id != current_id || loaded_albums.is_empty() {
                         current_id = alb_id.clone();
-                        let yr_str = if yr > 0 { format!("{yr}") } else { String::new() };
-                        let sub = if yr_str.is_empty() { "Альбом".into() } else { format!("Альбом • {yr_str}") };
+                        let yr_str = if yr > 0 {
+                            format!("{yr}")
+                        } else {
+                            String::new()
+                        };
+                        let sub = if yr_str.is_empty() {
+                            "Альбом".into()
+                        } else {
+                            format!("Альбом • {yr_str}")
+                        };
                         let is_saved = app2.is_album_saved(&alb_id).await.unwrap_or(false);
                         loaded_albums.push(DiscographyAlbumData {
                             id: alb_id,
@@ -331,7 +344,11 @@ pub fn load_discography(ui: &MainWindow, app: &App) {
             let mut catalog_albums = Vec::new();
             for r in releases.into_iter().take(20) {
                 if let Some(alb) = app2.catalog_album(&r.id).await {
-                    let yr = alb.release_date.as_deref().and_then(|d| d.get(..4)).unwrap_or("");
+                    let yr = alb
+                        .release_date
+                        .as_deref()
+                        .and_then(|d| d.get(..4))
+                        .unwrap_or("");
                     let kind_label = match alb.album_type.as_deref().unwrap_or(&r.kind) {
                         "single" => "Сингл",
                         "ep" => "EP",
@@ -339,30 +356,45 @@ pub fn load_discography(ui: &MainWindow, app: &App) {
                         _ => "Альбом",
                     };
                     let is_saved = app2.is_album_saved(&alb.id).await.unwrap_or(false);
-                    let a_id_default = if !artist_id.is_empty() { Some(artist_id.clone()) } else { None };
-                    let tracks: Vec<SongRow> = alb.tracks.into_iter().map(|t| {
-                        let artists = t.artist_names();
-                        let a_id = t.artists.into_iter().next().map(|a| a.id).or_else(|| a_id_default.clone());
-                        SongRow {
-                            id: t.id,
-                            title: t.title,
-                            artists,
-                            album: Some(alb.name.clone()),
-                            duration_s: (t.duration_ms / 1000) as i64,
-                            thumbnail: drx_catalog::model::best_image(&alb.images, 300).map(|i| i.url.clone()),
-                            liked: false,
-                            artist_id: a_id,
-                            album_id: Some(alb.id.clone()),
-                            plays: t.plays,
-                        }
-                    }).collect();
+                    let a_id_default = if !artist_id.is_empty() {
+                        Some(artist_id.clone())
+                    } else {
+                        None
+                    };
+                    let tracks: Vec<SongRow> = alb
+                        .tracks
+                        .into_iter()
+                        .map(|t| {
+                            let artists = t.artist_names();
+                            let a_id = t
+                                .artists
+                                .into_iter()
+                                .next()
+                                .map(|a| a.id)
+                                .or_else(|| a_id_default.clone());
+                            SongRow {
+                                id: t.id,
+                                title: t.title,
+                                artists,
+                                album: Some(alb.name.clone()),
+                                duration_s: (t.duration_ms / 1000) as i64,
+                                thumbnail: drx_catalog::model::best_image(&alb.images, 300)
+                                    .map(|i| i.url.clone()),
+                                liked: false,
+                                artist_id: a_id,
+                                album_id: Some(alb.id.clone()),
+                                plays: t.plays,
+                            }
+                        })
+                        .collect();
                     let count = tracks.len();
                     let sub = if yr.is_empty() {
                         format!("{kind_label} • {count} треков")
                     } else {
                         format!("{kind_label} • {yr} • {count} треков")
                     };
-                    let cover_url = drx_catalog::model::best_image(&alb.images, 300).map(|i| i.url.clone());
+                    let cover_url =
+                        drx_catalog::model::best_image(&alb.images, 300).map(|i| i.url.clone());
                     catalog_albums.push(DiscographyAlbumData {
                         id: alb.id,
                         title: alb.name,
@@ -523,9 +555,8 @@ pub fn refresh_covers(ui: &MainWindow, app: &App, songs: &LazySongs) {
     for i in 0..count {
         if let Some(mut alb) = disc.row_data(i) {
             if !alb.has_cover {
-                let cover_url = DISCOGRAPHY.with(|d| {
-                    d.borrow().albums.get(i).and_then(|a| a.cover_url.clone())
-                });
+                let cover_url = DISCOGRAPHY
+                    .with(|d| d.borrow().albums.get(i).and_then(|a| a.cover_url.clone()));
                 if let Some(url) = cover_url {
                     if let Some(img) = crate::cover_r(app, &url, ALBUM_COVER, 6.0) {
                         alb.cover = img;

@@ -19,7 +19,14 @@ fn row(app: &App, t: &drx_catalog::model::Track, i: usize) -> SongItem {
         .album
         .as_ref()
         .and_then(|a| drx_catalog::model::best_image(&a.images, 120))
-        .and_then(|img| crate::cover_r(app, &img.url, 80, crate::theme_r(crate::ROW_COVER_R, 80, 40.0)));
+        .and_then(|img| {
+            crate::cover_r(
+                app,
+                &img.url,
+                80,
+                crate::theme_r(crate::ROW_COVER_R, 80, 40.0),
+            )
+        });
     SongItem {
         id: t.id.clone().into(),
         title: t.title.clone().into(),
@@ -29,8 +36,18 @@ fn row(app: &App, t: &drx_catalog::model::Track, i: usize) -> SongItem {
         index: i as i32 + 1,
         has_cover: cover.is_some(),
         cover: cover.unwrap_or_default(),
-        artist_id: t.artists.first().map(|a| a.id.clone()).unwrap_or_default().into(),
-        album_id: t.album.as_ref().map(|a| a.id.clone()).unwrap_or_default().into(),
+        artist_id: t
+            .artists
+            .first()
+            .map(|a| a.id.clone())
+            .unwrap_or_default()
+            .into(),
+        album_id: t
+            .album
+            .as_ref()
+            .map(|a| a.id.clone())
+            .unwrap_or_default()
+            .into(),
         plays: "".into(),
     }
 }
@@ -47,8 +64,17 @@ pub fn refresh(ui: &MainWindow, app: &App) {
         }
         None => ui.set_queue_has_now(false),
     }
-    let shown: Vec<drx_catalog::model::Track> = tracks.iter().skip(cur + 1).take(MAX_ROWS).cloned().collect();
-    let next: Vec<SongItem> = shown.iter().enumerate().map(|(i, t)| row(app, t, cur + 1 + i)).collect();
+    let shown: Vec<drx_catalog::model::Track> = tracks
+        .iter()
+        .skip(cur + 1)
+        .take(MAX_ROWS)
+        .cloned()
+        .collect();
+    let next: Vec<SongItem> = shown
+        .iter()
+        .enumerate()
+        .map(|(i, t)| row(app, t, cur + 1 + i))
+        .collect();
     SHOWN.with(|s| *s.borrow_mut() = shown);
     let more = tracks.len().saturating_sub(cur + 1 + MAX_ROWS);
     ui.set_queue_items(ModelRc::new(VecModel::from(next)));
@@ -67,7 +93,9 @@ pub fn refresh_covers(ui: &MainWindow, app: &App) {
             return;
         }
         for (i, t) in s.iter().enumerate() {
-            let Some(mut r) = model.row_data(i) else { continue };
+            let Some(mut r) = model.row_data(i) else {
+                continue;
+            };
             if r.has_cover {
                 continue;
             }

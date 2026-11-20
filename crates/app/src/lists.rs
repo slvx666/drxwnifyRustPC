@@ -62,7 +62,10 @@ pub enum ListSpec {
     /// Tracks downloaded for offline listening, the newest first.
     Downloads,
     /// «Мой топ» (Android TopPlaylistScreen): the most listened songs (by time) of a period, `size` of them.
-    Top { period: TopPeriod, size: usize },
+    Top {
+        period: TopPeriod,
+        size: usize,
+    },
     /// A YouTube Music playlist, album or podcast (`VL…`/`PL…`, `MPREb…`, `MPSP…`), loaded over the network.
     YtList {
         id: String,
@@ -81,7 +84,13 @@ pub enum TopPeriod {
 }
 
 impl TopPeriod {
-    pub const ALL: [TopPeriod; 5] = [TopPeriod::Day, TopPeriod::Week, TopPeriod::Month, TopPeriod::Year, TopPeriod::AllTime];
+    pub const ALL: [TopPeriod; 5] = [
+        TopPeriod::Day,
+        TopPeriod::Week,
+        TopPeriod::Month,
+        TopPeriod::Year,
+        TopPeriod::AllTime,
+    ];
 
     /// The chip's words (the phone's past_24_hours / past_week / …).
     pub fn label(self) -> &'static str {
@@ -106,10 +115,14 @@ impl TopPeriod {
     }
 
     pub fn from_name(s: &str) -> TopPeriod {
-        TopPeriod::ALL.into_iter().find(|p| p.name() == s).unwrap_or_default()
+        TopPeriod::ALL
+            .into_iter()
+            .find(|p| p.name() == s)
+            .unwrap_or_default()
     }
 
     /// Where the period starts (Unix ms); 0 = always.
+    #[allow(clippy::wrong_self_convention)]
     fn from_ms(self) -> i64 {
         let day = 86_400_000i64;
         let now = crate::songs::now_ms();

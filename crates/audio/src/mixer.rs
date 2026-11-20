@@ -346,10 +346,17 @@ mod tests {
         let (mut m, mut cmd, _ev) = mixer();
         let (a, _) = voice(1, 50, 0.5);
         cmd.push(MixCmd::Play(a)).ok();
-        cmd.push(MixCmd::SetPostFx(Some(Box::new(crate::dsp::PostFx { eq: None, balance: 0.5 })))).ok();
+        cmd.push(MixCmd::SetPostFx(Some(Box::new(crate::dsp::PostFx {
+            eq: None,
+            balance: 0.5,
+        }))))
+        .ok();
         let mut out = vec![0.0; 20 * 2];
         m.render(&mut out);
-        assert!(out.chunks(2).all(|f| (f[0] - 0.25).abs() < 1e-6 && (f[1] - 0.5).abs() < 1e-6));
+        assert!(
+            out.chunks(2)
+                .all(|f| (f[0] - 0.25).abs() < 1e-6 && (f[1] - 0.5).abs() < 1e-6)
+        );
         cmd.push(MixCmd::SetPostFx(None)).ok();
         m.render(&mut out);
         assert!(out.chunks(2).all(|f| f[0] == 0.5 && f[1] == 0.5));

@@ -9,9 +9,9 @@
 //! The crate knows nothing about the app: it reports `PlatformEvent`s and shows the `MediaInfo` it is given.
 
 #[cfg(windows)]
-mod windows_impl;
-#[cfg(windows)]
 pub mod setup;
+#[cfg(windows)]
+mod windows_impl;
 
 /// What the OS asked for.
 #[derive(Debug, Clone, PartialEq)]
@@ -176,7 +176,10 @@ pub fn set_autostart(name: &str, command: Option<&str>) -> Result<(), String> {
 pub fn url_scheme_command(scheme: &str) -> Option<String> {
     #[cfg(windows)]
     {
-        windows_impl::reg_get(&format!(r"Software\Classes\{scheme}\shell\open\command"), "")
+        windows_impl::reg_get(
+            &format!(r"Software\Classes\{scheme}\shell\open\command"),
+            "",
+        )
     }
     #[cfg(not(windows))]
     {
@@ -239,7 +242,8 @@ pub fn pick_file(title: &str, kinds: &str, patterns: &str) -> Option<std::path::
     #[cfg(windows)]
     {
         use windows::Win32::System::Com::{
-            CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
+            CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+            CoTaskMemFree,
         };
         use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
         use windows::Win32::UI::Shell::{FileOpenDialog, IFileOpenDialog, SIGDN_FILESYSPATH};
@@ -247,9 +251,13 @@ pub fn pick_file(title: &str, kinds: &str, patterns: &str) -> Option<std::path::
         // SAFETY: a modal COM dialog on this thread; strings outlive the calls that read them.
         unsafe {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-            let d: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+            let d: IFileOpenDialog =
+                CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
             let (name, spec) = (HSTRING::from(kinds), HSTRING::from(patterns));
-            let filters = [COMDLG_FILTERSPEC { pszName: PCWSTR(name.as_ptr()), pszSpec: PCWSTR(spec.as_ptr()) }];
+            let filters = [COMDLG_FILTERSPEC {
+                pszName: PCWSTR(name.as_ptr()),
+                pszSpec: PCWSTR(spec.as_ptr()),
+            }];
             d.SetFileTypes(&filters).ok()?;
             d.SetTitle(&HSTRING::from(title)).ok()?;
             d.Show(None).ok()?;
@@ -277,12 +285,24 @@ pub fn open_url(url: &str) -> bool {
         use windows::Win32::UI::Shell::ShellExecuteW;
         use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
         use windows::core::HSTRING;
-        let r = unsafe { ShellExecuteW(None, &HSTRING::from("open"), &HSTRING::from(url), None, None, SW_SHOWNORMAL) };
+        let r = unsafe {
+            ShellExecuteW(
+                None,
+                &HSTRING::from("open"),
+                &HSTRING::from(url),
+                None,
+                None,
+                SW_SHOWNORMAL,
+            )
+        };
         r.0 as isize > 32
     }
     #[cfg(not(windows))]
     {
-        std::process::Command::new("xdg-open").arg(url).spawn().is_ok()
+        std::process::Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .is_ok()
     }
 }
 
@@ -309,10 +329,18 @@ pub fn user_locale() -> Option<(String, String)> {
         (n > 1).then(|| String::from_utf16_lossy(&buf[..n as usize - 1]))?
     };
     #[cfg(not(windows))]
-    let name = std::env::var("LANG").ok()?.split('.').next()?.replace('_', "-");
+    let name = std::env::var("LANG")
+        .ok()?
+        .split('.')
+        .next()?
+        .replace('_', "-");
     let mut parts = name.split('-');
     let lang = parts.next()?.to_lowercase();
-    let country = parts.last().filter(|c| c.len() == 2).unwrap_or("").to_uppercase();
+    let country = parts
+        .next_back()
+        .filter(|c| c.len() == 2)
+        .unwrap_or("")
+        .to_uppercase();
     Some((lang, country))
 }
 

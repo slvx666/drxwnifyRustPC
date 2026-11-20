@@ -6,8 +6,8 @@
 
 use std::path::{Path, PathBuf};
 use windows::Win32::UI::WindowsAndMessaging::{
-    IDYES, MB_DEFBUTTON2, MB_ICONINFORMATION, MB_ICONQUESTION, MB_ICONWARNING, MB_OK, MB_YESNO, MESSAGEBOX_STYLE,
-    MessageBoxW,
+    IDYES, MB_DEFBUTTON2, MB_ICONINFORMATION, MB_ICONQUESTION, MB_ICONWARNING, MB_OK, MB_YESNO,
+    MESSAGEBOX_STYLE, MessageBoxW,
 };
 use windows::core::{HSTRING, Interface};
 
@@ -40,7 +40,9 @@ fn known(id: &windows::core::GUID) -> Option<PathBuf> {
 
 impl Layout {
     pub fn current() -> Option<Layout> {
-        use windows::Win32::UI::Shell::{FOLDERID_Desktop, FOLDERID_LocalAppData, FOLDERID_Programs};
+        use windows::Win32::UI::Shell::{
+            FOLDERID_Desktop, FOLDERID_LocalAppData, FOLDERID_Programs,
+        };
         if let Some(root) = std::env::var_os("DRX_SETUP_ROOT").map(PathBuf::from) {
             let dir = root.join("Programs").join(APP_NAME);
             return Some(Layout {
@@ -51,7 +53,9 @@ impl Layout {
                 uninstall_key: TEST_KEY.into(),
             });
         }
-        let dir = known(&FOLDERID_LocalAppData)?.join("Programs").join(APP_NAME);
+        let dir = known(&FOLDERID_LocalAppData)?
+            .join("Programs")
+            .join(APP_NAME);
         Some(Layout {
             exe: dir.join(EXE),
             dir,
@@ -70,14 +74,26 @@ impl Layout {
 /// A yes/no question in a system dialog.
 pub fn ask(title: &str, text: &str) -> bool {
     // SAFETY: plain strings into a modal system dialog.
-    unsafe { MessageBoxW(None, &HSTRING::from(text), &HSTRING::from(title), MB_YESNO | MB_ICONQUESTION) == IDYES }
+    unsafe {
+        MessageBoxW(
+            None,
+            &HSTRING::from(text),
+            &HSTRING::from(title),
+            MB_YESNO | MB_ICONQUESTION,
+        ) == IDYES
+    }
 }
 
 /// A yes/no question about something that cannot be undone: «No» is the default button.
 pub fn ask_careful(title: &str, text: &str) -> bool {
     // SAFETY: plain strings into a modal system dialog.
     unsafe {
-        MessageBoxW(None, &HSTRING::from(text), &HSTRING::from(title), MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES
+        MessageBoxW(
+            None,
+            &HSTRING::from(text),
+            &HSTRING::from(title),
+            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
+        ) == IDYES
     }
 }
 
@@ -93,7 +109,8 @@ pub fn tell(title: &str, text: &str) {
 /// A shortcut (.lnk) to `target`.
 pub fn create_shortcut(link: &Path, target: &Path, description: &str) -> Result<(), String> {
     use windows::Win32::System::Com::{
-        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, IPersistFile,
+        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+        IPersistFile,
     };
     use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
     if let Some(parent) = link.parent() {
@@ -102,16 +119,20 @@ pub fn create_shortcut(link: &Path, target: &Path, description: &str) -> Result<
     // SAFETY: COM objects used on this thread and released when they drop.
     unsafe {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-        let sl: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).map_err(|e| e.to_string())?;
+        let sl: IShellLinkW =
+            CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).map_err(|e| e.to_string())?;
         let t = HSTRING::from(target.as_os_str());
         sl.SetPath(&t).map_err(|e| e.to_string())?;
         sl.SetIconLocation(&t, 0).map_err(|e| e.to_string())?;
-        sl.SetDescription(&HSTRING::from(description)).map_err(|e| e.to_string())?;
+        sl.SetDescription(&HSTRING::from(description))
+            .map_err(|e| e.to_string())?;
         if let Some(dir) = target.parent() {
-            sl.SetWorkingDirectory(&HSTRING::from(dir.as_os_str())).map_err(|e| e.to_string())?;
+            sl.SetWorkingDirectory(&HSTRING::from(dir.as_os_str()))
+                .map_err(|e| e.to_string())?;
         }
         let file: IPersistFile = sl.cast().map_err(|e| e.to_string())?;
-        file.Save(&HSTRING::from(link.as_os_str()), true).map_err(|e| e.to_string())
+        file.Save(&HSTRING::from(link.as_os_str()), true)
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -127,7 +148,10 @@ fn delete_key_tree(key: &str) {
 /// running exe be renamed) and goes away at the next install or removal.
 pub fn install(l: &Layout, exe: &[u8], version: &str, desktop: bool) -> Result<(), String> {
     std::fs::create_dir_all(&l.dir).map_err(|e| e.to_string())?;
-    for e in std::fs::read_dir(&l.dir).map_err(|e| e.to_string())?.flatten() {
+    for e in std::fs::read_dir(&l.dir)
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
         if e.path().extension().is_some_and(|x| x == "old") {
             let _ = std::fs::remove_file(e.path());
         }
@@ -172,14 +196,19 @@ pub fn uninstall(l: &Layout, data: Option<&Path>) {
     {
         delete_key_tree(scheme);
     }
-    if crate::windows_impl::reg_get(crate::windows_impl::RUN_KEY, APP_NAME).is_some_and(|c| c.to_lowercase().contains(&exe_s)) {
+    if crate::windows_impl::reg_get(crate::windows_impl::RUN_KEY, APP_NAME)
+        .is_some_and(|c| c.to_lowercase().contains(&exe_s))
+    {
         let _ = crate::windows_impl::reg_set(crate::windows_impl::RUN_KEY, APP_NAME, None);
     }
     let mut targets = vec![l.dir.display().to_string()];
     if let Some(d) = data {
         targets.push(d.display().to_string());
     }
-    let rm: String = targets.iter().map(|t| format!(" & rmdir /s /q \"{t}\"")).collect();
+    let rm: String = targets
+        .iter()
+        .map(|t| format!(" & rmdir /s /q \"{t}\""))
+        .collect();
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     // cmd reads its own quoting: the line goes as it is (Rust's argument escaping would break the paths).

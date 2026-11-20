@@ -67,11 +67,26 @@ fn card_cover(app: &App, url: &Option<String>, round: bool) -> Option<slint::Ima
 /// Wrapped's line about the year's minutes (WrappedRepository, in Russian; the same for the same minutes).
 fn wrapped_line(minutes: i64) -> String {
     let lines: &[&str] = match minutes {
-        0..=999 => &["Только разогреваетесь? {} минут.", "{} минут — короткое погружение в музыку."],
-        1000..=4999 => &["Похоже, вы нашли Drxwnify недавно — и отдали музыке {} минут.", "Жизнь не только в музыке: {} минут — здоровый баланс."],
-        5000..=14999 => &["Музыка — определённо ваше: {} минут саундтрека за год.", "Стабильно, надёжно, ритмично: {} минут."],
-        15000..=39999 => &["Вы вообще снимаете наушники? {} минут — музыка вам как воздух.", "Энергия главного героя: ваша жизнь была фильмом {} минут."],
-        _ => &["У вас всё хорошо? Вы буквально жили здесь {} минут.", "Поведение топ-1 %: {} минут — легенда."],
+        0..=999 => &[
+            "Только разогреваетесь? {} минут.",
+            "{} минут — короткое погружение в музыку.",
+        ],
+        1000..=4999 => &[
+            "Похоже, вы нашли Drxwnify недавно — и отдали музыке {} минут.",
+            "Жизнь не только в музыке: {} минут — здоровый баланс.",
+        ],
+        5000..=14999 => &[
+            "Музыка — определённо ваше: {} минут саундтрека за год.",
+            "Стабильно, надёжно, ритмично: {} минут.",
+        ],
+        15000..=39999 => &[
+            "Вы вообще снимаете наушники? {} минут — музыка вам как воздух.",
+            "Энергия главного героя: ваша жизнь была фильмом {} минут.",
+        ],
+        _ => &[
+            "У вас всё хорошо? Вы буквально жили здесь {} минут.",
+            "Поведение топ-1 %: {} минут — легенда.",
+        ],
     };
     lines[(minutes as usize) % lines.len()].replace("{}", &crate::group_digits(minutes as u64))
 }
@@ -82,7 +97,14 @@ pub fn wire_wrapped(ui: &MainWindow, app: &App) {
     ui.global::<crate::StatsUi>().on_act(move || {
         let Some(ui) = ui_w.upgrade() else { return };
         match app2.runtime().block_on(app2.save_wrapped_playlist()) {
-            Ok((_, n)) => ui.set_toast(format!("Плейлист «{}» готов: {}", drx_app::wrapped_playlist(), crate::nav::tracks_word(n)).into()),
+            Ok((_, n)) => ui.set_toast(
+                format!(
+                    "Плейлист «{}» готов: {}",
+                    drx_app::wrapped_playlist(),
+                    crate::nav::tracks_word(n)
+                )
+                .into(),
+            ),
             Err(e) => ui.set_toast(format!("Не получилось: {e}").into()),
         }
     });
@@ -119,7 +141,9 @@ pub fn show(ui: &MainWindow, app: &App) {
         let _ = slint::invoke_from_event_loop(move || {
             let Some(ui) = ui_w.upgrade() else { return };
             // Another page, or another period chosen meanwhile.
-            if crate::nav::generation() == generation && StatPeriod::ALL[PERIOD.with(|p| p.get())] == period {
+            if crate::nav::generation() == generation
+                && StatPeriod::ALL[PERIOD.with(|p| p.get())] == period
+            {
                 crate::nav::set_loading(&ui, false);
                 fill(&ui, &app2, period, stats);
             }
@@ -169,8 +193,14 @@ fn render(ui: &MainWindow, app: &App) {
         ];
         // The year's summary counts different songs and artists (Wrapped's totals) instead of the first day.
         if StatPeriod::ALL[PERIOD.with(|p| p.get())] == StatPeriod::Wrapped {
-            tiles.push(StatTile { value: crate::group_digits(st.unique_songs as u64).into(), label: "разных треков".into() });
-            tiles.push(StatTile { value: crate::group_digits(st.unique_artists as u64).into(), label: "разных исполнителей".into() });
+            tiles.push(StatTile {
+                value: crate::group_digits(st.unique_songs as u64).into(),
+                label: "разных треков".into(),
+            });
+            tiles.push(StatTile {
+                value: crate::group_digits(st.unique_artists as u64).into(),
+                label: "разных исполнителей".into(),
+            });
         } else if let Some(since) = st.since_ms {
             tiles.push(StatTile {
                 value: date_words(since).into(),
@@ -305,16 +335,16 @@ pub fn refresh_covers(ui: &MainWindow, app: &App) {
     CARDS.with(|c| {
         let mut cards = c.borrow_mut();
         for (model, urls, round) in cards.iter_mut() {
-            for i in 0..urls.len() {
+            for (i, url) in urls.iter_mut().enumerate() {
                 if let Some(card) = model.row_data(i)
                     && !card.has_cover
                 {
-                    if (urls[i].is_none() || urls[i].as_deref() == Some("")) && *round {
+                    if (url.is_none() || url.as_deref() == Some("")) && *round {
                         if let Some(thumb) = app.artist_thumbnail(&card.id) {
-                            urls[i] = Some(thumb);
+                            *url = Some(thumb);
                         }
                     }
-                    if let Some(img) = card_cover(app, &urls[i], *round)
+                    if let Some(img) = card_cover(app, url, *round)
                         && let Some(mut card) = model.row_data(i)
                     {
                         card.cover = img;

@@ -13,7 +13,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::watch;
 
-pub const DEVELOPER_PUBKEY: &str = "e114d6d2c422913fbb0c5b525cf927015aaecdfbea72fadd5c1dd2693f1c7f74";
+pub const DEVELOPER_PUBKEY: &str =
+    "e114d6d2c422913fbb0c5b525cf927015aaecdfbea72fadd5c1dd2693f1c7f74";
 pub const DEVELOPER_NAME: &str = "drxwnslvt";
 pub const INVITE_BASE: &str = "https://drxwnify.pages.dev/add/";
 
@@ -104,13 +105,21 @@ impl Privacy {
         let Ok(o) = serde_json::from_str::<Value>(s) else {
             return Privacy::default();
         };
-        let aud = |k: &str| o.get(k).and_then(Value::as_str).map(Audience::from_name).unwrap_or_default();
+        let aud = |k: &str| {
+            o.get(k)
+                .and_then(Value::as_str)
+                .map(Audience::from_name)
+                .unwrap_or_default()
+        };
         Privacy {
             now: aud("now"),
             history: aud("history"),
             playlists: aud("playlists"),
             stats: aud("stats"),
-            discoverable: o.get("discoverable").and_then(Value::as_bool).unwrap_or(false),
+            discoverable: o
+                .get("discoverable")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
             listen_along: o.get("along").and_then(Value::as_bool).unwrap_or(true),
             read_receipts: o.get("read").and_then(Value::as_bool).unwrap_or(true),
         }
@@ -158,7 +167,12 @@ impl TrackRef {
     }
 
     pub fn from_json(o: &Value) -> TrackRef {
-        let s = |k: &str| o.get(k).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_string);
+        let s = |k: &str| {
+            o.get(k)
+                .and_then(Value::as_str)
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+        };
         TrackRef {
             title: s("t").unwrap_or_default(),
             artist: s("a").unwrap_or_default(),
@@ -285,7 +299,9 @@ pub fn unpack_likes(content: &str) -> Option<SharedLikes> {
         Some(b64) => {
             let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
             let mut s = String::new();
-            flate2::read::GzDecoder::new(bytes.as_slice()).read_to_string(&mut s).ok()?;
+            flate2::read::GzDecoder::new(bytes.as_slice())
+                .read_to_string(&mut s)
+                .ok()?;
             s
         }
         None => content.to_string(),
@@ -294,7 +310,11 @@ pub fn unpack_likes(content: &str) -> Option<SharedLikes> {
     let prefixes: Vec<String> = o
         .get("p")
         .and_then(Value::as_array)
-        .map(|a| a.iter().map(|v| v.as_str().unwrap_or("").to_string()).collect())
+        .map(|a| {
+            a.iter()
+                .map(|v| v.as_str().unwrap_or("").to_string())
+                .collect()
+        })
         .unwrap_or_default();
     let tracks: Vec<TrackRef> = o
         .get("t")
@@ -311,7 +331,10 @@ pub fn unpack_likes(content: &str) -> Option<SharedLikes> {
                         artist: s(1),
                         catalog_id: ne(s(2)),
                         media_id: ne(s(6)),
-                        cover: usize::try_from(index).ok().and_then(|i| prefixes.get(i)).map(|p| format!("{p}{}", s(5))),
+                        cover: usize::try_from(index)
+                            .ok()
+                            .and_then(|i| prefixes.get(i))
+                            .map(|p| format!("{p}{}", s(5))),
                         duration_ms: r.get(3).and_then(Value::as_i64).unwrap_or(0) * 1000,
                         at: 0,
                     })
@@ -320,22 +343,39 @@ pub fn unpack_likes(content: &str) -> Option<SharedLikes> {
         })
         .unwrap_or_default();
     Some(SharedLikes {
-        total: o.get("total").and_then(Value::as_i64).unwrap_or(tracks.len() as i64),
-        source: o.get("src").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string),
+        total: o
+            .get("total")
+            .and_then(Value::as_i64)
+            .unwrap_or(tracks.len() as i64),
+        source: o
+            .get("src")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
         tracks,
     })
 }
 
 /// Applies one field's content to a friend's data (FriendsHub.onEvent).
 pub fn apply_field(data: &mut FriendData, field: &str, content: &str) {
-    let json: Option<Value> = (!content.trim().is_empty()).then(|| serde_json::from_str(content).ok()).flatten();
+    let json: Option<Value> = (!content.trim().is_empty())
+        .then(|| serde_json::from_str(content).ok())
+        .flatten();
     match field {
         "profile" => {
             if let Some(o) = &json {
-                if let Some(n) = o.get("name").and_then(Value::as_str).filter(|n| !n.is_empty()) {
+                if let Some(n) = o
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .filter(|n| !n.is_empty())
+                {
                     data.name = Some(n.to_string());
                 }
-                if let Some(p) = o.get("pic").and_then(Value::as_str).filter(|p| !p.is_empty() && p.len() <= MAX_AVATAR_CHARS) {
+                if let Some(p) = o
+                    .get("pic")
+                    .and_then(Value::as_str)
+                    .filter(|p| !p.is_empty() && p.len() <= MAX_AVATAR_CHARS)
+                {
                     data.avatar = Some(p.to_string());
                 }
             }
@@ -379,8 +419,16 @@ pub fn apply_field(data: &mut FriendData, field: &str, content: &str) {
                     .unwrap_or_default(),
             })
         }
-        "likes" => data.likes = (!content.trim().is_empty()).then(|| unpack_likes(content)).flatten(),
-        "portrait" => data.portrait = (!content.trim().is_empty()).then(|| crate::portrait::unpack(content)).flatten(),
+        "likes" => {
+            data.likes = (!content.trim().is_empty())
+                .then(|| unpack_likes(content))
+                .flatten()
+        }
+        "portrait" => {
+            data.portrait = (!content.trim().is_empty())
+                .then(|| crate::portrait::unpack(content))
+                .flatten()
+        }
         _ => {}
     }
 }
@@ -440,9 +488,17 @@ pub struct Found {
 pub fn pick_found(events: &[Event], needle: &str, me: &str) -> Vec<Found> {
     let mut best: HashMap<String, (i64, Found)> = HashMap::new();
     for e in events {
-        let Ok(o) = serde_json::from_str::<Value>(&e.content) else { continue };
-        let name = o.get("name").and_then(Value::as_str).unwrap_or("").trim().to_string();
-        let allowed = o.get("find").and_then(Value::as_bool).unwrap_or(false) || e.pubkey == DEVELOPER_PUBKEY;
+        let Ok(o) = serde_json::from_str::<Value>(&e.content) else {
+            continue;
+        };
+        let name = o
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let allowed =
+            o.get("find").and_then(Value::as_bool).unwrap_or(false) || e.pubkey == DEVELOPER_PUBKEY;
         if !allowed || name.is_empty() || e.pubkey == me || !name.to_lowercase().contains(needle) {
             continue;
         }
@@ -453,11 +509,26 @@ pub fn pick_found(events: &[Event], needle: &str, me: &str) -> Vec<Found> {
                 .and_then(Value::as_str)
                 .filter(|p| !p.is_empty() && p.len() <= MAX_AVATAR_CHARS)
                 .map(str::to_string);
-            best.insert(e.pubkey.clone(), (e.created_at, Found { pubkey: e.pubkey.clone(), name, avatar }));
+            best.insert(
+                e.pubkey.clone(),
+                (
+                    e.created_at,
+                    Found {
+                        pubkey: e.pubkey.clone(),
+                        name,
+                        avatar,
+                    },
+                ),
+            );
         }
     }
     let mut out: Vec<Found> = best.into_values().map(|(_, f)| f).collect();
-    out.sort_by_key(|f| (!f.name.to_lowercase().starts_with(needle), f.name.chars().count()));
+    out.sort_by_key(|f| {
+        (
+            !f.name.to_lowercase().starts_with(needle),
+            f.name.chars().count(),
+        )
+    });
     out.truncate(20);
     out
 }
@@ -471,13 +542,20 @@ impl Friends {
             return Vec::new();
         }
         let filter = json!({"kinds": [KIND_APP_DATA], "#d": [format!("{D_PREFIX}profile")], "#t": ["drxwnify"], "limit": 500});
-        let events = self.pool().query(vec![filter], Duration::from_secs(4)).await;
+        let events = self
+            .pool()
+            .query(vec![filter], Duration::from_secs(4))
+            .await;
         pick_found(&events, &needle, &self.me())
     }
 
     pub fn new(keys: Keys, pool: Pool, saved: Saved) -> Friends {
         pool.set_signer(Some(keys.clone()));
-        let friends = saved.friends_json.as_deref().map(parse_friends).unwrap_or_default();
+        let friends = saved
+            .friends_json
+            .as_deref()
+            .map(parse_friends)
+            .unwrap_or_default();
         let state = FriendsState {
             me: Some(keys.public_hex()),
             friends,
@@ -485,7 +563,13 @@ impl Friends {
         };
         Friends {
             inner: Arc::new(Inner {
-                privacy: Mutex::new(saved.privacy_json.as_deref().map(Privacy::from_json).unwrap_or_default()),
+                privacy: Mutex::new(
+                    saved
+                        .privacy_json
+                        .as_deref()
+                        .map(Privacy::from_json)
+                        .unwrap_or_default(),
+                ),
                 verified: Mutex::new(saved.verified),
                 dismissed: Mutex::new(saved.dismissed),
                 state: watch::channel(state).0,
@@ -511,7 +595,13 @@ impl Friends {
     pub fn invite_link(&self, name: &str) -> String {
         let n: String = name
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c.to_string() } else { format!("%{:02X}", c as u32 & 0xFF) })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_string()
+                } else {
+                    format!("%{:02X}", c as u32 & 0xFF)
+                }
+            })
             .collect();
         let mut link = format!("{INVITE_BASE}{}", self.inner.keys.npub());
         if !name.is_empty() && name.is_ascii() {
@@ -569,7 +659,9 @@ impl Friends {
 
     fn on_event(&self, e: &Event) {
         let me = self.me();
-        let Some(d) = e.tag("d").and_then(|d| d.strip_prefix(D_PREFIX)) else { return };
+        let Some(d) = e.tag("d").and_then(|d| d.strip_prefix(D_PREFIX)) else {
+            return;
+        };
         let mut parts = d.splitn(2, ':');
         let field = parts.next().unwrap_or("").to_string();
         let personal = parts.next();
@@ -589,8 +681,19 @@ impl Friends {
         };
         let author = e.pubkey.clone();
         if field == "hello" {
-            let is_friend = self.inner.state.borrow().friends.iter().any(|f| f.pubkey == author);
-            let dismissed = self.inner.dismissed.lock().expect("dismissed").contains(&author);
+            let is_friend = self
+                .inner
+                .state
+                .borrow()
+                .friends
+                .iter()
+                .any(|f| f.pubkey == author);
+            let dismissed = self
+                .inner
+                .dismissed
+                .lock()
+                .expect("dismissed")
+                .contains(&author);
             if content.is_empty() || is_friend || dismissed || author == me {
                 return;
             }
@@ -602,13 +705,19 @@ impl Friends {
                 if s.requests.iter().any(|r| r.pubkey == author) {
                     return false;
                 }
-                s.requests.push(FriendRequest { pubkey: author.clone(), name, at: e.created_at * 1000 });
+                s.requests.push(FriendRequest {
+                    pubkey: author.clone(),
+                    name,
+                    at: e.created_at * 1000,
+                });
                 true
             });
             return;
         }
         self.inner.state.send_if_modified(|s| {
-            let known = s.friends.iter().any(|f| f.pubkey == author) || author == DEVELOPER_PUBKEY || author == me;
+            let known = s.friends.iter().any(|f| f.pubkey == author)
+                || author == DEVELOPER_PUBKEY
+                || author == me;
             if !known {
                 return false;
             }
@@ -636,13 +745,23 @@ impl Friends {
             Audience::Everyone => {
                 let e = keys.sign(
                     KIND_APP_DATA,
-                    vec![vec!["d".into(), format!("{D_PREFIX}{field}")], vec!["t".into(), "drxwnify".into()]],
+                    vec![
+                        vec!["d".into(), format!("{D_PREFIX}{field}")],
+                        vec!["t".into(), "drxwnify".into()],
+                    ],
                     content.to_string(),
                 );
                 self.inner.pool.publish(&e, Duration::from_secs(10)).await;
                 return;
             }
-            Audience::Friends => self.inner.state.borrow().friends.iter().map(|f| f.pubkey.clone()).collect(),
+            Audience::Friends => self
+                .inner
+                .state
+                .borrow()
+                .friends
+                .iter()
+                .map(|f| f.pubkey.clone())
+                .collect(),
             Audience::Verified => self.inner.verified.lock().expect("verified").clone(),
         };
         for friend in targets.into_iter().take(MAX_FRIENDS_ENCRYPTED) {
@@ -656,7 +775,10 @@ impl Friends {
             };
             let e = keys.sign(
                 KIND_APP_DATA,
-                vec![vec!["d".into(), format!("{D_PREFIX}{field}:{friend}")], vec!["p".into(), friend.clone()]],
+                vec![
+                    vec!["d".into(), format!("{D_PREFIX}{field}:{friend}")],
+                    vec!["p".into(), friend.clone()],
+                ],
                 enc,
             );
             let pool = self.inner.pool.clone();
@@ -714,7 +836,10 @@ impl Friends {
         if let Ok(enc) = self.inner.keys.encrypt(&pubkey, &hello) {
             let e = self.inner.keys.sign(
                 KIND_APP_DATA,
-                vec![vec!["d".into(), format!("{D_PREFIX}hello:{pubkey}")], vec!["p".into(), pubkey.clone()]],
+                vec![
+                    vec!["d".into(), format!("{D_PREFIX}hello:{pubkey}")],
+                    vec!["p".into(), pubkey.clone()],
+                ],
                 enc,
             );
             self.inner.pool.publish(&e, Duration::from_secs(10)).await;
@@ -742,11 +867,18 @@ impl Friends {
         if !removed {
             return false;
         }
-        self.inner.verified.lock().expect("verified").retain(|v| v != pubkey);
+        self.inner
+            .verified
+            .lock()
+            .expect("verified")
+            .retain(|v| v != pubkey);
         for field in DATA_FIELDS.iter().chain(std::iter::once(&"hello")) {
             let e = self.inner.keys.sign(
                 KIND_APP_DATA,
-                vec![vec!["d".into(), format!("{D_PREFIX}{field}:{pubkey}")], vec!["p".into(), pubkey.to_string()]],
+                vec![
+                    vec!["d".into(), format!("{D_PREFIX}{field}:{pubkey}")],
+                    vec!["p".into(), pubkey.to_string()],
+                ],
                 String::new(),
             );
             let pool = self.inner.pool.clone();
@@ -779,7 +911,8 @@ impl Friends {
     /// New privacy choices (FriendsHub.setPrivacy): what is no longer shared with someone is overwritten with
     /// nothing for those who saw it. `publish` false (a test run) only keeps the choice.
     pub async fn set_privacy(&self, p: Privacy, publish: bool) {
-        let before = std::mem::replace(&mut *self.inner.privacy.lock().expect("privacy"), p.clone());
+        let before =
+            std::mem::replace(&mut *self.inner.privacy.lock().expect("privacy"), p.clone());
         if !publish {
             return;
         }
@@ -796,14 +929,20 @@ impl Friends {
     pub async fn publish_now(&self, mut now: NowPlaying) {
         let privacy = self.privacy();
         now.listen_along = privacy.listen_along;
-        self.publish_field("now", &now.to_json().to_string(), privacy.now).await;
+        self.publish_field("now", &now.to_json().to_string(), privacy.now)
+            .await;
     }
 
     /// The listening history (newest first, at most 50).
     pub async fn publish_history(&self, tracks: Vec<TrackRef>) {
         let audience = self.privacy().history;
-        let list: Vec<Value> = tracks.iter().take(MAX_HISTORY).map(TrackRef::to_json).collect();
-        self.publish_field("history", &json!({"tracks": list}).to_string(), audience).await;
+        let list: Vec<Value> = tracks
+            .iter()
+            .take(MAX_HISTORY)
+            .map(TrackRef::to_json)
+            .collect();
+        self.publish_field("history", &json!({"tracks": list}).to_string(), audience)
+            .await;
     }
 
     /// Kind 0 metadata only when the profile is findable (FriendsHub.publishProfile does both).
@@ -831,9 +970,11 @@ mod tests {
 
     #[test]
     fn privacy_json_keeps_unknown_keys() {
-        let mut p = Privacy::default();
-        p.now = Audience::Nobody;
-        p.read_receipts = false;
+        let p = Privacy {
+            now: Audience::Nobody,
+            read_receipts: false,
+            ..Default::default()
+        };
         let out = p.merge_json(Some(r#"{"now":"EVERYONE","extra":7}"#));
         let back = Privacy::from_json(&out);
         assert_eq!(back, p);
@@ -842,17 +983,40 @@ mod tests {
 
     #[test]
     fn privacy_and_friends_parse() {
-        let p = Privacy::from_json(r#"{"now":"EVERYONE","history":"NOBODY","playlists":"VERIFIED","stats":"FRIENDS","discoverable":true,"along":false,"read":true}"#);
-        assert_eq!((p.now, p.history, p.playlists, p.stats), (Audience::Everyone, Audience::Nobody, Audience::Verified, Audience::Friends));
+        let p = Privacy::from_json(
+            r#"{"now":"EVERYONE","history":"NOBODY","playlists":"VERIFIED","stats":"FRIENDS","discoverable":true,"along":false,"read":true}"#,
+        );
+        assert_eq!(
+            (p.now, p.history, p.playlists, p.stats),
+            (
+                Audience::Everyone,
+                Audience::Nobody,
+                Audience::Verified,
+                Audience::Friends
+            )
+        );
         assert!(p.discoverable && !p.listen_along);
         let f = parse_friends(r#"[{"p":"ab","n":"Name","t":5}]"#);
-        assert_eq!(f, vec![Friend { pubkey: "ab".into(), name: "Name".into(), added_at: 5 }]);
+        assert_eq!(
+            f,
+            vec![Friend {
+                pubkey: "ab".into(),
+                name: "Name".into(),
+                added_at: 5
+            }]
+        );
     }
 
     #[test]
     fn now_round_trip_and_liveness() {
         let n = NowPlaying {
-            track: TrackRef { title: "T".into(), artist: "A".into(), catalog_id: Some("c".into()), duration_ms: 200_000, ..Default::default() },
+            track: TrackRef {
+                title: "T".into(),
+                artist: "A".into(),
+                catalog_id: Some("c".into()),
+                duration_ms: 200_000,
+                ..Default::default()
+            },
             position_ms: 10_000,
             playing: true,
             at: 1_000_000,
@@ -870,10 +1034,16 @@ mod tests {
         let json = r#"{"v":1,"total":2,"src":"spotify","p":["https://i.scdn.co/image/"],"t":[["T","A","id1",200,0,"abc",""]]}"#;
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         std::io::Write::write_all(&mut gz, json.as_bytes()).unwrap();
-        let packed = format!("gz1:{}", base64::engine::general_purpose::STANDARD.encode(gz.finish().unwrap()));
+        let packed = format!(
+            "gz1:{}",
+            base64::engine::general_purpose::STANDARD.encode(gz.finish().unwrap())
+        );
         let l = unpack_likes(&packed).unwrap();
         assert_eq!(l.total, 2);
-        assert_eq!(l.tracks[0].cover.as_deref(), Some("https://i.scdn.co/image/abc"));
+        assert_eq!(
+            l.tracks[0].cover.as_deref(),
+            Some("https://i.scdn.co/image/abc")
+        );
         assert_eq!(l.tracks[0].duration_ms, 200_000);
         assert_eq!(l.tracks[0].media_id, None);
     }
@@ -887,9 +1057,15 @@ mod live_search {
     async fn finds_by_name() {
         let pool = crate::relay::Pool::new(&tokio::runtime::Handle::current());
         let filter = serde_json::json!({"kinds": [crate::nostr::KIND_APP_DATA], "#d": [format!("{}profile", super::D_PREFIX)], "#t": ["drxwnify"], "limit": 500});
-        let events = pool.query(vec![filter], std::time::Duration::from_secs(6)).await;
+        let events = pool
+            .query(vec![filter], std::time::Duration::from_secs(6))
+            .await;
         let found = super::pick_found(&events, "drxwn", "");
-        println!("{} profile events, found {:?}", events.len(), found.iter().map(|f| &f.name).collect::<Vec<_>>());
+        println!(
+            "{} profile events, found {:?}",
+            events.len(),
+            found.iter().map(|f| &f.name).collect::<Vec<_>>()
+        );
         assert!(found.iter().any(|f| f.pubkey == super::DEVELOPER_PUBKEY));
     }
 }

@@ -92,14 +92,31 @@ pub fn normalize_url(url: &str, size: u32) -> String {
     if url.contains("googleusercontent.com") || url.contains("ggpht.com") {
         if let Some(at) = url.rfind("=w") {
             let tail = &url[at + 2..];
-            if !tail.contains('/') && tail.split('-').next().is_some_and(|w| w.chars().all(|c| c.is_ascii_digit())) {
-                let target = if size <= 64 { 120 } else if size <= 200 { 300 } else if size <= 400 { 600 } else { 800 };
+            if !tail.contains('/')
+                && tail
+                    .split('-')
+                    .next()
+                    .is_some_and(|w| w.chars().all(|c| c.is_ascii_digit()))
+            {
+                let target = if size <= 64 {
+                    120
+                } else if size <= 200 {
+                    300
+                } else if size <= 400 {
+                    600
+                } else {
+                    800
+                };
                 return format!("{}=w{target}-h{target}-l90-rj", &url[..at]);
             }
         }
     }
     if url.contains("i.scdn.co/image/") && size > 64 {
-        let rep = if size <= 300 { "ab67616d00001e02" } else { "ab67616d0000b273" };
+        let rep = if size <= 300 {
+            "ab67616d00001e02"
+        } else {
+            "ab67616d0000b273"
+        };
         return url.replace("ab67616d00004851", rep);
     }
     url.to_string()
@@ -118,14 +135,24 @@ pub fn largest(url: &str) -> String {
         // Google / YouTube Music artwork carries its size at the end ("=w544-h544…").
         if let Some(at) = url.rfind("=w") {
             let tail = &url[at + 2..];
-            if !tail.contains('/') && tail.split('-').next().is_some_and(|w| w.chars().all(|c| c.is_ascii_digit())) {
+            if !tail.contains('/')
+                && tail
+                    .split('-')
+                    .next()
+                    .is_some_and(|w| w.chars().all(|c| c.is_ascii_digit()))
+            {
                 return format!("{}=w1200-h1200-l90-rj", &url[..at]);
             }
         }
         return url.to_string();
     }
     if url.contains("i.ytimg.com/vi/") {
-        for small in ["/hqdefault.jpg", "/mqdefault.jpg", "/sddefault.jpg", "/default.jpg"] {
+        for small in [
+            "/hqdefault.jpg",
+            "/mqdefault.jpg",
+            "/sddefault.jpg",
+            "/default.jpg",
+        ] {
             if let Some(base) = url.strip_suffix(small) {
                 return format!("{base}/maxresdefault.jpg");
             }
@@ -141,7 +168,12 @@ pub fn largest(url: &str) -> String {
 /// The shorter side of a local picture (`file:` address) in pixels, read from its header; None for web images.
 pub fn local_side(url: &str) -> Option<u32> {
     let path = url.strip_prefix(LOCAL_PREFIX)?;
-    let (w, h) = image::ImageReader::open(path).ok()?.with_guessed_format().ok()?.into_dimensions().ok()?;
+    let (w, h) = image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()?;
     Some(w.min(h))
 }
 
@@ -300,7 +332,10 @@ mod tests {
             largest("https://i.ytimg.com/vi/abc/hqdefault.jpg"),
             "https://i.ytimg.com/vi/abc/maxresdefault.jpg"
         );
-        assert_eq!(largest("avatars.yandex.net/x/%%"), "https://avatars.yandex.net/x/1000x1000");
+        assert_eq!(
+            largest("avatars.yandex.net/x/%%"),
+            "https://avatars.yandex.net/x/1000x1000"
+        );
         assert_eq!(image_extension(&[0x89, b'P', b'N', b'G', 0]), "png");
     }
 

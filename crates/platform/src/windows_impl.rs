@@ -120,7 +120,11 @@ impl Handle {
     }
 
     pub fn notify(&self, title: &str, text: &str) {
-        if self.tx.send(Cmd::Notify(title.to_string(), text.to_string())).is_ok() {
+        if self
+            .tx
+            .send(Cmd::Notify(title.to_string(), text.to_string()))
+            .is_ok()
+        {
             unsafe {
                 let _ = PostMessageW(Some(HWND(self.hwnd as _)), WM_CMD, WPARAM(0), LPARAM(0));
             }
@@ -355,7 +359,11 @@ fn balloon(hwnd: HWND, title: &str, text: &str) {
             hBalloonIcon: st.icon,
             ..Default::default()
         };
-        for (i, c) in title.encode_utf16().take(nid.szInfoTitle.len() - 1).enumerate() {
+        for (i, c) in title
+            .encode_utf16()
+            .take(nid.szInfoTitle.len() - 1)
+            .enumerate()
+        {
             nid.szInfoTitle[i] = c;
         }
         for (i, c) in text.encode_utf16().take(nid.szInfo.len() - 1).enumerate() {
@@ -714,36 +722,6 @@ pub fn reg_set(key: &str, name: &str, value: Option<&str>) -> Result<(), String>
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Writes and removes a value under a test key of its own (never the Run key).
-    #[test]
-    fn registry_round_trip() {
-        let key = r"Software\DrxwnifyTest";
-        reg_set(key, "probe", Some(r#""C:\x y\a.exe" --minimized"#)).unwrap();
-        assert_eq!(
-            reg_get(key, "probe").as_deref(),
-            Some(r#""C:\x y\a.exe" --minimized"#)
-        );
-        reg_set(key, "probe", None).unwrap();
-        assert_eq!(reg_get(key, "probe"), None);
-        reg_set(key, "probe", None).unwrap();
-        unsafe {
-            use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RegDeleteKeyW};
-            let k = wide(key);
-            let _ = RegDeleteKeyW(HKEY_CURRENT_USER, PCWSTR(k.as_ptr()));
-        }
-    }
-
-    #[test]
-    fn pipe_names_are_safe() {
-        assert_eq!(pipe_name("mini-ab12"), r"\\.\pipe\drxwnify-mini-ab12");
-        assert_eq!(pipe_name(r"a\b c"), r"\\.\pipe\drxwnify-a-b-c");
-    }
-}
-
 /// Starts the system's window move loop from the app's own title bar (the left button is down). Like winit's
 /// `drag_window`, without its "dragging" flag: that flag is cleared only when a move loop ends, so a press released
 /// before the loop began (a click on the bar) left it set and every later drag was ignored.
@@ -773,7 +751,9 @@ pub fn double_click_ms() -> u64 {
 /// CF_UNICODETEXT on the clipboard.
 pub fn copy_text(text: &str) -> bool {
     use windows::Win32::Foundation::{HANDLE, HGLOBAL};
-    use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
     use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
     const CF_UNICODETEXT: u32 = 13;
     let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
@@ -810,5 +790,35 @@ pub fn downloads_dir() -> Option<std::path::PathBuf> {
         let s = p.to_string().ok();
         CoTaskMemFree(Some(p.0 as *const _));
         s.map(std::path::PathBuf::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Writes and removes a value under a test key of its own (never the Run key).
+    #[test]
+    fn registry_round_trip() {
+        let key = r"Software\DrxwnifyTest";
+        reg_set(key, "probe", Some(r#""C:\x y\a.exe" --minimized"#)).unwrap();
+        assert_eq!(
+            reg_get(key, "probe").as_deref(),
+            Some(r#""C:\x y\a.exe" --minimized"#)
+        );
+        reg_set(key, "probe", None).unwrap();
+        assert_eq!(reg_get(key, "probe"), None);
+        reg_set(key, "probe", None).unwrap();
+        unsafe {
+            use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RegDeleteKeyW};
+            let k = wide(key);
+            let _ = RegDeleteKeyW(HKEY_CURRENT_USER, PCWSTR(k.as_ptr()));
+        }
+    }
+
+    #[test]
+    fn pipe_names_are_safe() {
+        assert_eq!(pipe_name("mini-ab12"), r"\\.\pipe\drxwnify-mini-ab12");
+        assert_eq!(pipe_name(r"a\b c"), r"\\.\pipe\drxwnify-a-b-c");
     }
 }

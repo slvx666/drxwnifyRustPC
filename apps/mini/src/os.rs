@@ -67,9 +67,13 @@ pub fn register_scheme() {
     if drx_core::paths::test_run("DRX_SCHEME") {
         return;
     }
-    let Ok(exe) = std::env::current_exe() else { return };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
     // A test run keeps its profile for the links it opens.
-    let profile = std::env::var("DRX_PROFILE").map(|p| format!(" --profile \"{p}\"")).unwrap_or_default();
+    let profile = std::env::var("DRX_PROFILE")
+        .map(|p| format!(" --profile \"{p}\""))
+        .unwrap_or_default();
     let command = format!("\"{}\"{profile} \"%1\"", exe.display());
     if drx_platform::url_scheme_command("drxwnify").as_deref() != Some(command.as_str())
         && let Err(e) = drx_platform::register_url_scheme("drxwnify", "URL:Drxwnify", &command)
@@ -136,7 +140,9 @@ fn handle(ui: &MainWindow, app: &App, e: PlatformEvent) {
             let name = crate::hotkeys::combo_of(app, id)
                 .map(|h| crate::hotkeys::label(&h))
                 .unwrap_or_default();
-            ui.set_toast(format!("{name} занято другой программой — выберите другое в настройках").into());
+            ui.set_toast(
+                format!("{name} занято другой программой — выберите другое в настройках").into(),
+            );
         }
         _ => {}
     }
@@ -218,9 +224,9 @@ pub fn wire_title_bar(ui: &MainWindow) {
         let Some(ui) = ui_w.upgrade() else { return };
         let now = Instant::now();
         // A second press within the system's double-click time: maximise or restore, as a title bar does.
-        let double = last_press
-            .replace(Some(now))
-            .is_some_and(|t| now.duration_since(t) < Duration::from_millis(drx_platform::double_click_ms()));
+        let double = last_press.replace(Some(now)).is_some_and(|t| {
+            now.duration_since(t) < Duration::from_millis(drx_platform::double_click_ms())
+        });
         if double {
             last_press.set(None);
             toggle_maximized(&ui);
@@ -286,7 +292,9 @@ fn maximized_overhang(ui: &MainWindow) -> f32 {
         .with_winit_window(|w| {
             let m = w.current_monitor()?;
             let outer = w.outer_position().ok()?;
-            let px = (m.position().x - outer.x).max(m.position().y - outer.y).max(0);
+            let px = (m.position().x - outer.x)
+                .max(m.position().y - outer.y)
+                .max(0);
             Some(px as f32 / w.scale_factor() as f32)
         })
         .flatten()
