@@ -89,6 +89,19 @@ pub fn normalize_url(url: &str, size: u32) -> String {
             format!("https://{u}")
         };
     }
+    if url.contains("googleusercontent.com") || url.contains("ggpht.com") {
+        if let Some(at) = url.rfind("=w") {
+            let tail = &url[at + 2..];
+            if !tail.contains('/') && tail.split('-').next().is_some_and(|w| w.chars().all(|c| c.is_ascii_digit())) {
+                let target = if size <= 64 { 120 } else if size <= 200 { 300 } else if size <= 400 { 600 } else { 800 };
+                return format!("{}=w{target}-h{target}-l90-rj", &url[..at]);
+            }
+        }
+    }
+    if url.contains("i.scdn.co/image/") && size > 64 {
+        let rep = if size <= 300 { "ab67616d00001e02" } else { "ab67616d0000b273" };
+        return url.replace("ab67616d00004851", rep);
+    }
     url.to_string()
 }
 
@@ -262,7 +275,7 @@ pub fn decode_square(bytes: &[u8], size: u32) -> Option<Pixels> {
     let (w, h) = (img.width(), img.height());
     let side = w.min(h);
     let cropped = img.crop_imm((w - side) / 2, (h - side) / 2, side, side);
-    let resized = cropped.resize_exact(size, size, image::imageops::FilterType::Triangle);
+    let resized = cropped.resize_exact(size, size, image::imageops::FilterType::CatmullRom);
     Some(Pixels {
         size,
         rgba: resized.to_rgba8().into_raw(),

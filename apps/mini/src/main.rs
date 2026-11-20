@@ -334,6 +334,26 @@ fn main() {
             }
         });
     }
+    {
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_artist_load_discography(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                artist_view::load_discography(&ui, &app2);
+            }
+        });
+    }
+    {
+        let app2 = app.clone();
+        ui.on_artist_play_album(move |album_id| {
+            artist_view::play_album(&app2, &album_id);
+        });
+    }
+    {
+        let app2 = app.clone();
+        ui.on_artist_play_track(move |track_id| {
+            artist_view::play_track(&app2, &track_id);
+        });
+    }
     // History and statistics.
     {
         let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
@@ -912,18 +932,14 @@ fn main() {
                     friends_view::refresh(&ui, &app3);
                 }
                 let url = ui.get_now_cover_url().to_string();
-                match (!url.is_empty())
-                    .then(|| cover_r(&app3, &url, NOW_COVER, theme_r(100.0, NOW_COVER, 288.0)))
-                    .flatten()
-                {
-                    Some(c) => {
-                        ui.set_now_cover(c);
-                        ui.set_has_now_cover(true);
-                        if let Some(small) = cover_r(&app3, &url, 104, theme_r(ROW_COVER_R, 104, 52.0)) {
-                            ui.set_now_cover_small(small);
-                        }
+                if url.is_empty() {
+                    ui.set_has_now_cover(false);
+                } else if let Some(c) = cover_r(&app3, &url, NOW_COVER, theme_r(100.0, NOW_COVER, 288.0)) {
+                    ui.set_now_cover(c);
+                    ui.set_has_now_cover(true);
+                    if let Some(small) = cover_r(&app3, &url, 104, theme_r(ROW_COVER_R, 104, 52.0)) {
+                        ui.set_now_cover_small(small);
                     }
-                    None => ui.set_has_now_cover(false),
                 }
                 nav::refresh_releases(&ui, &app3);
                 home_view::refresh(&ui, &app3);

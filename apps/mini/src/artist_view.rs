@@ -1,15 +1,16 @@
-//! An artist page in Mini: popular tracks (from the page's list), albums, singles and EPs, «Участие», similar
-//! artists. Cards are filled in place when their covers arrive, so the strips keep their scroll position.
+//! An artist page in Mini: popular tracks, albums, singles and EPs, «Участие», similar
+//! artists, and the full Spotify-style Discography ("Все треки") grouped by year and album.
 
 use crate::lazy_songs::LazySongs;
-use crate::{HomeCard, MainWindow, SongItem};
-use drx_app::{App, ListHeader};
+use crate::{DiscographyAlbum, HomeCard, MainWindow, SongItem};
+use drx_app::{App, ListHeader, SongRow};
 use drx_catalog::model::Image;
-use slint::{Model, ModelRc, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 const CARD: u32 = 144;
+const ALBUM_COVER: u32 = 112;
 /// Popular tracks shown before «Показать все»; all of them at most this many.
 const SHORT: usize = 5;
 const LONG: usize = 100;
@@ -21,9 +22,27 @@ struct Sections {
     models: Vec<Rc<VecModel<HomeCard>>>,
 }
 
+pub struct DiscographyAlbumData {
+    pub id: String,
+    pub title: String,
+    pub subtitle: String,
+    pub cover_url: Option<String>,
+    pub _cover_images: Vec<Image>,
+    pub tracks: Vec<SongRow>,
+}
+
+#[derive(Default)]
+struct DiscographyState {
+    artist_title: String,
+    releases: Vec<drx_catalog::model::Release>,
+    albums: Vec<DiscographyAlbumData>,
+    loaded: bool,
+}
+
 thread_local! {
     static SECTIONS: RefCell<Sections> = RefCell::default();
     static EXPANDED: Cell<bool> = const { Cell::new(false) };
+    static DISCOGRAPHY: RefCell<DiscographyState> = RefCell::default();
 }
 
 fn card_cover(app: &App, images: &[Image], round: bool) -> Option<slint::Image> {
@@ -53,6 +72,7 @@ fn year_kind(date: &Option<String>, kind: &str) -> String {
 pub fn clear(ui: &MainWindow) {
     EXPANDED.with(|e| e.set(false));
     SECTIONS.with(|s| *s.borrow_mut() = Sections::default());
+    DISCOGRAPHY.with(|d| *d.borrow_mut() = DiscographyState::default());
     let empty = || ModelRc::new(VecModel::<HomeCard>::default());
     ui.set_artist_albums(empty());
     ui.set_artist_singles(empty());
@@ -61,6 +81,9 @@ pub fn clear(ui: &MainWindow) {
     ui.set_artist_tracks(ModelRc::new(VecModel::<SongItem>::default()));
     ui.set_artist_total(0);
     ui.set_artist_expanded(false);
+    ui.set_artist_discography(ModelRc::default());
+    ui.set_artist_discography_mode(false);
+    ui.set_artist_discography_loading(false);
 }
 
 /// The sections from an artist page heading (catalog data).
@@ -151,6 +174,15 @@ pub fn set_header(ui: &MainWindow, app: &App, h: &ListHeader) {
     ui.set_artist_appears(ModelRc::from(sections.models[2].clone()));
     ui.set_artist_related(ModelRc::from(sections.models[3].clone()));
     SECTIONS.with(|s| *s.borrow_mut() = sections);
+
+    DISCOGRAPHY.with(|d| {
+        *d.borrow_mut() = DiscographyState {
+            artist_title: h.title.clone(),
+            releases: h.releases.clone(),
+            albums: Vec::new(),
+            loaded: false,
+        };
+    });
 }
 
 /// Popular tracks from the page's list (its first rows).
@@ -176,7 +208,182 @@ pub fn toggle_more(ui: &MainWindow, songs: &LazySongs) {
     set_tracks(ui, songs);
 }
 
-/// Covers arrived: fill the cards still waiting and redraw the track rows that had none.
+/// Helper to render the Discography UI model in Slint
+fn render_discography(ui: &MainWindow, app: &App) {
+    DISCOGRAPHY.with(|d| {
+        let d = d.borrow();
+        let mut disc_albums = Vec::new();
+        for alb in &d.albums {
+            let cover = alb.cover_url.as_deref().and_then(|u| {
+                crate::cover_r(app, u, ALBUM_COVER, 6.0)
+            });
+            let has_cover = cover.is_some();
+            let track_items: Vec<SongItem> = alb
+                .tracks
+                .iter()
+                .enumerate()
+                .map(|(ti, t)| SongItem {
+                    id: t.id.clone().into(),
+                    title: t.title.clone().into(),
+                    artists: t.artists.clone().into(),
+                    duration: crate::fmt_time(t.duration_s as f64).into(),
+                    liked: t.liked,
+                    index: (ti + 1) as i32,
+                    cover: slint::Image::default(),
+                    has_cover: false,
+                    artist_id: t.artist_id.clone().unwrap_or_default().into(),
+                    album_id: alb.id.clone().into(),
+                    plays: t.plays.map(crate::group_digits).unwrap_or_default().into(),
+                })
+                .collect();
+            disc_albums.push(DiscographyAlbum {
+                id: alb.id.clone().into(),
+                title: alb.title.clone().into(),
+                subtitle: alb.subtitle.clone().into(),
+                cover: cover.unwrap_or_default(),
+                has_cover,
+                tracks: ModelRc::new(VecModel::from(track_items)),
+            });
+        }
+        ui.set_artist_discography(ModelRc::new(VecModel::from(disc_albums)));
+        ui.set_artist_discography_loading(false);
+    });
+}
+
+/// Loads full discography: queries local database library tracks and fetches catalog albums.
+pub fn load_discography(ui: &MainWindow, app: &App) {
+    let already_loaded = DISCOGRAPHY.with(|d| d.borrow().loaded);
+    if already_loaded {
+        render_discography(ui, app);
+        return;
+    }
+    ui.set_artist_discography_loading(true);
+
+    let (artist_title, releases) = DISCOGRAPHY.with(|d| {
+        let d = d.borrow();
+        (d.artist_title.clone(), d.releases.clone())
+    });
+
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    tokio::spawn(async move {
+        let mut loaded_albums: Vec<DiscographyAlbumData> = Vec::new();
+
+        // 1. Check local library tracks for this artist
+        if !artist_title.is_empty() {
+            if let Ok(rows) = app2.artist_library_albums(&artist_title).await {
+                let mut current_id = String::new();
+                for (alb_id, alb_title, yr, thumb, song) in rows {
+                    if alb_id != current_id || loaded_albums.is_empty() {
+                        current_id = alb_id.clone();
+                        let yr_str = if yr > 0 { format!("{yr}") } else { String::new() };
+                        let sub = if yr_str.is_empty() { "Альбом".into() } else { format!("Альбом • {yr_str}") };
+                        loaded_albums.push(DiscographyAlbumData {
+                            id: alb_id,
+                            title: alb_title,
+                            subtitle: sub,
+                            cover_url: thumb,
+                            _cover_images: Vec::new(),
+                            tracks: Vec::new(),
+                        });
+                    }
+                    if let Some(last) = loaded_albums.last_mut() {
+                        last.tracks.push(song);
+                    }
+                }
+                for a in &mut loaded_albums {
+                    let count = a.tracks.len();
+                    a.subtitle = format!("{} • {} треков", a.subtitle, count);
+                }
+            }
+        }
+
+        // 2. Fetch catalog releases from Spotify/catalog
+        if !releases.is_empty() {
+            let mut catalog_albums = Vec::new();
+            for r in releases {
+                if let Some(alb) = app2.catalog_album(&r.id).await {
+                    let yr = alb.release_date.as_deref().and_then(|d| d.get(..4)).unwrap_or("");
+                    let kind_label = match alb.album_type.as_deref().unwrap_or(&r.kind) {
+                        "single" => "Сингл",
+                        "ep" => "EP",
+                        "compilation" => "Сборник",
+                        _ => "Альбом",
+                    };
+                    let tracks: Vec<SongRow> = alb.tracks.into_iter().map(|t| {
+                        let artists = t.artist_names();
+                        SongRow {
+                            id: t.id,
+                            title: t.title,
+                            artists,
+                            album: Some(alb.name.clone()),
+                            duration_s: (t.duration_ms / 1000) as i64,
+                            thumbnail: drx_catalog::model::best_image(&alb.images, 300).map(|i| i.url.clone()),
+                            liked: false,
+                            artist_id: None,
+                            album_id: Some(alb.id.clone()),
+                            plays: t.plays,
+                        }
+                    }).collect();
+                    let count = tracks.len();
+                    let sub = if yr.is_empty() {
+                        format!("{kind_label} • {count} треков")
+                    } else {
+                        format!("{kind_label} • {yr} • {count} треков")
+                    };
+                    let cover_url = drx_catalog::model::best_image(&alb.images, 300).map(|i| i.url.clone());
+                    catalog_albums.push(DiscographyAlbumData {
+                        id: alb.id,
+                        title: alb.name,
+                        subtitle: sub,
+                        cover_url,
+                        _cover_images: alb.images,
+                        tracks,
+                    });
+                }
+            }
+            if !catalog_albums.is_empty() {
+                loaded_albums = catalog_albums;
+            }
+        }
+
+        let albums_to_save = loaded_albums;
+        let _ = slint::invoke_from_event_loop(move || {
+            let Some(ui) = ui_w.upgrade() else { return };
+            DISCOGRAPHY.with(|d| {
+                let mut d = d.borrow_mut();
+                d.albums = albums_to_save;
+                d.loaded = true;
+            });
+            render_discography(&ui, &app2);
+        });
+    });
+}
+
+/// Plays an entire album from the discography view.
+pub fn play_album(app: &App, album_id: &str) {
+    DISCOGRAPHY.with(|d| {
+        let d = d.borrow();
+        if let Some(alb) = d.albums.iter().find(|a| a.id == album_id) {
+            app.play_rows(alb.tracks.clone(), 0);
+        }
+    });
+}
+
+/// Plays a track from the discography view (plays from that track within its album).
+pub fn play_track(app: &App, track_id: &str) {
+    DISCOGRAPHY.with(|d| {
+        let d = d.borrow();
+        for alb in &d.albums {
+            if let Some(idx) = alb.tracks.iter().position(|t| t.id == track_id) {
+                app.play_rows(alb.tracks.clone(), idx);
+                return;
+            }
+        }
+    });
+}
+
+/// Covers arrived: fill the cards still waiting, redraw the track rows that had none,
+/// and fill any discography album covers that became available.
 pub fn refresh_covers(ui: &MainWindow, app: &App, songs: &LazySongs) {
     if !ui.get_view_artist() {
         return;
@@ -199,5 +406,25 @@ pub fn refresh_covers(ui: &MainWindow, app: &App, songs: &LazySongs) {
     let rows = ui.get_artist_tracks();
     if (0..rows.row_count()).any(|i| rows.row_data(i).is_some_and(|t| !t.has_cover)) {
         set_tracks(ui, songs);
+    }
+
+    // Discography covers:
+    let disc = ui.get_artist_discography();
+    let count = disc.row_count();
+    for i in 0..count {
+        if let Some(mut alb) = disc.row_data(i) {
+            if !alb.has_cover {
+                let cover_url = DISCOGRAPHY.with(|d| {
+                    d.borrow().albums.get(i).and_then(|a| a.cover_url.clone())
+                });
+                if let Some(url) = cover_url {
+                    if let Some(img) = crate::cover_r(app, &url, ALBUM_COVER, 6.0) {
+                        alb.cover = img;
+                        alb.has_cover = true;
+                        disc.set_row_data(i, alb);
+                    }
+                }
+            }
+        }
     }
 }

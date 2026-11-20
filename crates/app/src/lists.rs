@@ -279,6 +279,8 @@ const ARTISTS: &str = "(SELECT group_concat(a.name, ', ') FROM (SELECT ar.name F
 const FIRST_ARTIST: &str =
     "(SELECT m.artistId FROM song_artist_map m WHERE m.songId = s.id ORDER BY m.position LIMIT 1)";
 
+pub(crate) const SONG_COVER: &str = "coalesce(s.thumbnailUrl, (SELECT al.thumbnailUrl FROM album al WHERE al.id = s.albumId AND al.thumbnailUrl IS NOT NULL AND al.thumbnailUrl != '' LIMIT 1), (SELECT ar.thumbnailUrl FROM song_artist_map sam JOIN artist ar ON ar.id = sam.artistId WHERE sam.songId = s.id AND ar.thumbnailUrl IS NOT NULL AND ar.thumbnailUrl != '' LIMIT 1), (SELECT ar2.thumbnailUrl FROM song_artist_map sam JOIN artist ar ON ar.id = sam.artistId JOIN artist ar2 ON ar2.thumbnailUrl IS NOT NULL AND ar2.thumbnailUrl != '' AND (ar.name LIKE ar2.name || '%' OR ar2.name LIKE ar.name || '%') WHERE sam.songId = s.id LIMIT 1))";
+
 /// The liked songs, one row per song. The phone often keeps one song twice: as the YouTube video it played
 /// through and as its catalog row (`mfb:<Spotify id>`, older `spotify:<id>`). Rows are grouped by the Spotify track
 /// behind them (the id itself, or the video's `spotify_match`); the most recently liked row stays. Videos without a
@@ -353,7 +355,7 @@ pub(crate) fn rows(
     let (from, mut params) = base(spec);
     let n = params.len();
     let sql = format!(
-        "SELECT s.id, s.title, {ARTISTS}, s.albumName, s.duration, s.thumbnailUrl, s.liked, {FIRST_ARTIST}, s.albumId {from} LIMIT ?{} OFFSET ?{}",
+        "SELECT s.id, s.title, {ARTISTS}, s.albumName, s.duration, {SONG_COVER}, s.liked, {FIRST_ARTIST}, s.albumId {from} LIMIT ?{} OFFSET ?{}",
         n + 1,
         n + 2
     );
@@ -382,7 +384,7 @@ pub(crate) fn rows(
 /// Liked songs liked before `cut` (Unix ms) and not played since (home «Давно не слушали»).
 pub(crate) fn forgotten(c: &mut Connection, cut: i64) -> drx_core::Result<Vec<SongRow>> {
     let sql = format!(
-        "SELECT s.id, s.title, {ARTISTS}, s.albumName, s.duration, s.thumbnailUrl, s.liked, {FIRST_ARTIST}, s.albumId          FROM song s WHERE s.liked = 1 AND s.likedDate > 0 AND s.likedDate < ?1          AND NOT EXISTS (SELECT 1 FROM event e WHERE e.songId = s.id AND e.timestamp > ?1) LIMIT 2000"
+        "SELECT s.id, s.title, {ARTISTS}, s.albumName, s.duration, {SONG_COVER}, s.liked, {FIRST_ARTIST}, s.albumId          FROM song s WHERE s.liked = 1 AND s.likedDate > 0 AND s.likedDate < ?1          AND NOT EXISTS (SELECT 1 FROM event e WHERE e.songId = s.id AND e.timestamp > ?1) LIMIT 2000"
     );
     let mut st = c.prepare_cached(&sql)?;
     let out = st
@@ -407,7 +409,7 @@ pub(crate) fn forgotten(c: &mut Connection, cut: i64) -> drx_core::Result<Vec<So
 /// Every song of the library (liked or added), liked first (the library search walks them).
 pub(crate) fn all_library_rows(c: &mut Connection) -> drx_core::Result<Vec<SongRow>> {
     let sql = format!(
-        "SELECT s.id, s.title, {ARTISTS}, s.albumName, s.duration, s.thumbnailUrl, s.liked, {FIRST_ARTIST}, s.albumId          FROM song s WHERE s.liked = 1 OR s.inLibrary IS NOT NULL ORDER BY s.liked DESC, s.totalPlayTime DESC"
+        "SELECT s.id, s.title, {ARTISTS}, s.albumName, s.duration, {SONG_COVER}, s.liked, {FIRST_ARTIST}, s.albumId          FROM song s WHERE s.liked = 1 OR s.inLibrary IS NOT NULL ORDER BY s.liked DESC, s.totalPlayTime DESC"
     );
     let mut st = c.prepare_cached(&sql)?;
     let out = st

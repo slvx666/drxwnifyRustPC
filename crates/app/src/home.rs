@@ -9,6 +9,7 @@
 //! close to their favourites in that genre, kept to the genre by Last.fm). Not ported yet: Last.fm agreement for
 //! related artists.
 
+use crate::lists::{SongRow, SONG_COVER};
 use crate::playback::Playable;
 use crate::{App, AppError, AppResult};
 use drx_catalog::model::{ArtistPage, Image, Source, Track};
@@ -393,6 +394,58 @@ impl App {
             format!("{} · в медиатеке", h.subtitle)
         };
         Some(h)
+    }
+
+    /// All library songs of `artist_title` grouped by album and sorted by year descending.
+    pub async fn artist_library_albums(
+        &self,
+        artist_title: &str,
+    ) -> AppResult<Vec<(String, String, i64, Option<String>, SongRow)>> {
+        let artist_title_q = artist_title.to_string();
+        let rows = self.store()
+            .call(move |c| {
+                let sql = format!(
+                    "SELECT coalesce(al.id, s.albumId, s.albumName, 'single'),
+                            coalesce(al.title, s.albumName, 'Синглы'),
+                            coalesce(al.year, s.year, 0) AS yr,
+                            coalesce(al.thumbnailUrl, s.thumbnailUrl),
+                            s.id, s.title, (SELECT group_concat(a.name, ', ') FROM (SELECT ar.name FROM song_artist_map m JOIN artist ar ON ar.id = m.artistId WHERE m.songId = s.id ORDER BY m.position) a),
+                            s.duration, {SONG_COVER}, s.liked, (SELECT m.artistId FROM song_artist_map m WHERE m.songId = s.id ORDER BY m.position LIMIT 1), s.albumId
+                     FROM song_artist_map sam
+                     JOIN song s ON s.id = sam.songId
+                     LEFT JOIN album al ON al.id = s.albumId
+                     WHERE sam.artistId = (SELECT id FROM artist WHERE name = ?1 LIMIT 1)
+                        OR s.artistsText LIKE ?2
+                     ORDER BY yr DESC, coalesce(al.title, s.albumName), s.id"
+                );
+                let pat = format!("%{artist_title_q}%");
+                let mut st = c.prepare(&sql)?;
+                let rows = st
+                    .query_map([&artist_title_q, &pat], |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, i64>(2)?,
+                            r.get::<_, Option<String>>(3)?,
+                            SongRow {
+                                id: r.get(4)?,
+                                title: r.get(5)?,
+                                artists: r.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                                album: Some(r.get(1)?),
+                                duration_s: r.get(7)?,
+                                thumbnail: r.get(8)?,
+                                liked: r.get(9)?,
+                                artist_id: r.get(10)?,
+                                album_id: r.get(11)?,
+                                plays: None,
+                            },
+                        ))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(rows)
+            })
+            .await?;
+        Ok(rows)
     }
 
     /// An artist page from its catalog (Spotify without a session works for public data).
@@ -889,7 +942,7 @@ impl App {
         out
     }
 
-    async fn catalog_album(&self, id: &str) -> Option<drx_catalog::model::Album> {
+    pub async fn catalog_album(&self, id: &str) -> Option<drx_catalog::model::Album> {
         match Source::of_id(id) {
             Source::Yandex => self.yandex()?.album(id).await.ok(),
             Source::Spotify => self.spotify_or_public().album(id).await.ok(),

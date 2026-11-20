@@ -1,7 +1,7 @@
 //! Listening history and statistics from the `event` table (Android HistoryScreen, StatsScreen). Statistics count
 //! this app's listening only (2.3.0: «Статистика считает только прослушивания в приложении»).
 
-use crate::lists::SongRow;
+use crate::lists::{SongRow, SONG_COVER};
 use crate::{App, AppResult};
 
 /// Statistics period (Android StatPeriod).
@@ -196,7 +196,7 @@ impl App {
                 )?;
                 let since_ms: Option<i64> = c.query_row("SELECT min(timestamp) FROM event", [], |r| r.get(0))?;
                 let mut st = c.prepare(&format!(
-                    "SELECT e.cnt, e.ms, s.id, s.title, {ARTISTS}, s.albumName, s.duration, s.thumbnailUrl, s.liked, {FIRST_ARTIST}, s.albumId
+                    "SELECT e.cnt, e.ms, s.id, s.title, {ARTISTS}, s.albumName, s.duration, {SONG_COVER}, s.liked, {FIRST_ARTIST}, s.albumId
                      FROM (SELECT songId, count(*) AS cnt, sum(playTime) AS ms FROM event WHERE timestamp >= ?1 AND timestamp < ?2
                            GROUP BY songId ORDER BY ms DESC LIMIT 50) e
                      JOIN song s ON s.id = e.songId ORDER BY e.ms DESC"
@@ -275,12 +275,11 @@ impl App {
             })
             .await?;
 
-        // Background resolve artist avatars for artists missing photos
+        // Background resolve artist avatars for artists missing photos in artist table
         let this = self.clone();
         let missing: Vec<(String, String)> = stats
             .artists
             .iter()
-            .filter(|a| a.thumbnail.is_none())
             .map(|a| (a.id.clone(), a.title.clone()))
             .collect();
         tokio::spawn(async move {
@@ -342,7 +341,7 @@ impl App {
             .store()
             .call(move |c| {
                 let mut st = c.prepare(&format!(
-                    "SELECT s.id, s.title, {ARTISTS}, s.albumName, s.duration, s.thumbnailUrl, s.liked, {FIRST_ARTIST}, s.albumId
+                    "SELECT s.id, s.title, {ARTISTS}, s.albumName, s.duration, {SONG_COVER}, s.liked, {FIRST_ARTIST}, s.albumId
                      FROM (SELECT songId, sum(playTime) AS ms FROM event WHERE timestamp >= ?1 AND timestamp < ?2 GROUP BY songId) e
                      JOIN song s ON s.id = e.songId ORDER BY e.ms DESC"
                 ))?;

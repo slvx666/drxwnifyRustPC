@@ -78,6 +78,15 @@ export struct ReleaseItem {
     has-cover: bool,
 }
 
+export struct DiscographyAlbum {
+    id: string,
+    title: string,
+    subtitle: string,
+    cover: image,
+    has-cover: bool,
+    tracks: [SongItem],
+}
+
 export struct HomeCard {
     id: string,
     title: string,
@@ -972,6 +981,7 @@ component SongRow inherits Rectangle {
     in property <bool> current;
     in property <bool> hot; // hovered through an area laid over the row (the history's remove button)
     in property <bool> hide-duration; // the remove button stands where the time is
+    in property <bool> hide-cover: false; // discography & album views: cover shown in album header
     callback play();
     callback open-artist(string);
     callback open-album(string);
@@ -1003,7 +1013,7 @@ component SongRow inherits Rectangle {
             if root.row-hot: Icon { x: parent.width - self.width; icon: Icons.play; size: 16px; color: pa.has-hover ? Theme.text : (current ? Theme.accent : Theme.dim); }
             pa := TouchArea { mouse-cursor: pointer; clicked => { root.play(); } }
         }
-        Middle { Cover { size: 48px; source: song.cover; has-source: song.has-cover; radius: Grid.row-cover-radius; } }
+        if !root.hide-cover: Middle { Cover { size: 48px; source: song.cover; has-source: song.has-cover; radius: Grid.row-cover-radius; } }
         VerticalLayout {
             alignment: center;
             spacing: 2px;
@@ -1822,6 +1832,9 @@ component ArtistView inherits Flickable {
     in property <[HomeCard]> singles;
     in property <[HomeCard]> appears;
     in property <[HomeCard]> related;
+    in property <[DiscographyAlbum]> discography;
+    in property <bool> discography-loading;
+    in-out property <bool> discography-mode: false;
     in property <string> now-id;
     callback play(int);
     callback more();
@@ -1829,59 +1842,238 @@ component ArtistView inherits Flickable {
     callback like-song(string);
     callback song-menu(string, int, length, length);
     callback open-album(string);
+    callback load-discography();
+    callback play-discography-album(string);
+    callback play-track(string);
     content-height: body.preferred-height + Grid.pad;
     body := VerticalLayout {
         width: root.width;
         spacing: Grid.pad;
         alignment: start;
-        if root.tracks.length > 0: VerticalLayout {
-            spacing: 4px;
-            HorizontalLayout {
-                padding-left: Grid.pad + 4px;
-                padding-right: Grid.pad + 4px;
-                height: 28px;
-                Text { horizontal-stretch: 1; text: "Популярные треки"; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; vertical-alignment: center; }
-                if root.tracks-total > 5: Link {
-                    text: root.expanded ? "Свернуть" : "Показать все · " + root.tracks-total;
-                    font-size: 14px;
-                    clicked => { root.more(); }
+
+        // Navigation Tabs: Overview ("Обзор") vs Full Discography ("Все треки")
+        HorizontalLayout {
+            padding-left: Grid.pad + 4px;
+            padding-right: Grid.pad + 4px;
+            spacing: 8px;
+            height: 36px;
+            alignment: start;
+            Rectangle {
+                border-radius: 18px;
+                background: !root.discography-mode ? Theme.fill-hover : Theme.fill;
+                HorizontalLayout {
+                    padding-left: 18px; padding-right: 18px;
+                    Text {
+                        text: "Обзор";
+                        font-family: Theme.heading-font;
+                        font-weight: 700;
+                        font-size: 14px;
+                        color: !root.discography-mode ? Theme.text : Theme.dim;
+                        vertical-alignment: center;
+                    }
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.discography-mode = false; }
                 }
             }
-            HorizontalLayout {
-                padding-left: 8px;
-                padding-right: 8px;
-                VerticalLayout {
-                    for t[i] in root.tracks: SongRow {
-                        song: t;
-                        current: root.now-id != "" && t.id == root.now-id;
-                        play => { root.play(i); }
-                        open-artist(id) => { root.open-artist(id); }
-                        open-album(id) => { root.open-album(id); }
-                        like-song(id) => { root.like-song(id); }
-                        song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
+            Rectangle {
+                border-radius: 18px;
+                background: root.discography-mode ? Theme.fill-hover : Theme.fill;
+                HorizontalLayout {
+                    padding-left: 18px; padding-right: 18px;
+                    Text {
+                        text: "Все треки (дискография)";
+                        font-family: Theme.heading-font;
+                        font-weight: 700;
+                        font-size: 14px;
+                        color: root.discography-mode ? Theme.text : Theme.dim;
+                        vertical-alignment: center;
+                    }
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.discography-mode = true;
+                        root.load-discography();
                     }
                 }
             }
         }
-        if root.albums.length > 0: VerticalLayout {
-            spacing: 8px;
-            SectionHead { text: "Альбомы"; }
-            CardStrip { cards: root.albums; clicked(i) => { root.open-album(root.albums[i].id); } }
+
+        if !root.discography-mode: VerticalLayout {
+            spacing: Grid.pad;
+            if root.tracks.length > 0: VerticalLayout {
+                spacing: 4px;
+                HorizontalLayout {
+                    padding-left: Grid.pad + 4px;
+                    padding-right: Grid.pad + 4px;
+                    height: 28px;
+                    Text { horizontal-stretch: 1; text: "Популярные треки"; font-family: Theme.heading-font; font-weight: 700; font-size: 18px; color: Theme.text; vertical-alignment: center; }
+                    Link {
+                        text: "Все треки (дискография) →";
+                        font-size: 14px;
+                        clicked => {
+                            root.discography-mode = true;
+                            root.load-discography();
+                        }
+                    }
+                    Rectangle { width: 16px; }
+                    if root.tracks-total > 5: Link {
+                        text: root.expanded ? "Свернуть" : "Показать все · " + root.tracks-total;
+                        font-size: 14px;
+                        clicked => { root.more(); }
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    VerticalLayout {
+                        for t[i] in root.tracks: SongRow {
+                            song: t;
+                            current: root.now-id != "" && t.id == root.now-id;
+                            play => { root.play(i); }
+                            open-artist(id) => { root.open-artist(id); }
+                            open-album(id) => { root.open-album(id); }
+                            like-song(id) => { root.like-song(id); }
+                            song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
+                        }
+                    }
+                }
+            }
+            if root.albums.length > 0: VerticalLayout {
+                spacing: 8px;
+                HorizontalLayout {
+                    padding-left: Grid.pad + 4px;
+                    padding-right: Grid.pad + 4px;
+                    height: 32px;
+                    Text { horizontal-stretch: 1; text: "Альбомы"; font-family: Theme.heading-font; font-weight: 700; font-size: 22px; color: Theme.text; vertical-alignment: center; }
+                    Link {
+                        text: "Дискография →";
+                        font-size: 14px;
+                        clicked => {
+                            root.discography-mode = true;
+                            root.load-discography();
+                        }
+                    }
+                }
+                CardStrip { cards: root.albums; clicked(i) => { root.open-album(root.albums[i].id); } }
+            }
+            if root.singles.length > 0: VerticalLayout {
+                spacing: 8px;
+                SectionHead { text: "Синглы и EP"; }
+                CardStrip { cards: root.singles; clicked(i) => { root.open-album(root.singles[i].id); } }
+            }
+            if root.appears.length > 0: VerticalLayout {
+                spacing: 8px;
+                SectionHead { text: "Участие"; }
+                CardStrip { cards: root.appears; clicked(i) => { root.open-album(root.appears[i].id); } }
+            }
+            if root.related.length > 0: VerticalLayout {
+                spacing: 8px;
+                SectionHead { text: "Похожие исполнители"; }
+                CardStrip { cards: root.related; round: true; clicked(i) => { root.open-artist(root.related[i].id); } }
+            }
         }
-        if root.singles.length > 0: VerticalLayout {
-            spacing: 8px;
-            SectionHead { text: "Синглы и EP"; }
-            CardStrip { cards: root.singles; clicked(i) => { root.open-album(root.singles[i].id); } }
-        }
-        if root.appears.length > 0: VerticalLayout {
-            spacing: 8px;
-            SectionHead { text: "Участие"; }
-            CardStrip { cards: root.appears; clicked(i) => { root.open-album(root.appears[i].id); } }
-        }
-        if root.related.length > 0: VerticalLayout {
-            spacing: 8px;
-            SectionHead { text: "Похожие исполнители"; }
-            CardStrip { cards: root.related; round: true; clicked(i) => { root.open-artist(root.related[i].id); } }
+
+        // Spotify Desktop Discography View (Photo 2)
+        if root.discography-mode: VerticalLayout {
+            spacing: 36px;
+            padding-left: Grid.pad;
+            padding-right: Grid.pad;
+            if root.discography-loading && root.discography.length == 0: HorizontalLayout {
+                height: 80px;
+                alignment: center;
+                Text { text: "Загрузка релизов исполнителя..."; font-size: 15px; color: Theme.dim; vertical-alignment: center; }
+            }
+            if !root.discography-loading && root.discography.length == 0: HorizontalLayout {
+                height: 80px;
+                alignment: center;
+                Text { text: "В дискографии нет релизов"; font-size: 15px; color: Theme.dim; vertical-alignment: center; }
+            }
+            for alb[ai] in root.discography: VerticalLayout {
+                spacing: 12px;
+                // Album Header (Spotify style)
+                HorizontalLayout {
+                    spacing: 16px;
+                    alignment: start;
+                    Cover {
+                        size: 112px;
+                        source: alb.cover;
+                        has-source: alb.has-cover;
+                        radius: 6px;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 8px;
+                        Text {
+                            text: alb.subtitle;
+                            font-size: 13px;
+                            color: Theme.dim;
+                        }
+                        Text {
+                            text: alb.title;
+                            font-family: Theme.heading-font;
+                            font-weight: 700;
+                            font-size: 22px;
+                            color: Theme.text;
+                            overflow: elide;
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            alignment: start;
+                            // Circular play button
+                            Rectangle {
+                                width: 38px;
+                                height: 38px;
+                                border-radius: 19px;
+                                background: alb-ta.has-hover ? #1fdf64 : #1ed760;
+                                Icon {
+                                    x: (parent.width - self.width) / 2 + 1px;
+                                    y: (parent.height - self.height) / 2;
+                                    icon: Icons.play;
+                                    size: 16px;
+                                    color: #000000;
+                                }
+                                alb-ta := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.play-discography-album(alb.id); }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Track list table header (Spotify style)
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 12px;
+                    height: 24px;
+                    Text { width: 28px; text: "#"; font-size: 13px; color: Theme.dim; horizontal-alignment: right; }
+                    Rectangle { width: Grid.gap; }
+                    Text { horizontal-stretch: 1; text: "Название"; font-size: 13px; color: Theme.dim; }
+                    Text { width: 140px; text: "Прослушивания"; font-size: 13px; color: Theme.dim; horizontal-alignment: right; }
+                    Rectangle { width: 24px; }
+                    Icon { icon: Icons.clock; size: 14px; color: Theme.dim; }
+                }
+                Rectangle {
+                    height: 1px;
+                    background: Theme.panel-border;
+                }
+                // Tracks
+                VerticalLayout {
+                    spacing: 2px;
+                    for t[ti] in alb.tracks: SongRow {
+                        song: t;
+                        hide-cover: true;
+                        current: root.now-id != "" && t.id == root.now-id;
+                        play => { root.play-track(t.id); }
+                        open-artist(id) => { root.open-artist(id); }
+                        open-album(id) => { root.open-album(id); }
+                        like-song(id) => { root.like-song(id); }
+                        song-menu(id, ti, x, y) => { root.song-menu(id, ti, x, y); }
+                    }
+                }
+            }
         }
     }
 }
@@ -2238,7 +2430,13 @@ component MainArea inherits VerticalLayout {
     in property <[HomeCard]> a-singles;
     in property <[HomeCard]> a-appears;
     in property <[HomeCard]> a-related;
+    in property <[DiscographyAlbum]> a-discography;
+    in property <bool> a-discography-loading;
+    in-out property <bool> a-discography-mode: false;
     callback a-more();
+    callback a-load-discography();
+    callback a-play-album(string);
+    callback a-play-track(string);
     in property <[SourceChip]> s-chips;
     in property <string> s-state;
     in property <string> s-top-kind;
@@ -2540,6 +2738,9 @@ component MainArea inherits VerticalLayout {
         singles: root.a-singles;
         appears: root.a-appears;
         related: root.a-related;
+        discography: root.a-discography;
+        discography-loading: root.a-discography-loading;
+        discography-mode <=> root.a-discography-mode;
         now-id: root.now-id;
         play(i) => { root.play(i); }
         more => { root.a-more(); }
@@ -2547,6 +2748,9 @@ component MainArea inherits VerticalLayout {
         like-song(id) => { root.like-song(id); }
         song-menu(id, i, x, y) => { root.song-menu(id, i, x, y); }
         open-album(id) => { root.open-album(id); }
+        load-discography => { root.a-load-discography(); }
+        play-discography-album(id) => { root.a-play-album(id); }
+        play-track(id) => { root.a-play-track(id); }
     }
     if root.search: SearchPage {
         vertical-stretch: 1;
@@ -4412,7 +4616,13 @@ export component MainWindow inherits Window {
     in property <[HomeCard]> artist-singles;
     in property <[HomeCard]> artist-appears;
     in property <[HomeCard]> artist-related;
+    in property <[DiscographyAlbum]> artist-discography;
+    in property <bool> artist-discography-loading;
+    in-out property <bool> artist-discography-mode: false;
     callback artist-more();
+    callback artist-load-discography();
+    callback artist-play-album(string);
+    callback artist-play-track(string);
     in property <[SourceChip]> search-chips;
     in property <string> search-state;
     in property <string> search-top-kind;
@@ -4808,7 +5018,13 @@ export component MainWindow inherits Window {
                         a-singles: root.artist-singles;
                         a-appears: root.artist-appears;
                         a-related: root.artist-related;
+                        a-discography: root.artist-discography;
+                        a-discography-loading: root.artist-discography-loading;
+                        a-discography-mode <=> root.artist-discography-mode;
                         a-more => { root.artist-more(); }
+                        a-load-discography => { root.artist-load-discography(); }
+                        a-play-album(id) => { root.artist-play-album(id); }
+                        a-play-track(id) => { root.artist-play-track(id); }
                         s-chips: root.search-chips;
                         s-state: root.search-state;
                         s-top-kind: root.search-top-kind;

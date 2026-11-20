@@ -576,7 +576,8 @@ impl Playback {
                         }
                     }
                     if let PlayerEvent::Ended(id) = ev {
-                        let cur = *this.current_id.lock().expect("current");
+                        let mut cur_guard = this.current_id.lock().expect("current");
+                        let cur = *cur_guard;
                         // A gapless follower is queued: the mixer starts it on this very frame.
                         let follows = this
                             .prep
@@ -585,6 +586,8 @@ impl Playback {
                             .as_ref()
                             .is_some_and(|p| p.after == id && p.queued.is_some());
                         if cur == Some(id) && !follows {
+                            *cur_guard = None;
+                            drop(cur_guard);
                             // Track finished on its own: repeat one, or continue (wrapping with repeat all).
                             let (i, len) = {
                                 let q = this.queue.lock().expect("queue");
@@ -1132,6 +1135,8 @@ impl Playback {
             }
         }
         self.drop_prep();
+        // Clear current_id BEFORE stopping so any Ended event from the stopped track is ignored
+        *self.current_id.lock().expect("current") = None;
         // Stop current audio immediately so old sound does not linger while new stream is resolving
         if let Ok(player) = self.player() {
             player.stop();

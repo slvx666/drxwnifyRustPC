@@ -11,7 +11,7 @@ use std::collections::{HashMap, VecDeque};
 
 /// Bytes of pixels kept here. Rows hold their pictures while they are on screen, so this is about what comes back
 /// when scrolling or returning to a page.
-const LIMIT: usize = 16 << 20;
+const LIMIT: usize = 32 << 20;
 
 type Key = (String, u32, u32);
 
