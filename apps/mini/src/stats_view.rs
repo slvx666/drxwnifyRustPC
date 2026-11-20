@@ -309,7 +309,7 @@ pub fn refresh_covers(ui: &MainWindow, app: &App) {
                 if let Some(card) = model.row_data(i)
                     && !card.has_cover
                 {
-                    if urls[i].is_none() && *round {
+                    if (urls[i].is_none() || urls[i].as_deref() == Some("")) && *round {
                         if let Some(thumb) = app.artist_thumbnail(&card.id) {
                             urls[i] = Some(thumb);
                         }

@@ -178,13 +178,16 @@ impl App {
             return linked;
         }
         let wanted = crate::likes::cross_norm(&name);
-        self.spotify_or_anonymous()
+        let results = self
+            .spotify_or_anonymous()
             .search_artists(&name, 10)
             .await
-            .ok()?
-            .into_iter()
+            .ok()?;
+        results
+            .iter()
             .find(|x| crate::likes::cross_norm(&x.name) == wanted)
-            .map(|x| x.id)
+            .map(|x| x.id.clone())
+            .or_else(|| results.into_iter().next().map(|x| x.id))
     }
 
     /// Keys of what was heard in the last three days.

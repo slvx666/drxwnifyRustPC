@@ -778,22 +778,37 @@ impl App {
     /// the catalog page (popular tracks from Spotify, Yandex or VK).
     pub async fn artist_page(&self, id: &str) -> ListSpec {
         let id2 = id.to_string();
-        let local = self
+        let local_id = self
             .store()
             .call(move |c| {
                 Ok(c.query_row(
-                    "SELECT EXISTS(SELECT 1 FROM song_artist_map WHERE artistId = ?1)",
+                    "SELECT id FROM artist WHERE id = ?1 OR name = ?1 COLLATE NOCASE LIMIT 1",
                     [&id2],
-                    |r| r.get::<_, bool>(0),
-                )?)
+                    |r| r.get::<_, String>(0),
+                )
+                .ok())
             })
             .await
-            .unwrap_or(false);
-        if local {
-            ListSpec::Artist { id: id.to_string() }
-        } else {
-            ListSpec::CatalogArtist { id: id.to_string() }
+            .unwrap_or(None);
+        if let Some(lid) = local_id {
+            return ListSpec::Artist { id: lid };
         }
+        // If id is not an ID format (Spotify 22 chars, VK vkar_, Yandex ym_, YouTube UC),
+        // try searching for the artist name on Spotify to get their real Spotify ID.
+        let is_known_id_fmt = (id.len() == 22 && !id.contains(' '))
+            || id.starts_with("ym_")
+            || id.starts_with("vkar_")
+            || id.starts_with("vk_")
+            || id.starts_with("UC");
+        if !is_known_id_fmt && !id.trim().is_empty() {
+            let sp = self.spotify_or_public();
+            if let Ok(artists) = sp.search_artists(id, 1).await {
+                if let Some(first) = artists.into_iter().next() {
+                    return ListSpec::CatalogArtist { id: first.id };
+                }
+            }
+        }
+        ListSpec::CatalogArtist { id: id.to_string() }
     }
 
     /// The page an album link opens: the saved album from the database, otherwise the catalog album.

@@ -279,7 +279,7 @@ const ARTISTS: &str = "(SELECT group_concat(a.name, ', ') FROM (SELECT ar.name F
 const FIRST_ARTIST: &str =
     "(SELECT m.artistId FROM song_artist_map m WHERE m.songId = s.id ORDER BY m.position LIMIT 1)";
 
-pub(crate) const SONG_COVER: &str = "coalesce(s.thumbnailUrl, (SELECT al.thumbnailUrl FROM album al WHERE al.id = s.albumId AND al.thumbnailUrl IS NOT NULL AND al.thumbnailUrl != '' LIMIT 1), (SELECT ar.thumbnailUrl FROM song_artist_map sam JOIN artist ar ON ar.id = sam.artistId WHERE sam.songId = s.id AND ar.thumbnailUrl IS NOT NULL AND ar.thumbnailUrl != '' LIMIT 1), (SELECT ar2.thumbnailUrl FROM song_artist_map sam JOIN artist ar ON ar.id = sam.artistId JOIN artist ar2 ON ar2.thumbnailUrl IS NOT NULL AND ar2.thumbnailUrl != '' AND (ar.name LIKE ar2.name || '%' OR ar2.name LIKE ar.name || '%') WHERE sam.songId = s.id LIMIT 1))";
+pub(crate) const SONG_COVER: &str = "coalesce(nullif(s.thumbnailUrl, ''), (SELECT nullif(al.thumbnailUrl, '') FROM album al WHERE al.id = s.albumId AND al.thumbnailUrl IS NOT NULL AND al.thumbnailUrl != '' LIMIT 1), (SELECT nullif(ar.thumbnailUrl, '') FROM song_artist_map sam JOIN artist ar ON ar.id = sam.artistId WHERE sam.songId = s.id AND ar.thumbnailUrl IS NOT NULL AND ar.thumbnailUrl != '' LIMIT 1), (SELECT nullif(ar2.thumbnailUrl, '') FROM song_artist_map sam JOIN artist ar ON ar.id = sam.artistId JOIN artist ar2 ON ar2.thumbnailUrl IS NOT NULL AND ar2.thumbnailUrl != '' AND (ar.name LIKE ar2.name || '%' OR ar2.name LIKE ar.name || '%') WHERE sam.songId = s.id LIMIT 1))";
 
 /// The liked songs, one row per song. The phone often keeps one song twice: as the YouTube video it played
 /// through and as its catalog row (`mfb:<Spotify id>`, older `spotify:<id>`). Rows are grouped by the Spotify track

@@ -214,13 +214,13 @@ impl App {
                 let mut st = c.prepare(
                     "SELECT ar.id, ar.name,
                             coalesce(
-                                ar.thumbnailUrl,
-                                (SELECT s2.thumbnailUrl FROM event e2
+                                nullif(ar.thumbnailUrl, ''),
+                                (SELECT nullif(s2.thumbnailUrl, '') FROM event e2
                                  JOIN song s2 ON s2.id = e2.songId
                                  JOIN song_artist_map sam ON sam.songId = s2.id
                                  WHERE sam.artistId = ar.id AND s2.thumbnailUrl IS NOT NULL AND s2.thumbnailUrl != ''
                                  ORDER BY e2.playTime DESC LIMIT 1),
-                                (SELECT s3.thumbnailUrl FROM song s3
+                                (SELECT nullif(s3.thumbnailUrl, '') FROM song s3
                                  JOIN song_artist_map sam2 ON sam2.songId = s3.id
                                  WHERE sam2.artistId = ar.id AND s3.thumbnailUrl IS NOT NULL AND s3.thumbnailUrl != ''
                                  LIMIT 1)
@@ -292,7 +292,7 @@ impl App {
                             let t: Option<String> = c
                                 .query_row("SELECT thumbnailUrl FROM artist WHERE id = ?1", [&id], |r| r.get(0))
                                 .unwrap_or(None);
-                            Ok(t.is_some())
+                            Ok(t.as_deref().is_some_and(|s| !s.trim().is_empty()))
                         }
                     })
                     .await
@@ -306,6 +306,10 @@ impl App {
                     } else if id.starts_with("UC") {
                         if let Ok(page) = this.yt().browse(&id, None).await {
                             found_thumb = page.thumbnail;
+                        }
+                    } else if id.len() == 22 && !id.contains(' ') {
+                        if let Ok(page) = this.spotify_or_public().artist(&id).await {
+                            found_thumb = page.images.first().map(|i| i.url.clone());
                         }
                     }
                     if found_thumb.is_none() && !name.is_empty() {
@@ -325,6 +329,7 @@ impl App {
                             }
                         }).await;
                         this.request_image(&thumb, 144);
+                        let _ = this.inner.events.send(crate::AppEvent::ImageReady { url: thumb, size: 144 });
                     }
                 }
             }

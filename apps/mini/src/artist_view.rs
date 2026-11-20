@@ -29,11 +29,13 @@ pub struct DiscographyAlbumData {
     pub subtitle: String,
     pub cover_url: Option<String>,
     pub _cover_images: Vec<Image>,
+    pub saved: bool,
     pub tracks: Vec<SongRow>,
 }
 
 #[derive(Default)]
 struct DiscographyState {
+    artist_id: String,
     artist_title: String,
     releases: Vec<drx_catalog::model::Release>,
     albums: Vec<DiscographyAlbumData>,
@@ -176,8 +178,15 @@ pub fn set_header(ui: &MainWindow, app: &App, h: &ListHeader) {
     ui.set_artist_related(ModelRc::from(sections.models[3].clone()));
     SECTIONS.with(|s| *s.borrow_mut() = sections);
 
+    let artist_id = crate::nav::current()
+        .and_then(|p| match p.spec {
+            drx_app::ListSpec::Artist { id } | drx_app::ListSpec::CatalogArtist { id } => Some(id),
+            _ => None,
+        })
+        .unwrap_or_default();
     DISCOGRAPHY.with(|d| {
         *d.borrow_mut() = DiscographyState {
+            artist_id,
             artist_title: h.title.clone(),
             releases: h.releases.clone(),
             albums: Vec::new(),
@@ -243,6 +252,7 @@ fn render_discography(ui: &MainWindow, app: &App) {
                 subtitle: alb.subtitle.clone().into(),
                 cover: cover.unwrap_or_default(),
                 has_cover,
+                saved: alb.saved,
                 tracks: ModelRc::new(VecModel::from(track_items)),
             });
         }
@@ -260,9 +270,9 @@ pub fn load_discography(ui: &MainWindow, app: &App) {
     }
     ui.set_artist_discography_loading(true);
 
-    let (artist_title, releases) = DISCOGRAPHY.with(|d| {
+    let (artist_id, artist_title, releases) = DISCOGRAPHY.with(|d| {
         let d = d.borrow();
-        (d.artist_title.clone(), d.releases.clone())
+        (d.artist_id.clone(), d.artist_title.clone(), d.releases.clone())
     });
 
     let (app2, ui_w) = (app.clone(), ui.as_weak());
@@ -273,19 +283,24 @@ pub fn load_discography(ui: &MainWindow, app: &App) {
         if !artist_title.is_empty() {
             if let Ok(rows) = app2.artist_library_albums(&artist_title).await {
                 let mut current_id = String::new();
-                for (alb_id, alb_title, yr, thumb, song) in rows {
+                for (alb_id, alb_title, yr, thumb, mut song) in rows {
                     if alb_id != current_id || loaded_albums.is_empty() {
                         current_id = alb_id.clone();
                         let yr_str = if yr > 0 { format!("{yr}") } else { String::new() };
                         let sub = if yr_str.is_empty() { "Альбом".into() } else { format!("Альбом • {yr_str}") };
+                        let is_saved = app2.is_album_saved(&alb_id).await.unwrap_or(false);
                         loaded_albums.push(DiscographyAlbumData {
                             id: alb_id,
                             title: alb_title,
                             subtitle: sub,
                             cover_url: thumb,
                             _cover_images: Vec::new(),
+                            saved: is_saved,
                             tracks: Vec::new(),
                         });
+                    }
+                    if song.artist_id.is_none() && !artist_id.is_empty() {
+                        song.artist_id = Some(artist_id.clone());
                     }
                     if let Some(last) = loaded_albums.last_mut() {
                         last.tracks.push(song);
@@ -323,8 +338,11 @@ pub fn load_discography(ui: &MainWindow, app: &App) {
                         "compilation" => "Сборник",
                         _ => "Альбом",
                     };
+                    let is_saved = app2.is_album_saved(&alb.id).await.unwrap_or(false);
+                    let a_id_default = if !artist_id.is_empty() { Some(artist_id.clone()) } else { None };
                     let tracks: Vec<SongRow> = alb.tracks.into_iter().map(|t| {
                         let artists = t.artist_names();
+                        let a_id = t.artists.into_iter().next().map(|a| a.id).or_else(|| a_id_default.clone());
                         SongRow {
                             id: t.id,
                             title: t.title,
@@ -333,7 +351,7 @@ pub fn load_discography(ui: &MainWindow, app: &App) {
                             duration_s: (t.duration_ms / 1000) as i64,
                             thumbnail: drx_catalog::model::best_image(&alb.images, 300).map(|i| i.url.clone()),
                             liked: false,
-                            artist_id: None,
+                            artist_id: a_id,
                             album_id: Some(alb.id.clone()),
                             plays: t.plays,
                         }
@@ -351,6 +369,7 @@ pub fn load_discography(ui: &MainWindow, app: &App) {
                         subtitle: sub,
                         cover_url,
                         _cover_images: alb.images,
+                        saved: is_saved,
                         tracks,
                     });
                 }
@@ -373,27 +392,103 @@ pub fn load_discography(ui: &MainWindow, app: &App) {
     });
 }
 
-/// Plays an entire album from the discography view.
+/// Plays an album and all subsequent albums from the discography view down to the end.
 pub fn play_album(app: &App, album_id: &str) {
     DISCOGRAPHY.with(|d| {
         let d = d.borrow();
-        if let Some(alb) = d.albums.iter().find(|a| a.id == album_id) {
-            app.play_rows(alb.tracks.clone(), 0);
+        if let Some(pos) = d.albums.iter().position(|a| a.id == album_id) {
+            let mut all_tracks = Vec::new();
+            for a in &d.albums[pos..] {
+                all_tracks.extend(a.tracks.iter().cloned());
+            }
+            if !all_tracks.is_empty() {
+                app.play_rows(all_tracks, 0);
+            }
         }
     });
 }
 
-/// Plays a track from the discography view (plays from that track within its album).
+/// Plays a track from the discography view (continues through current album and all subsequent albums).
 pub fn play_track(app: &App, track_id: &str) {
     DISCOGRAPHY.with(|d| {
         let d = d.borrow();
-        for alb in &d.albums {
-            if let Some(idx) = alb.tracks.iter().position(|t| t.id == track_id) {
-                app.play_rows(alb.tracks.clone(), idx);
+        for (alb_idx, alb) in d.albums.iter().enumerate() {
+            if let Some(t_idx) = alb.tracks.iter().position(|t| t.id == track_id) {
+                let mut all_tracks = Vec::new();
+                all_tracks.extend(alb.tracks[t_idx..].iter().cloned());
+                for next_alb in &d.albums[(alb_idx + 1)..] {
+                    all_tracks.extend(next_alb.tracks.iter().cloned());
+                }
+                if !all_tracks.is_empty() {
+                    app.play_rows(all_tracks, 0);
+                }
                 return;
             }
         }
     });
+}
+
+/// Toggles saving a discography album to library (+ / checkmark button).
+pub fn toggle_album_save(ui: &MainWindow, app: &App, album_id: &str) {
+    let album_id = album_id.to_string();
+    let disc = ui.get_artist_discography();
+    let count = disc.row_count();
+    let mut new_state = None;
+
+    DISCOGRAPHY.with(|d| {
+        let mut d = d.borrow_mut();
+        if let Some(alb) = d.albums.iter_mut().find(|a| a.id == album_id) {
+            alb.saved = !alb.saved;
+            new_state = Some(alb.saved);
+        }
+    });
+
+    for i in 0..count {
+        if let Some(mut row) = disc.row_data(i) {
+            if row.id == album_id {
+                let saved = new_state.unwrap_or(!row.saved);
+                row.saved = saved;
+                disc.set_row_data(i, row);
+                break;
+            }
+        }
+    }
+
+    if let Some(saved) = new_state {
+        let (app2, ui_w, alb_id) = (app.clone(), ui.as_weak(), album_id.clone());
+        app.runtime().spawn(async move {
+            let res = app2.set_album_saved(&alb_id, saved).await;
+            if res.is_ok() {
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_w.upgrade() {
+                        let msg = if saved {
+                            "Альбом добавлен в медиатеку"
+                        } else {
+                            "Альбом удалён из медиатеки"
+                        };
+                        ui.set_toast(msg.into());
+                    }
+                });
+            }
+        });
+    }
+}
+
+/// Shares a discography album (...) button: copies link to clipboard and notifies user.
+pub fn share_album(ui: &MainWindow, _app: &App, album_id: &str) {
+    let (title, artist) = DISCOGRAPHY.with(|d| {
+        let d = d.borrow();
+        let title = d
+            .albums
+            .iter()
+            .find(|a| a.id == album_id)
+            .map(|a| a.title.clone())
+            .unwrap_or_default();
+        let artist = d.artist_title.clone();
+        (title, artist)
+    });
+    let text = drx_app::share_text("album", album_id, &title, &artist);
+    crate::track_menu::copy_share(ui, &text);
 }
 
 /// Covers arrived: fill the cards still waiting, redraw the track rows that had none,

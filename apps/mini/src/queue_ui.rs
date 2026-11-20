@@ -29,8 +29,8 @@ fn row(app: &App, t: &drx_catalog::model::Track, i: usize) -> SongItem {
         index: i as i32 + 1,
         has_cover: cover.is_some(),
         cover: cover.unwrap_or_default(),
-        artist_id: "".into(),
-        album_id: "".into(),
+        artist_id: t.artists.first().map(|a| a.id.clone()).unwrap_or_default().into(),
+        album_id: t.album.as_ref().map(|a| a.id.clone()).unwrap_or_default().into(),
         plays: "".into(),
     }
 }

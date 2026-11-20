@@ -354,6 +354,22 @@ fn main() {
             artist_view::play_track(&app2, &track_id);
         });
     }
+    {
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_artist_toggle_album_save(move |album_id| {
+            if let Some(ui) = ui_w.upgrade() {
+                artist_view::toggle_album_save(&ui, &app2, &album_id);
+            }
+        });
+    }
+    {
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_artist_share_album(move |album_id| {
+            if let Some(ui) = ui_w.upgrade() {
+                artist_view::share_album(&ui, &app2, &album_id);
+            }
+        });
+    }
     // History and statistics.
     {
         let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());

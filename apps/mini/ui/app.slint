@@ -84,6 +84,7 @@ export struct DiscographyAlbum {
     subtitle: string,
     cover: image,
     has-cover: bool,
+    saved: bool,
     tracks: [SongItem],
 }
 
@@ -1030,7 +1031,11 @@ component SongRow inherits Rectangle {
             }
             HorizontalLayout {
                 alignment: start;
-                artist := Link { text: song.artists; enabled: song.artist-id != ""; clicked => { root.open-artist(song.artist-id); } }
+                artist := Link {
+                    text: song.artists;
+                    enabled: song.artists != "";
+                    clicked => { root.open-artist(song.artist-id != "" ? song.artist-id : song.artists); }
+                }
             }
         }
         if song.plays != "": Text { width: 110px; text: song.plays; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; vertical-alignment: center; horizontal-alignment: right; }
@@ -1851,6 +1856,8 @@ component ArtistView inherits Flickable {
     callback open-album(string);
     callback load-discography();
     callback play-discography-album(string);
+    callback toggle-discography-album-save(string);
+    callback share-discography-album(string);
     callback play-track(string);
     content-height: body.preferred-height + Grid.pad;
     body := VerticalLayout {
@@ -2045,6 +2052,42 @@ component ArtistView inherits Flickable {
                                 alb-ta := TouchArea {
                                     mouse-cursor: pointer;
                                     clicked => { root.play-discography-album(alb.id); }
+                                }
+                            }
+                            // Save / Add to Library button (circle with + or checkmark)
+                            Rectangle {
+                                width: 38px;
+                                height: 38px;
+                                border-radius: 19px;
+                                background: alb-add-ta.has-hover ? Theme.fill-hover : transparent;
+                                border-width: 1px;
+                                border-color: alb.saved ? Theme.accent : #ffffff50;
+                                Icon {
+                                    icon: alb.saved ? Icons.circle-check : Icons.plus;
+                                    size: 17px;
+                                    color: alb.saved ? Theme.accent : Theme.text;
+                                }
+                                alb-add-ta := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.toggle-discography-album-save(alb.id); }
+                                }
+                            }
+                            // Share / More button (circle with ...)
+                            Rectangle {
+                                width: 38px;
+                                height: 38px;
+                                border-radius: 19px;
+                                background: alb-dots-ta.has-hover ? Theme.fill-hover : transparent;
+                                border-width: 1px;
+                                border-color: #ffffff50;
+                                Icon {
+                                    icon: Icons.dots;
+                                    size: 17px;
+                                    color: Theme.text;
+                                }
+                                alb-dots-ta := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.share-discography-album(alb.id); }
                                 }
                             }
                         }
@@ -2443,6 +2486,8 @@ component MainArea inherits VerticalLayout {
     callback a-more();
     callback a-load-discography();
     callback a-play-album(string);
+    callback a-toggle-album-save(string);
+    callback a-share-album(string);
     callback a-play-track(string);
     in property <[SourceChip]> s-chips;
     in property <string> s-state;
@@ -2757,6 +2802,8 @@ component MainArea inherits VerticalLayout {
         open-album(id) => { root.open-album(id); }
         load-discography => { root.a-load-discography(); }
         play-discography-album(id) => { root.a-play-album(id); }
+        toggle-discography-album-save(id) => { root.a-toggle-album-save(id); }
+        share-discography-album(id) => { root.a-share-album(id); }
         play-track(id) => { root.a-play-track(id); }
     }
     if root.search: SearchPage {
@@ -2919,6 +2966,7 @@ component QueueRow inherits Rectangle {
     callback up();
     callback down();
     callback remove();
+    callback open-artist(string);
     height: 56px;
     border-radius: Grid.small-radius;
     // Hovering a button keeps the row «hot» (otherwise the buttons vanish and the click plays the row).
@@ -2935,7 +2983,16 @@ component QueueRow inherits Rectangle {
             spacing: 2px;
             horizontal-stretch: 1;
             Text { text: root.song.title; font-family: Theme.body-font; font-weight: 600; font-size: 14px; color: root.current ? Theme.accent : Theme.text; overflow: elide; }
-            Text { text: root.song.artists; font-family: Theme.body-font; font-size: 13px; color: Theme.dim; overflow: elide; }
+            HorizontalLayout {
+                alignment: start;
+                Link {
+                    text: root.song.artists;
+                    font-size: 13px;
+                    color: Theme.dim;
+                    enabled: root.song.artists != "";
+                    clicked => { root.open-artist(root.song.artist-id != "" ? root.song.artist-id : root.song.artists); }
+                }
+            }
         }
         Middle { qb-up := IconButton { size: 28px; icon-size: 15px; icon: Icons.chevron-up; visible: root.actions && root.hot && !root.first; enabled: self.visible; clicked => { root.up(); } } }
         Middle { qb-down := IconButton { size: 28px; icon-size: 15px; icon: Icons.chevron-down; visible: root.actions && root.hot && !root.last; enabled: self.visible; clicked => { root.down(); } } }
@@ -3063,7 +3120,13 @@ component RightPanel inherits VerticalLayout {
         vertical-stretch: 1;
         spacing: 6px;
         if root.queue-has-now: Caption { text: "СЕЙЧАС ИГРАЕТ"; }
-        if root.queue-has-now: QueueRow { song: root.queue-now; current: true; actions: false; play => { root.queue-play(-1); } }
+        if root.queue-has-now: QueueRow {
+            song: root.queue-now;
+            current: true;
+            actions: false;
+            play => { root.queue-play(-1); }
+            open-artist(id) => { root.open-artist(id); }
+        }
         Caption { text: root.queue-items.length == 0 ? "ДАЛЕЕ · ПУСТО" : "ДАЛЕЕ"; }
         ListView {
             vertical-stretch: 1;
@@ -3075,6 +3138,7 @@ component RightPanel inherits VerticalLayout {
                 up => { root.queue-move(i, i - 1); }
                 down => { root.queue-move(i, i + 1); }
                 remove => { root.queue-remove(i); }
+                open-artist(id) => { root.open-artist(id); }
             }
         }
         if root.queue-more > 0: Text { text: "и ещё " + root.queue-more; font-family: Theme.body-font; font-size: 13px; color: Theme.mute; }
@@ -3095,7 +3159,12 @@ component RightPanel inherits VerticalLayout {
             Text { text: title == "" ? "Ничего не играет" : title; font-family: Theme.heading-font; font-weight: 700; font-size: 20px; color: Theme.text; overflow: elide; }
             if artists != "": HorizontalLayout {
                 alignment: start;
-                Link { text: artists; font-size: 14px; enabled: root.artist-id != ""; clicked => { root.open-artist(root.artist-id); } }
+                Link {
+                    text: artists;
+                    font-size: 14px;
+                    enabled: root.artists != "";
+                    clicked => { root.open-artist(root.artist-id != "" ? root.artist-id : root.artists); }
+                }
             }
             if info != "": HorizontalLayout {
                 alignment: start;
@@ -3128,7 +3197,16 @@ component RightPanel inherits VerticalLayout {
             for q in root.upcoming: VerticalLayout {
                 spacing: 2px;
                 Text { text: q.title; font-family: Theme.body-font; font-size: 14px; color: Theme.text; overflow: elide; }
-                Text { text: q.artists; font-family: Theme.body-font; font-size: 12px; color: Theme.dim; overflow: elide; }
+                HorizontalLayout {
+                    alignment: start;
+                    Link {
+                        text: q.artists;
+                        font-size: 12px;
+                        color: Theme.dim;
+                        enabled: q.artists != "";
+                        clicked => { root.open-artist(q.artists); }
+                    }
+                }
             }
             if root.has-lyrics: HLine { }
             if root.has-lyrics: Caption { text: "ТЕКСТ"; }
@@ -3209,7 +3287,11 @@ component PlayerBar inherits HorizontalLayout {
             }
             if artists != "": HorizontalLayout {
                 alignment: start;
-                Link { text: artists; enabled: root.artist-id != ""; clicked => { root.open-artist(root.artist-id); } }
+                Link {
+                    text: artists;
+                    enabled: artists != "";
+                    clicked => { root.open-artist(root.artist-id != "" ? root.artist-id : root.artists); }
+                }
             }
         }
         if root.can-like: Middle {
@@ -4630,6 +4712,8 @@ export component MainWindow inherits Window {
     callback artist-more();
     callback artist-load-discography();
     callback artist-play-album(string);
+    callback artist-toggle-album-save(string);
+    callback artist-share-album(string);
     callback artist-play-track(string);
     in property <[SourceChip]> search-chips;
     in property <string> search-state;
@@ -5032,6 +5116,8 @@ export component MainWindow inherits Window {
                         a-more => { root.artist-more(); }
                         a-load-discography => { root.artist-load-discography(); }
                         a-play-album(id) => { root.artist-play-album(id); }
+                        a-toggle-album-save(id) => { root.artist-toggle-album-save(id); }
+                        a-share-album(id) => { root.artist-share-album(id); }
                         a-play-track(id) => { root.artist-play-track(id); }
                         s-chips: root.search-chips;
                         s-state: root.search-state;
