@@ -57,7 +57,9 @@ pub fn wire(ui: &MainWindow, app: &App) {
         while rx.changed().await.is_ok() {
             let app3 = app2.clone();
             let _ = ui_w.upgrade_in_event_loop(move |ui| {
-                crate::nav::reload_if(&ui, &app3, &ListSpec::Downloads)
+                crate::nav::reload_if(&ui, &app3, &ListSpec::Downloads);
+                crate::nav::refresh_download_badges(&ui, &app3);
+                crate::artist_view::refresh_discography_downloads(&ui, &app3);
             });
         }
     });

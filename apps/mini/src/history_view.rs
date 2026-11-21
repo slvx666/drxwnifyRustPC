@@ -168,6 +168,7 @@ impl Model for HistoryModel {
                         artists: s.artists.clone().into(),
                         duration: when(e.at_ms, group, self.offset_s).into(),
                         liked: s.liked,
+                        downloaded: self.app.is_downloaded(&s.id),
                         index: (*i + 1) as i32,
                         has_cover: cover.is_some(),
                         cover: cover.unwrap_or_default(),

@@ -435,6 +435,72 @@ fn update_arrows(ui: &MainWindow) {
     ui.set_can_forward(fwd);
 }
 
+/// Downloads all tracks of the currently open list.
+pub fn download_current_page(ui: &MainWindow, app: &App) {
+    let Some(h) = current_handle() else { return };
+    if ui.get_view_page_downloaded() {
+        ui.set_toast("Все треки этого списка уже скачаны".into());
+        return;
+    }
+    let (app2, ui_w) = (app.clone(), ui.as_weak());
+    app.runtime().spawn(async move {
+        let got = app2.download_list(h).await;
+        let _ = ui_w.upgrade_in_event_loop(move |ui| {
+            ui.set_toast(
+                match got {
+                    Ok(0) => "Все треки уже скачаны".to_string(),
+                    Ok(n) => format!("В загрузки: {}", tracks_word(n)),
+                    Err(e) => format!("Не получилось: {e}"),
+                }
+                .into(),
+            );
+        });
+    });
+}
+
+/// Refreshes downloaded badges and page downloaded status.
+pub fn refresh_download_badges(ui: &MainWindow, app: &App) {
+    if let Some(songs) = songs() {
+        songs.refresh();
+        let n = songs.len();
+        let dl_count = (0..n)
+            .filter(|&i| {
+                songs
+                    .row(i)
+                    .map(|r| app.is_downloaded(&r.id))
+                    .unwrap_or(false)
+            })
+            .count();
+        let is_all = n > 0 && dl_count == n;
+        ui.set_view_page_downloaded(is_all);
+        ui.set_view_page_download_count(dl_count as i32);
+        let is_downloads_page = ui.get_view_kind() == "ЗАГРУЗКИ";
+        if !ui.get_view_artist() {
+            let cur_sub = ui.get_view_subtitle().to_string();
+            let base = cur_sub
+                .split(" · Скачано")
+                .next()
+                .unwrap_or(&cur_sub)
+                .to_string();
+            let base = if base.starts_with("Скачанные треки · ") {
+                base.trim_start_matches("Скачанные треки · ").to_string()
+            } else {
+                base
+            };
+            let full_sub = if is_downloads_page {
+                format!("Скачанные треки · {base}")
+            } else if is_all {
+                format!("{base} · Скачано")
+            } else if dl_count > 0 {
+                format!("{base} · Скачано {dl_count} из {n}")
+            } else {
+                base
+            };
+            ui.set_view_subtitle(full_sub.into());
+        }
+    }
+}
+
 /// «1 трек», «3 трека», «12 треков».
 pub fn tracks_word(n: usize) -> String {
     let w = match (n % 10, n % 100) {
@@ -554,12 +620,40 @@ fn apply_header(ui: &MainWindow, app: &App, h: &ListHeader, n: usize, secs: i64)
                 h.subtitle.clone()
             }
         });
+    let is_downloads_page = ui.get_view_kind() == "ЗАГРУЗКИ";
+    let dl_count = SONGS.with(|s| {
+        s.borrow()
+            .as_ref()
+            .map(|songs| {
+                (0..n)
+                    .filter(|&i| {
+                        songs
+                            .row(i)
+                            .map(|r| app.is_downloaded(&r.id))
+                            .unwrap_or(false)
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    });
     // An artist page says listeners and genres, not a track count (Spotify, Android).
     if ui.get_view_artist() && !sub.is_empty() {
         ui.set_view_subtitle(sub.into());
     } else {
-        ui.set_view_subtitle(count_line(&sub, n, secs).into());
+        let base_sub = count_line(&sub, n, secs);
+        let full_sub = if is_downloads_page {
+            format!("Скачанные треки · {base_sub}")
+        } else if n > 0 && dl_count == n {
+            format!("{base_sub} · Скачано")
+        } else if dl_count > 0 {
+            format!("{base_sub} · Скачано {dl_count} из {n}")
+        } else {
+            base_sub
+        };
+        ui.set_view_subtitle(full_sub.into());
     }
+    ui.set_view_page_downloaded(n > 0 && dl_count == n);
+    ui.set_view_page_download_count(dl_count as i32);
     if h.image.is_some() {
         set_header_image(ui, app, h.image.clone());
     }

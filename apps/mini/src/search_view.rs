@@ -251,6 +251,7 @@ pub fn render(ui: &MainWindow, app: &App) {
                     artists: t.artist_names().into(),
                     duration: crate::fmt_time(t.duration_ms as f64 / 1000.0).into(),
                     liked: false,
+                    downloaded: app.is_downloaded(&t.id),
                     index: i as i32 + 1,
                     has_cover: c.is_some(),
                     cover: c.unwrap_or_default(),

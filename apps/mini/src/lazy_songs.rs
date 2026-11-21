@@ -55,6 +55,11 @@ impl LazySongs {
         self.load_async();
     }
 
+    /// Rows may have updated status (e.g. download finished).
+    pub fn refresh(&self) {
+        self.notify.reset();
+    }
+
     /// The rows changed: counted again in the background; the rows on screen stay until the new ones come.
     pub fn invalidate(&self) {
         self.load_async();
@@ -170,6 +175,7 @@ impl Model for LazySongs {
 
     fn row_data(&self, row: usize) -> Option<SongItem> {
         self.row(row).map(|r| {
+            let is_dl = self.app.is_downloaded(&r.id);
             let cover = r.thumbnail.as_deref().and_then(|u| {
                 crate::cover_r(
                     &self.app,
@@ -187,6 +193,7 @@ impl Model for LazySongs {
                 artists: r.artists.into(),
                 duration: crate::fmt_time(r.duration_s as f64).into(),
                 liked: r.liked,
+                downloaded: is_dl,
                 plays: r.plays.map(crate::group_digits).unwrap_or_default().into(),
                 artist_id: r.artist_id.unwrap_or_default().into(),
                 album_id: r.album_id.unwrap_or_default().into(),

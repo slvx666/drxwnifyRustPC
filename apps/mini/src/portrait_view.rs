@@ -329,6 +329,7 @@ pub fn render(
                     artists: artists.into(),
                     duration: "".into(),
                     liked: t.liked,
+                    downloaded: false,
                     index: i as i32 + 1,
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),

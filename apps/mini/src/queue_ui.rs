@@ -33,6 +33,7 @@ fn row(app: &App, t: &drx_catalog::model::Track, i: usize) -> SongItem {
         artists: t.artist_names().into(),
         duration: crate::fmt_time(t.duration_ms as f64 / 1000.0).into(),
         liked: false,
+        downloaded: app.is_downloaded(&t.id),
         index: i as i32 + 1,
         has_cover: cover.is_some(),
         cover: cover.unwrap_or_default(),

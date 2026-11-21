@@ -1185,6 +1185,7 @@ fn render(ui: &MainWindow, app: &App) {
                 }
                 .into(),
                 liked: false,
+                downloaded: false,
                 index: i as i32 + 1,
                 has_cover: cover.is_some(),
                 cover: cover.unwrap_or_default(),

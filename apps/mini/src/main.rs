@@ -383,6 +383,22 @@ fn main() {
             }
         });
     }
+    {
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_artist_download_discography_album(move |album_id| {
+            if let Some(ui) = ui_w.upgrade() {
+                artist_view::download_album(&ui, &app2, &album_id);
+            }
+        });
+    }
+    {
+        let (app2, ui_w) = (app.clone(), ui.as_weak());
+        ui.on_download_page(move || {
+            if let Some(ui) = ui_w.upgrade() {
+                nav::download_current_page(&ui, &app2);
+            }
+        });
+    }
     // History and statistics.
     {
         let (app2, ui_w, songs2) = (app.clone(), ui.as_weak(), songs.clone());
@@ -1129,6 +1145,7 @@ fn main() {
                 cover: Default::default(),
                 has_cover: false,
                 thumb: e.thumbnail.clone().unwrap_or_default().into(),
+                downloaded: false,
             },
             None => LibItem {
                 title: demo.clone().into(),
@@ -1138,6 +1155,7 @@ fn main() {
                 cover: Default::default(),
                 has_cover: false,
                 thumb: Default::default(),
+                downloaded: false,
             },
         };
         ui.set_selected_id(item.id.clone());

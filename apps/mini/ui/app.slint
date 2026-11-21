@@ -62,6 +62,7 @@ export struct SongItem {
     artists: string,
     duration: string,
     liked: bool,
+    downloaded: bool,
     index: int,
     cover: image,
     has-cover: bool,
@@ -85,6 +86,7 @@ export struct DiscographyAlbum {
     cover: image,
     has-cover: bool,
     saved: bool,
+    downloaded: bool,
     tracks: [SongItem],
 }
 
@@ -342,6 +344,7 @@ export struct LibItem {
     cover: image,
     has-cover: bool,
     thumb: string, // the cover's URL (the page heading shows it big)
+    downloaded: bool,
 }
 
 /// Opening animations (short, only while something opens: an idle window draws nothing). Rust may stretch them
@@ -958,17 +961,28 @@ component LibraryPanel inherits VerticalLayout {
                             size: 48px;
                             source: item.cover;
                             has-source: item.has-cover;
-                            placeholder: item.kind == "liked" ? Icons.heart-filled : (item.kind == "top" ? Icons.chart : Icons.music);
+                            placeholder: item.kind == "liked" ? Icons.heart-filled : (item.kind == "top" ? Icons.chart : (item.kind == "artist" ? Icons.user-circle : Icons.music));
                             placeholder-color: item.kind == "liked" || item.kind == "top" ? Theme.on-accent : Theme.mute;
                             placeholder-bg: item.kind == "liked" || item.kind == "top" ? Theme.accent : Theme.fill-hover;
-                            radius: Grid.row-cover-radius;
+                            radius: item.kind == "artist" ? 24px : Grid.row-cover-radius;
                         }
                     }
                     VerticalLayout {
                         alignment: center;
                         spacing: 2px;
                         Text { text: item.title; font-family: Theme.body-font; font-size: 16px; font-weight: 600; color: Theme.text; overflow: elide; }
-                        Text { text: item.subtitle; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; overflow: elide; }
+                        HorizontalLayout {
+                            spacing: 5px;
+                            alignment: start;
+                            if item.downloaded: Middle {
+                                Icon {
+                                    icon: Icons.download;
+                                    size: 12px;
+                                    color: Theme.accent;
+                                }
+                            }
+                            Text { text: item.subtitle; font-family: Theme.body-font; font-size: 14px; color: Theme.dim; overflow: elide; }
+                        }
                     }
                 }
                 ta := TouchArea { mouse-cursor: pointer; clicked => { root.open(item); } }
@@ -1031,6 +1045,20 @@ component SongRow inherits Rectangle {
             }
             HorizontalLayout {
                 alignment: start;
+                spacing: 5px;
+                if song.downloaded: Middle {
+                    Rectangle {
+                        width: 14px;
+                        height: 14px;
+                        border-radius: 7px;
+                        background: Theme.accent;
+                        Icon {
+                            icon: Icons.download;
+                            size: 9px;
+                            color: Theme.on-accent;
+                        }
+                    }
+                }
                 artist := Link {
                     text: song.artists;
                     enabled: song.artists != "";
@@ -1858,6 +1886,7 @@ component ArtistView inherits Flickable {
     callback play-discography-album(string);
     callback toggle-discography-album-save(string);
     callback share-discography-album(string);
+    callback download-discography-album(string);
     callback play-track(string);
     content-height: body.preferred-height + Grid.pad;
     body := VerticalLayout {
@@ -2088,6 +2117,24 @@ component ArtistView inherits Flickable {
                                 alb-share-ta := TouchArea {
                                     mouse-cursor: pointer;
                                     clicked => { root.share-discography-album(alb.id); }
+                                }
+                            }
+                            // Download button (circle with download icon)
+                            Rectangle {
+                                width: 38px;
+                                height: 38px;
+                                border-radius: 19px;
+                                background: alb-dl-ta.has-hover ? Theme.fill-hover : transparent;
+                                border-width: 1px;
+                                border-color: alb.downloaded ? Theme.accent : #ffffff50;
+                                Icon {
+                                    icon: alb.downloaded ? Icons.circle-check : Icons.download;
+                                    size: 17px;
+                                    color: alb.downloaded ? Theme.accent : Theme.text;
+                                }
+                                alb-dl-ta := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.download-discography-album(alb.id); }
                                 }
                             }
                         }
@@ -2488,6 +2535,7 @@ component MainArea inherits VerticalLayout {
     callback a-play-album(string);
     callback a-toggle-album-save(string);
     callback a-share-album(string);
+    callback a-download-album(string);
     callback a-play-track(string);
     in property <[SourceChip]> s-chips;
     in property <string> s-state;
@@ -2541,6 +2589,8 @@ component MainArea inherits VerticalLayout {
     in property <bool> can-save; // album / playlist / artist pages of a catalog
     in property <bool> can-share; // the page has a link to share (album, artist, a catalog's playlist)
     callback share-page();
+    in property <bool> page-downloaded;
+    callback download-page();
     callback export-list(string); // csv | m3u
     in property <bool> saved;
     callback toggle-save();
@@ -2649,6 +2699,24 @@ component MainArea inherits VerticalLayout {
                     background: sha.has-hover ? Theme.fill-hover : Theme.fill;
                     Icon { icon: Icons.link; size: 17px; color: Theme.text; }
                     sha := TouchArea { mouse-cursor: pointer; clicked => { root.share-page(); } }
+                }
+                // Download all tracks (Spotify style album/playlist download button)
+                if root.can-play: Rectangle {
+                    width: 38px;
+                    height: 38px;
+                    border-radius: min(Theme.chip-radius, 19px);
+                    background: dl-page-ta.has-hover ? Theme.fill-hover : Theme.fill;
+                    border-width: 1px;
+                    border-color: root.page-downloaded ? Theme.accent : #ffffff30;
+                    Icon {
+                        icon: root.page-downloaded ? Icons.circle-check : Icons.download;
+                        size: 17px;
+                        color: root.page-downloaded ? Theme.accent : Theme.text;
+                    }
+                    dl-page-ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.download-page(); }
+                    }
                 }
                 // Export the list (PlaylistExporter): CSV or M3U into «Загрузки».
                 if root.can-play: Rectangle {
@@ -2804,6 +2872,7 @@ component MainArea inherits VerticalLayout {
         play-discography-album(id) => { root.a-play-album(id); }
         toggle-discography-album-save(id) => { root.a-toggle-album-save(id); }
         share-discography-album(id) => { root.a-share-album(id); }
+        download-discography-album(id) => { root.a-download-album(id); }
         play-track(id) => { root.a-play-track(id); }
     }
     if root.search: SearchPage {
@@ -2942,6 +3011,7 @@ component MainArea inherits VerticalLayout {
         ListView {
             for song in root.songs: SongRow {
                 song: song;
+                hide-cover: root.kind-label == "АЛЬБОМ" || root.kind-label == "СИНГЛ" || root.kind-label == "EP" || root.kind-label == "СБОРНИК";
                 current: root.now-id != "" && song.id == root.now-id;
                 play => { root.play(song.index - 1); }
                 open-artist(id) => { root.open-artist(id); }
@@ -2985,6 +3055,20 @@ component QueueRow inherits Rectangle {
             Text { text: root.song.title; font-family: Theme.body-font; font-weight: 600; font-size: 14px; color: root.current ? Theme.accent : Theme.text; overflow: elide; }
             HorizontalLayout {
                 alignment: start;
+                spacing: 5px;
+                if root.song.downloaded: Middle {
+                    Rectangle {
+                        width: 14px;
+                        height: 14px;
+                        border-radius: 7px;
+                        background: Theme.accent;
+                        Icon {
+                            icon: Icons.download;
+                            size: 9px;
+                            color: Theme.on-accent;
+                        }
+                    }
+                }
                 Link {
                     text: root.song.artists;
                     font-size: 13px;
@@ -4927,6 +5011,10 @@ export component MainWindow inherits Window {
     // The open page's «in the library» / «follow» heart.
     in property <bool> view-can-save;
     in property <bool> view-can-share;
+    in property <bool> view-page-downloaded;
+    in property <int> view-page-download-count;
+    callback download-page();
+    callback artist-download-discography-album(string);
     callback share-view();
     in property <string> downloads-label; // «2 · 45%» while downloading
     callback open-downloads();
@@ -5077,6 +5165,8 @@ export component MainWindow inherits Window {
                         toggle-save => { root.toggle-view-save(); }
                         can-share: root.view-can-share;
                         share-page => { root.share-view(); }
+                        page-downloaded: root.view-page-downloaded;
+                        download-page => { root.download-page(); }
                         export-list(f) => { root.export-view(f); }
                         can-edit: root.view-can-edit;
                         rename-list => { root.rename-view(); }
@@ -5118,6 +5208,7 @@ export component MainWindow inherits Window {
                         a-play-album(id) => { root.artist-play-album(id); }
                         a-toggle-album-save(id) => { root.artist-toggle-album-save(id); }
                         a-share-album(id) => { root.artist-share-album(id); }
+                        a-download-album(id) => { root.artist-download-discography-album(id); }
                         a-play-track(id) => { root.artist-play-track(id); }
                         s-chips: root.search-chips;
                         s-state: root.search-state;

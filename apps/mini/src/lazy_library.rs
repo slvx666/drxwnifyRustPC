@@ -62,17 +62,21 @@ impl Model for LazyLibrary {
 
     fn row_data(&self, row: usize) -> Option<LibItem> {
         let e = self.entries.borrow().get(row).cloned()?;
-        let cover = e.thumbnail.as_deref().and_then(|u| {
-            crate::cover_r(
-                &self.app,
-                u,
-                crate::ROW_COVER,
-                crate::theme_r(crate::ROW_COVER_R, crate::ROW_COVER, 44.0),
-            )
-        });
+        let is_artist = e.kind == LibraryKind::Artist;
+        let radius = if is_artist {
+            crate::ROW_COVER as f32 / 2.0
+        } else {
+            crate::theme_r(crate::ROW_COVER_R, crate::ROW_COVER, 44.0)
+        };
+        let cover = e
+            .thumbnail
+            .as_deref()
+            .and_then(|u| crate::cover_r(&self.app, u, crate::ROW_COVER, radius));
         if cover.is_none() && e.thumbnail.is_some() {
             self.missing.borrow_mut().insert(row);
         }
+        let downloaded =
+            e.id == "downloads" || (e.kind == LibraryKind::Album && self.app.is_downloaded(&e.id));
         Some(LibItem {
             title: e.title.into(),
             subtitle: e.subtitle.into(),
@@ -81,6 +85,7 @@ impl Model for LazyLibrary {
             id: e.id.into(),
             has_cover: cover.is_some(),
             cover: cover.unwrap_or_default(),
+            downloaded,
         })
     }
 

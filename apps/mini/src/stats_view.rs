@@ -239,6 +239,7 @@ fn render(ui: &MainWindow, app: &App) {
                     // Compact: how many times in the duration column, the time in the wider one.
                     duration: format!("×{}", s.plays).into(),
                     liked: r.liked,
+                    downloaded: app.is_downloaded(&r.id),
                     index: i as i32 + 1,
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),

@@ -239,6 +239,7 @@ fn render_discography(ui: &MainWindow, app: &App) {
                     artists: t.artists.clone().into(),
                     duration: crate::fmt_time(t.duration_s as f64).into(),
                     liked: t.liked,
+                    downloaded: app.is_downloaded(&t.id),
                     index: (ti + 1) as i32,
                     cover: slint::Image::default(),
                     has_cover: false,
@@ -247,6 +248,8 @@ fn render_discography(ui: &MainWindow, app: &App) {
                     plays: t.plays.map(crate::group_digits).unwrap_or_default().into(),
                 })
                 .collect();
+            let all_downloaded =
+                !alb.tracks.is_empty() && alb.tracks.iter().all(|t| app.is_downloaded(&t.id));
             disc_albums.push(DiscographyAlbum {
                 id: alb.id.clone().into(),
                 title: alb.title.clone().into(),
@@ -254,6 +257,7 @@ fn render_discography(ui: &MainWindow, app: &App) {
                 cover: cover.unwrap_or_default(),
                 has_cover,
                 saved: alb.saved,
+                downloaded: all_downloaded,
                 tracks: ModelRc::new(VecModel::from(track_items)),
             });
         }
@@ -521,6 +525,72 @@ pub fn share_album(ui: &MainWindow, _app: &App, album_id: &str) {
     });
     let text = drx_app::share_text("album", album_id, &title, &artist);
     crate::track_menu::copy_share(ui, &text);
+}
+
+/// Downloads all tracks of a discography album.
+pub fn download_album(ui: &MainWindow, app: &App, album_id: &str) {
+    let tracks = DISCOGRAPHY.with(|d| {
+        let d = d.borrow();
+        d.albums
+            .iter()
+            .find(|a| a.id == album_id)
+            .map(|a| a.tracks.clone())
+    });
+    let Some(tracks) = tracks else { return };
+    let catalog_tracks: Vec<drx_catalog::model::Track> = tracks
+        .into_iter()
+        .map(|t| drx_catalog::model::Track {
+            id: t.id,
+            title: t.title,
+            artists: vec![drx_catalog::model::ArtistRef {
+                id: t.artist_id.unwrap_or_default(),
+                name: t.artists,
+            }],
+            album: t.album_id.map(|id| drx_catalog::model::AlbumRef {
+                id,
+                name: t.album.unwrap_or_default(),
+                images: Vec::new(),
+            }),
+            duration_ms: (t.duration_s.max(0) * 1000) as u64,
+            isrc: None,
+            explicit: false,
+            plays: t.plays,
+        })
+        .collect();
+    let n = app.download_tracks(catalog_tracks);
+    ui.set_toast(if n == 0 {
+        "Все треки этого альбома уже скачаны".into()
+    } else {
+        format!("В загрузки: {}", crate::nav::tracks_word(n)).into()
+    });
+}
+
+/// Refreshes downloaded flags for discography albums and their tracks when downloads update.
+pub fn refresh_discography_downloads(ui: &MainWindow, app: &App) {
+    let disc = ui.get_artist_discography();
+    let count = disc.row_count();
+    for i in 0..count {
+        if let Some(mut alb) = disc.row_data(i) {
+            let tracks_model = alb.tracks.clone();
+            let mut all_dl = tracks_model.row_count() > 0;
+            for ti in 0..tracks_model.row_count() {
+                if let Some(mut t) = tracks_model.row_data(ti) {
+                    let is_dl = app.is_downloaded(&t.id);
+                    if !is_dl {
+                        all_dl = false;
+                    }
+                    if t.downloaded != is_dl {
+                        t.downloaded = is_dl;
+                        tracks_model.set_row_data(ti, t);
+                    }
+                }
+            }
+            if alb.downloaded != all_dl {
+                alb.downloaded = all_dl;
+                disc.set_row_data(i, alb);
+            }
+        }
+    }
 }
 
 /// Covers arrived: fill the cards still waiting, redraw the track rows that had none,
