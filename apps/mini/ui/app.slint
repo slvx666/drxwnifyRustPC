@@ -2088,9 +2088,7 @@ component ArtistView inherits Flickable {
                                 width: 38px;
                                 height: 38px;
                                 border-radius: 19px;
-                                background: alb-add-ta.has-hover ? Theme.fill-hover : transparent;
-                                border-width: 1px;
-                                border-color: alb.saved ? Theme.accent : #ffffff50;
+                                background: alb-add-ta.has-hover ? Theme.fill-hover : Theme.fill;
                                 Icon {
                                     icon: alb.saved ? Icons.circle-check : Icons.plus;
                                     size: 17px;
@@ -2106,9 +2104,7 @@ component ArtistView inherits Flickable {
                                 width: 38px;
                                 height: 38px;
                                 border-radius: 19px;
-                                background: alb-share-ta.has-hover ? Theme.fill-hover : transparent;
-                                border-width: 1px;
-                                border-color: #ffffff50;
+                                background: alb-share-ta.has-hover ? Theme.fill-hover : Theme.fill;
                                 Icon {
                                     icon: Icons.link;
                                     size: 17px;
@@ -2124,9 +2120,7 @@ component ArtistView inherits Flickable {
                                 width: 38px;
                                 height: 38px;
                                 border-radius: 19px;
-                                background: alb-dl-ta.has-hover ? Theme.fill-hover : transparent;
-                                border-width: 1px;
-                                border-color: alb.downloaded ? Theme.accent : #ffffff50;
+                                background: alb-dl-ta.has-hover ? Theme.fill-hover : Theme.fill;
                                 Icon {
                                     icon: alb.downloaded ? Icons.circle-check : Icons.download;
                                     size: 17px;
@@ -2706,8 +2700,6 @@ component MainArea inherits VerticalLayout {
                     height: 38px;
                     border-radius: min(Theme.chip-radius, 19px);
                     background: dl-page-ta.has-hover ? Theme.fill-hover : Theme.fill;
-                    border-width: 1px;
-                    border-color: root.page-downloaded ? Theme.accent : #ffffff30;
                     Icon {
                         icon: root.page-downloaded ? Icons.circle-check : Icons.download;
                         size: 17px;
