@@ -2072,20 +2072,20 @@ component ArtistView inherits Flickable {
                                     clicked => { root.toggle-discography-album-save(alb.id); }
                                 }
                             }
-                            // Share / More button (circle with ...)
+                            // Share button (circle with link icon)
                             Rectangle {
                                 width: 38px;
                                 height: 38px;
                                 border-radius: 19px;
-                                background: alb-dots-ta.has-hover ? Theme.fill-hover : transparent;
+                                background: alb-share-ta.has-hover ? Theme.fill-hover : transparent;
                                 border-width: 1px;
                                 border-color: #ffffff50;
                                 Icon {
-                                    icon: Icons.dots;
+                                    icon: Icons.link;
                                     size: 17px;
                                     color: Theme.text;
                                 }
-                                alb-dots-ta := TouchArea {
+                                alb-share-ta := TouchArea {
                                     mouse-cursor: pointer;
                                     clicked => { root.share-discography-album(alb.id); }
                                 }
